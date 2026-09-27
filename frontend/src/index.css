@@ -1,0 +1,338 @@
+:root {
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: #1f2328;
+  background-color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.home {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.home .version {
+  color: #59636e;
+}
+
+/* Parent Area: plain, readable styling only (design tokens arrive in Epic 2). */
+.parent {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.parent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.parent-form fieldset {
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.parent-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.parent-form input[type='text'],
+.parent-form input[type='password'],
+.parent-form select {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d1d9e0;
+  border-radius: 4px;
+}
+
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.parent-form .avatar-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.form-error {
+  color: #b42318;
+  margin: 0;
+}
+
+.parent button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  align-self: flex-start;
+}
+
+.home .parent-link {
+  font-size: 0.875rem;
+}
+
+/* Content Review (Duyệt nội dung) */
+.parent.parent-wide {
+  max-width: 72rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #d1d9e0;
+  margin-bottom: 1rem;
+}
+
+.parent .tabs button {
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: none;
+  border-radius: 6px 6px 0 0;
+}
+
+.parent .tabs button[aria-selected='true'] {
+  border-color: #d1d9e0;
+  background: #f6f8fa;
+  font-weight: 600;
+}
+
+.problem-list,
+.concept-list,
+.override-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.problem-list li,
+.concept-list li,
+.override-list li {
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.problem-id {
+  color: #59636e;
+  font-size: 0.8125rem;
+  font-weight: normal;
+}
+
+.problem-instruction {
+  color: #59636e;
+}
+
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0 0.4rem;
+  border: 1px solid #d1d9e0;
+  border-radius: 999px;
+  background: #f6f8fa;
+  margin-left: 0.25rem;
+}
+
+.badge-review {
+  border-color: #d4a72c;
+}
+
+.badge-conflict,
+.badge-report {
+  border-color: #b42318;
+  color: #b42318;
+}
+
+.actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: 0.5rem;
+}
+
+.inline-field,
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.review-editor {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 900px) {
+  .review-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.review-source img {
+  max-width: 100%;
+  border: 1px solid #d1d9e0;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.review-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.review-form label.inline-field {
+  flex-direction: row;
+}
+
+.review-form fieldset {
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.review-form input[type='text'],
+.review-form textarea,
+.parent select,
+.inline-form input[type='text'] {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #d1d9e0;
+  border-radius: 4px;
+}
+
+.review-form textarea.mono {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8125rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.answer-keyed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.filters { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.5rem; }
+
+.review-form fieldset.plain {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.hint {
+  color: #59636e;
+  font-size: 0.875rem;
+}
+
+/* Kiểm tra ngẫu nhiên and the go/no-go card. */
+.spot-progress strong {
+  font-size: 1.25rem;
+}
+
+.spot-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.spot-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.spot-note textarea {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #d1d9e0;
+  border-radius: 4px;
+}
+
+.spot-answer h3 {
+  font-size: 1rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.spot-answer p {
+  margin: 0.25rem 0;
+}
+
+.gate-card {
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  background: #f6f8fa;
+}
+
+.gate-checks {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+.gate-checks li {
+  padding: 0.25rem 0;
+}
+
+.check-pass .check-mark {
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+.check-fail .check-mark {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.parent .link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #0969da;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}

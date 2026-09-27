@@ -1,0 +1,147 @@
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { spotCheck, spotItem } from '../../test/gateFixtures'
+import { mockApi, renderAt } from '../../test/render'
+import { PROBLEM_ID, detail, doc } from '../../test/reviewFixtures'
+import { answerLines } from './answerText'
+import SpotCheckTab from './SpotCheckTab'
+
+const REVIEW = '/api/v1/parent/review'
+const SECOND = 'toan1-2020-q1.tuan-5.tiet-2.bai-2'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+function twoItems(first: Partial<Parameters<typeof spotItem>[0]> = {}) {
+  return [
+    spotItem(first),
+    spotItem({ problem_id: SECOND, position: 2, display_label: 'Bài 2', content_hash: 'h9' }),
+  ]
+}
+
+describe('SpotCheckTab', () => {
+  it('offers to draw the first sample', async () => {
+    mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([], { sample_id: null }) },
+      [`POST ${REVIEW}/spot-check/draw`]: { status: 200, body: spotCheck(twoItems()) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: detail() },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    expect(await screen.findByText(/Chưa có mẫu kiểm tra/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rút mẫu mới' }))
+    expect(await screen.findByLabelText('Tiến độ')).toHaveTextContent('0/2')
+  })
+
+  it('shows one Problem with its answer, hint and solution, and records Đúng', async () => {
+    const judged = spotCheck(
+      twoItems({ verdict: 'correct', verdict_hash: 'h1', checked_at: '2026-09-27T00:00:00Z' }),
+    )
+    const fetchMock = mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck(twoItems()) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: detail() },
+      [`GET ${REVIEW}/problems/${SECOND}`]: {
+        status: 200,
+        body: detail({ content_hash: 'h9' }),
+      },
+      [`PUT ${REVIEW}/spot-check/s1/items/${PROBLEM_ID}`]: { status: 200, body: judged },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    expect(await screen.findByLabelText('Tiến độ')).toHaveTextContent('0/2')
+    expect(await screen.findByText('3 + 2 = 5', { selector: '.spot-answer-lines li' })).toBeInTheDocument()
+    expect(screen.getByText(/Con đếm thêm 2 bắt đầu từ 3 nhé/)).toBeInTheDocument()
+    expect(screen.getByText('Bắt đầu từ 3, đếm thêm 2: bốn, năm.')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Ảnh cắt của bài' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sửa' })).toHaveAttribute(
+      'href',
+      `/parent/review/problems/${PROBLEM_ID}?from=spot-check`,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Đúng' }))
+    expect(await screen.findByLabelText('Tiến độ')).toHaveTextContent('1/2')
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({
+      verdict: 'correct',
+      note: '',
+      content_hash: 'h1',
+    })
+    // Moves on to the next Problem that needs a verdict.
+    expect(await screen.findByRole('article', { name: 'Bài 2 trong mẫu' })).toBeInTheDocument()
+  })
+
+  it('records Sai with a note', async () => {
+    const fetchMock = mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: detail() },
+      [`PUT ${REVIEW}/spot-check/s1/items/${PROBLEM_ID}`]: {
+        status: 200,
+        body: spotCheck([spotItem({ verdict: 'wrong', verdict_hash: 'h1', note: 'Đáp án là 6' })]),
+      },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    fireEvent.change(await screen.findByLabelText(/Ghi chú/), { target: { value: 'Đáp án là 6' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sai' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Sai' }))
+    expect(await screen.findByText('Sai', { selector: '.badge' })).toBeInTheDocument()
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({ verdict: 'wrong', note: 'Đáp án là 6' })
+  })
+
+  it('labels a stale verdict "cần kiểm tra lại" and does not count it', async () => {
+    const items = [spotItem({ verdict: 'correct', verdict_hash: 'h0', stale: true })]
+    mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck(items) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: detail() },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    expect(await screen.findByLabelText('Tiến độ')).toHaveTextContent('0/1')
+    expect(screen.getAllByText(/cần kiểm tra lại/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('cần kiểm tra lại', { selector: '.badge' })).toHaveClass('badge-conflict')
+  })
+
+  it('asks before drawing a new sample over an existing one', async () => {
+    const fetchMock = mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: detail() },
+    })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderAt('/parent/review', <SpotCheckTab />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Rút mẫu mới' }))
+    expect(confirm).toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    confirm.mockRestore()
+  })
+})
+
+describe('answerLines', () => {
+  it('renders each Problem Type readably', () => {
+    expect(answerLines(doc('5').parts[0])).toEqual(['3 + 2 = 5'])
+    expect(
+      answerLines({
+        part_key: 'a',
+        type: 'compare',
+        prompt: '',
+        image_keys: [],
+        rows: [{ slot_key: 's1', left: '3', right: '5' }],
+        answer: [{ key: 's1', value: '<' }],
+        hint: 'h',
+        solution: { steps: ['x'], final: 'y' },
+      }),
+    ).toEqual(['3 < 5'])
+    expect(
+      answerLines({
+        part_key: 'a',
+        type: 'order',
+        prompt: '',
+        image_keys: [],
+        direction: 'asc',
+        items: [
+          { item_key: 'i1', text: '7' },
+          { item_key: 'i2', text: '2' },
+        ],
+        answer: { order: ['i2', 'i1'] },
+        hint: 'h',
+        solution: { steps: ['x'], final: 'y' },
+      }),
+    ).toEqual(['2 → 7'])
+  })
+})

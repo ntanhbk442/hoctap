@@ -1,0 +1,99 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-10.tiet-4.bai-6",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-10",
+  "lesson_key": "tiet-4",
+  "problem_label": "bai-6",
+  "display_label": "Bài 6",
+  "instruction": "Tìm 3 điểm khác nhau giữa hai bức tranh.",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 30,
+      "bbox": [
+        0.05,
+        0.25,
+        0.95,
+        0.75
+      ]
+    }
+  ],
+  "images": [
+    {
+      "image_key": "tranh-trai",
+      "page": 30,
+      "bbox": [
+        0.05,
+        0.3,
+        0.48,
+        0.7
+      ]
+    },
+    {
+      "image_key": "tranh-phai",
+      "page": 30,
+      "bbox": [
+        0.52,
+        0.3,
+        0.95,
+        0.7
+      ]
+    }
+  ],
+  "concept_ids": [],
+  "concept_proposals": [
+    "Quan sát, so sánh hình ảnh"
+  ],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "spot_difference",
+      "prompt": "",
+      "image_keys": [],
+      "image_left": "tranh-trai",
+      "image_right": "tranh-phai",
+      "count": 3,
+      "answer": {
+        "regions": [
+          {
+            "region_key": "d1",
+            "bbox": [
+              0.1,
+              0.1,
+              0.3,
+              0.3
+            ]
+          },
+          {
+            "region_key": "d2",
+            "bbox": [
+              0.5,
+              0.4,
+              0.7,
+              0.6
+            ]
+          },
+          {
+            "region_key": "d3",
+            "bbox": [
+              0.2,
+              0.7,
+              0.4,
+              0.9
+            ]
+          }
+        ]
+      },
+      "hint": "Con so sánh từng góc của hai bức tranh.",
+      "solution": {
+        "steps": [
+          "Góc trên bên trái: mặt trời.",
+          "Giữa tranh: bông hoa.",
+          "Góc dưới: con mèo."
+        ],
+        "final": "Có 3 điểm khác nhau."
+      }
+    }
+  ]
+}

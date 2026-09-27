@@ -1,0 +1,53 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-11.tiet-3.bai-7",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-11",
+  "lesson_key": "tiet-3",
+  "problem_label": "bai-7",
+  "display_label": "Bài 7",
+  "instruction": "Vẽ đường đi cho chú thỏ về nhà.",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 34,
+      "bbox": [
+        0.05,
+        0.15,
+        0.95,
+        0.65
+      ]
+    }
+  ],
+  "images": [
+    {
+      "image_key": "me-cung",
+      "page": 34,
+      "bbox": [
+        0.1,
+        0.2,
+        0.9,
+        0.6
+      ]
+    }
+  ],
+  "concept_ids": [],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "fallback",
+      "prompt": "",
+      "image_keys": [],
+      "image_key": "me-cung",
+      "answer": null,
+      "hint": "Con thử đi từ nhà ngược lại chỗ chú thỏ.",
+      "solution": {
+        "steps": [
+          "Đi theo lối không bị chặn."
+        ],
+        "final": "Chú thỏ đi theo lối bên phải về nhà."
+      }
+    }
+  ]
+}

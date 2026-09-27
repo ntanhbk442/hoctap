@@ -1,0 +1,75 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-1.tiet-2.bai-1",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-1",
+  "lesson_key": "tiet-2",
+  "problem_label": "bai-1",
+  "display_label": "Bài 1",
+  "instruction": "Đếm rồi viết số:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 5,
+      "bbox": [
+        0.05,
+        0.15,
+        0.95,
+        0.6
+      ]
+    }
+  ],
+  "images": [
+    {
+      "image_key": "con-vat",
+      "page": 5,
+      "bbox": [
+        0.1,
+        0.2,
+        0.9,
+        0.5
+      ]
+    }
+  ],
+  "concept_ids": [
+    "g1.dem-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "count_image",
+      "prompt": "",
+      "image_keys": [],
+      "image_key": "con-vat",
+      "slots": [
+        {
+          "slot_key": "ga",
+          "label": "Con gà"
+        },
+        {
+          "slot_key": "vit",
+          "label": "Con vịt"
+        }
+      ],
+      "answer": [
+        {
+          "key": "ga",
+          "value": "7"
+        },
+        {
+          "key": "vit",
+          "value": "3"
+        }
+      ],
+      "hint": "Con chỉ tay vào từng con vật khi đếm.",
+      "solution": {
+        "steps": [
+          "Đếm con gà: có 7 con.",
+          "Đếm con vịt: có 3 con."
+        ],
+        "final": "7 con gà, 3 con vịt."
+      }
+    }
+  ]
+}

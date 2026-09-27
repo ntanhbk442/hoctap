@@ -1,0 +1,65 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-2.tiet-3.bai-2",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-2",
+  "lesson_key": "tiet-3",
+  "problem_label": "bai-2",
+  "display_label": "Bài 2",
+  "instruction": "Vẽ thêm chấm tròn vào mỗi ô cho đủ số ghi dưới ô:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.dem-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "dot_draw",
+      "prompt": "",
+      "image_keys": [],
+      "boxes": [
+        {
+          "slot_key": "b1",
+          "label": "4",
+          "given": 1
+        },
+        {
+          "slot_key": "b2",
+          "label": "6",
+          "given": 2
+        }
+      ],
+      "answer": [
+        {
+          "key": "b1",
+          "value": "4"
+        },
+        {
+          "key": "b2",
+          "value": "6"
+        }
+      ],
+      "hint": "Đếm số chấm đã có trong ô, rồi đếm tiếp cho đến số ghi dưới ô.",
+      "solution": {
+        "steps": [
+          "Ô thứ nhất đã có 1 chấm, cần vẽ thêm 3 chấm để được 4 chấm.",
+          "Ô thứ hai đã có 2 chấm, cần vẽ thêm 4 chấm để được 6 chấm."
+        ],
+        "final": "Vẽ thêm 3 chấm và 4 chấm."
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-8.tiet-3.bai-3",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-8",
+  "lesson_key": "tiet-3",
+  "problem_label": "bai-3",
+  "display_label": "Bài 3",
+  "instruction": "Viết số thích hợp vào ô trống:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.dem-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "grid_fill",
+      "prompt": "",
+      "image_keys": [],
+      "rows": 2,
+      "cols": 4,
+      "cells": [
+        [
+          {
+            "given": "1"
+          },
+          {},
+          {
+            "given": "3"
+          },
+          {}
+        ],
+        [
+          {
+            "given": "5"
+          },
+          {
+            "given": "6"
+          },
+          {},
+          {
+            "given": "8"
+          }
+        ]
+      ],
+      "answer": [
+        {
+          "key": "r0c1",
+          "value": "2"
+        },
+        {
+          "key": "r0c3",
+          "value": "4"
+        },
+        {
+          "key": "r1c2",
+          "value": "7"
+        }
+      ],
+      "hint": "Các số được viết theo thứ tự đếm.",
+      "solution": {
+        "steps": [
+          "Đếm từ 1 đến 8: 1, 2, 3, 4, 5, 6, 7, 8."
+        ],
+        "final": "Các số cần điền là 2, 4, 7."
+      }
+    }
+  ]
+}

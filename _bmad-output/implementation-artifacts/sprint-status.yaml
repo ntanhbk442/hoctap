@@ -1,0 +1,93 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 09-26-2026 20:00
+last_updated: 09-27-2026 10:10
+project: hoctap
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: in-progress
+  1-1-project-scaffold-served-from-one-origin: review
+  1-2-first-run-setup-with-pin-and-first-child-profile: review
+  1-3-book-catalogue: review
+  1-4-problemdoc-contract-and-the-grade-1-problem-types: review
+  1-5-render-and-extract-pilot-pages-with-claude: review
+  1-6-verify-answers-and-flag-disagreements: review
+  1-7-crop-concept-tagging-and-publish: review
+  1-8-content-review-with-overrides: review
+  1-9-spot-check-pilot-report-and-go-no-go-gate: in-progress
+  1-10-extraction-control-from-the-parent-area: backlog
+  1-11-https-on-the-lan-and-windows-runtime: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-design-tokens-nunito-and-core-components: backlog
+  2-2-speech-normaliser-tts-adapter-and-speak-missing: backlog
+  2-3-child-home-and-library: backlog
+  2-4-sessions-resolver-and-the-event-api: backlog
+  2-5-grading-and-staged-help: backlog
+  2-6-problem-player-with-the-basic-grade-1-widgets: backlog
+  2-7-the-other-grade-1-widgets: backlog
+  2-8-fallback-self-check: backlog
+  2-9-audio-player-and-auto-play: backlog
+  2-10-session-summary-and-luyện-lại-bài-sai: backlog
+  2-11-pwa-offline-shell-and-event-outbox: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-stars-and-the-streak: backlog
+  3-2-badges: backlog
+  3-3-retry-queue: backlog
+  3-4-quiz-mode-for-phiếu-tự-luyện-cuối-tuần: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-profiles-and-settings: backlog
+  4-2-progress-dashboard: backlog
+  4-3-assignments: backlog
+  4-4-error-reports-from-the-parent-and-the-child: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-concept-guides-generated-and-editable: backlog
+  5-2-concept-guide-screen-and-practice: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-expression_input-and-the-grade-3-5-grading-rules: backlog
+  6-2-full-corpus-run: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-printable-worksheets: backlog
+  7-2-backup-and-restore: backlog
+  epic-7-retrospective: optional

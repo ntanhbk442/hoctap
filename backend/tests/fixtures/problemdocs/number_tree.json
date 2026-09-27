@@ -1,0 +1,98 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-7.tiet-1.bai-2",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-7",
+  "lesson_key": "tiet-1",
+  "problem_label": "bai-2",
+  "display_label": "Bài 2",
+  "instruction": "Số?",
+  "layout": "together",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.tach-gop-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "a",
+      "type": "number_tree",
+      "prompt": "",
+      "image_keys": [],
+      "nodes": [
+        {
+          "node_key": "top",
+          "given": "5"
+        },
+        {
+          "node_key": "l",
+          "parent_key": "top",
+          "given": "2"
+        },
+        {
+          "node_key": "r",
+          "parent_key": "top"
+        }
+      ],
+      "answer": [
+        {
+          "key": "r",
+          "value": "3"
+        }
+      ],
+      "hint": "5 gồm 2 và mấy?",
+      "solution": {
+        "steps": [
+          "Tách 5 thành hai phần, một phần là 2.",
+          "Phần còn lại là 3."
+        ],
+        "final": "5 gồm 2 và 3."
+      }
+    },
+    {
+      "part_key": "b",
+      "type": "number_tree",
+      "prompt": "",
+      "image_keys": [],
+      "nodes": [
+        {
+          "node_key": "top"
+        },
+        {
+          "node_key": "l",
+          "parent_key": "top",
+          "given": "4"
+        },
+        {
+          "node_key": "r",
+          "parent_key": "top",
+          "given": "3"
+        }
+      ],
+      "answer": [
+        {
+          "key": "top",
+          "value": "7"
+        }
+      ],
+      "hint": "Gộp hai phần lại với nhau.",
+      "solution": {
+        "steps": [
+          "4 và 3 gộp lại."
+        ],
+        "final": "4 và 3 là 7."
+      }
+    }
+  ]
+}

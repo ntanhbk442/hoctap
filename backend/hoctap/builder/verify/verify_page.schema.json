@@ -1,0 +1,650 @@
+{
+  "$defs": {
+    "CompareEntry": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "a row's slot_key\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "value": {
+          "type": "string",
+          "enum": [
+            "<",
+            ">",
+            "="
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value"
+      ]
+    },
+    "CompareSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "compare"
+          ],
+          "description": "the Part's type: compare"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per row slot_key",
+          "items": {
+            "$ref": "#/$defs/CompareEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "ConnectDotsSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "connect_dots"
+          ],
+          "description": "the Part's type: connect_dots"
+        },
+        "answer": {
+          "$ref": "#/$defs/SequenceAnswer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "CountEntry": {
+      "type": "object",
+      "description": "A count: a non-negative integer (count_image, dot_draw).",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "a slot_key\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "value": {
+          "type": "string",
+          "description": "{pattern: ^(0|[1-9][0-9]*)$}"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value"
+      ]
+    },
+    "CountImageSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "count_image"
+          ],
+          "description": "the Part's type: count_image"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per slot_key",
+          "items": {
+            "$ref": "#/$defs/CountEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "DotDrawSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "dot_draw"
+          ],
+          "description": "the Part's type: dot_draw"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per slot_key; value = total dots, given included",
+          "items": {
+            "$ref": "#/$defs/CountEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "FallbackSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "fallback"
+          ],
+          "description": "the Part's type: fallback"
+        },
+        "answer": {
+          "type": "null",
+          "description": "always null"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "GridFillSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "grid_fill"
+          ],
+          "description": "the Part's type: grid_fill"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per empty cell r{i}c{j}",
+          "items": {
+            "$ref": "#/$defs/NumericEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "ImageSelectSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "image_select"
+          ],
+          "description": "the Part's type: image_select"
+        },
+        "answer": {
+          "$ref": "#/$defs/SelectedAnswer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "MatchAnswer": {
+      "type": "object",
+      "properties": {
+        "pairs": {
+          "type": "array",
+          "description": "[left item_key, right item_key]",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+            },
+            "description": "{maxItems: 2, minItems: 2}"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pairs"
+      ]
+    },
+    "MatchSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "match"
+          ],
+          "description": "the Part's type: match"
+        },
+        "answer": {
+          "$ref": "#/$defs/MatchAnswer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "MultipleChoiceSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "multiple_choice"
+          ],
+          "description": "the Part's type: multiple_choice"
+        },
+        "answer": {
+          "$ref": "#/$defs/SelectedAnswer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "NumberInputSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "number_input"
+          ],
+          "description": "the Part's type: number_input"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per slot_key",
+          "items": {
+            "$ref": "#/$defs/NumericEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "NumberTreeSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "number_tree"
+          ],
+          "description": "the Part's type: number_tree"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per empty node_key",
+          "items": {
+            "$ref": "#/$defs/NumericEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "NumericEntry": {
+      "type": "object",
+      "description": "One keyed answer value: `key` is a slot_key, empty node_key or empty cell `r{i}c{j}`.",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "value": {
+          "type": "string",
+          "description": "{pattern: ^-?(0|[1-9][0-9]*)(,[0-9]+)?$}"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value"
+      ]
+    },
+    "OrderAnswer": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "order"
+      ]
+    },
+    "OrderSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "order"
+          ],
+          "description": "the Part's type: order"
+        },
+        "answer": {
+          "$ref": "#/$defs/OrderAnswer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "Region": {
+      "type": "object",
+      "properties": {
+        "region_key": {
+          "type": "string",
+          "description": "{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "bbox": {
+          "type": "array",
+          "description": "[x0, y0, x1, y1] normalised 0-1 on the image (not the page)\n\n{maxItems: 4, minItems: 4}",
+          "items": {
+            "type": "number",
+            "description": "{maximum: 1.0, minimum: 0.0}"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "region_key",
+        "bbox"
+      ]
+    },
+    "SelectedAnswer": {
+      "type": "object",
+      "properties": {
+        "selected": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "selected"
+      ]
+    },
+    "SequenceAnswer": {
+      "type": "object",
+      "properties": {
+        "sequence": {
+          "type": "array",
+          "description": "the dot numbers in drawing order: 1..N",
+          "items": {
+            "type": "integer"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sequence"
+      ]
+    },
+    "SpotDifferenceAnswer": {
+      "type": "object",
+      "properties": {
+        "regions": {
+          "type": "array",
+          "description": "the differences, on the right image",
+          "items": {
+            "$ref": "#/$defs/Region"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "regions"
+      ]
+    },
+    "SpotDifferenceSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "spot_difference"
+          ],
+          "description": "the Part's type: spot_difference"
+        },
+        "answer": {
+          "$ref": "#/$defs/SpotDifferenceAnswer"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
+    "VerifyProblem": {
+      "type": "object",
+      "properties": {
+        "problem_id": {
+          "type": "string",
+          "description": "the Problem's problem_id, exactly as given"
+        },
+        "parts": {
+          "type": "array",
+          "description": "one entry per Part of the Problem",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/NumberInputSecond"
+              },
+              {
+                "$ref": "#/$defs/CompareSecond"
+              },
+              {
+                "$ref": "#/$defs/MultipleChoiceSecond"
+              },
+              {
+                "$ref": "#/$defs/ImageSelectSecond"
+              },
+              {
+                "$ref": "#/$defs/OrderSecond"
+              },
+              {
+                "$ref": "#/$defs/NumberTreeSecond"
+              },
+              {
+                "$ref": "#/$defs/GridFillSecond"
+              },
+              {
+                "$ref": "#/$defs/MatchSecond"
+              },
+              {
+                "$ref": "#/$defs/CountImageSecond"
+              },
+              {
+                "$ref": "#/$defs/DotDrawSecond"
+              },
+              {
+                "$ref": "#/$defs/ConnectDotsSecond"
+              },
+              {
+                "$ref": "#/$defs/SpotDifferenceSecond"
+              },
+              {
+                "$ref": "#/$defs/FallbackSecond"
+              }
+            ],
+            "description": "{discriminator: {'mapping': {'compare': '#/$defs/CompareSecond', 'connect_dots': '#/$defs/ConnectDotsSecond', 'count_image': '#/$defs/CountImageSecond', 'dot_draw': '#/$defs/DotDrawSecond', 'fallback': '#/$defs/FallbackSecond', 'grid_fill': '#/$defs/GridFillSecond', 'image_select': '#/$defs/ImageSelectSecond', 'match': '#/$defs/MatchSecond', 'multiple_choice': '#/$defs/MultipleChoiceSecond', 'number_input': '#/$defs/NumberInputSecond', 'number_tree': '#/$defs/NumberTreeSecond', 'order': '#/$defs/OrderSecond', 'spot_difference': '#/$defs/SpotDifferenceSecond'}, 'propertyName': 'type'}}"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "problem_id",
+        "parts"
+      ]
+    }
+  },
+  "type": "object",
+  "description": "The second answers for every Problem given for one page.",
+  "properties": {
+    "problems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/VerifyProblem"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "problems"
+  ]
+}

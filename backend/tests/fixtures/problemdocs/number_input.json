@@ -1,0 +1,80 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-5.tiet-2.bai-1",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-5",
+  "lesson_key": "tiet-2",
+  "problem_label": "bai-1",
+  "display_label": "Bài 1",
+  "instruction": "Tính:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.phep-cong-trong-pham-vi-10"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "a",
+      "type": "number_input",
+      "prompt": "",
+      "image_keys": [],
+      "template": "3 + 2 = [[s1]]",
+      "slots": [
+        {
+          "slot_key": "s1"
+        }
+      ],
+      "answer": [
+        {
+          "key": "s1",
+          "value": "5"
+        }
+      ],
+      "hint": "Con đếm thêm 2 bắt đầu từ 3 nhé.",
+      "solution": {
+        "steps": [
+          "Bắt đầu từ 3, đếm thêm 2: bốn, năm."
+        ],
+        "final": "3 + 2 = 5"
+      }
+    },
+    {
+      "part_key": "b",
+      "type": "number_input",
+      "prompt": "",
+      "image_keys": [],
+      "template": "4 + [[s1]] = 7",
+      "slots": [
+        {
+          "slot_key": "s1"
+        }
+      ],
+      "answer": [
+        {
+          "key": "s1",
+          "value": "3"
+        }
+      ],
+      "hint": "Từ 4 cần đếm thêm mấy để được 7?",
+      "solution": {
+        "steps": [
+          "Đếm từ 4 lên 7: năm, sáu, bảy.",
+          "Con đã đếm thêm 3 số."
+        ],
+        "final": "4 + 3 = 7"
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+[project]
+name = "hoctap"
+version = "0.1.0"
+description = "Học Tập: local FastAPI + React PWA for spoken, interactive maths practice"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn==0.54.0",
+    "pydantic==2.13.5",
+    "sqlalchemy==2.1.1",
+    "alembic==1.20.0",
+    "pymupdf==1.28.2",
+    "anthropic>=1.8,<2",
+    "bcrypt==5.0.0",
+    "itsdangerous==2.2.0",
+]
+
+[project.scripts]
+hoctap = "hoctap.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "httpx",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hoctap"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

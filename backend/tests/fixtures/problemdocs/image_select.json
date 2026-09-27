@@ -1,0 +1,99 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-2.tiet-1.bai-4",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-2",
+  "lesson_key": "tiet-1",
+  "problem_label": "bai-4",
+  "display_label": "Bài 4",
+  "instruction": "Tô màu vào những quả táo màu đỏ.",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 9,
+      "bbox": [
+        0.05,
+        0.15,
+        0.95,
+        0.5
+      ]
+    }
+  ],
+  "images": [
+    {
+      "image_key": "vuon-tao",
+      "page": 9,
+      "bbox": [
+        0.1,
+        0.2,
+        0.9,
+        0.45
+      ]
+    }
+  ],
+  "concept_ids": [
+    "g1.dem-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "image_select",
+      "prompt": "",
+      "image_keys": [],
+      "image_key": "vuon-tao",
+      "regions": [
+        {
+          "region_key": "t1",
+          "bbox": [
+            0.05,
+            0.1,
+            0.25,
+            0.4
+          ]
+        },
+        {
+          "region_key": "t2",
+          "bbox": [
+            0.3,
+            0.1,
+            0.5,
+            0.4
+          ]
+        },
+        {
+          "region_key": "t3",
+          "bbox": [
+            0.55,
+            0.1,
+            0.75,
+            0.4
+          ]
+        },
+        {
+          "region_key": "t4",
+          "bbox": [
+            0.8,
+            0.1,
+            0.98,
+            0.4
+          ]
+        }
+      ],
+      "multi": true,
+      "answer": {
+        "selected": [
+          "t1",
+          "t3"
+        ]
+      },
+      "hint": "Con nhìn kỹ màu của từng quả táo.",
+      "solution": {
+        "steps": [
+          "Quả thứ nhất và quả thứ ba có màu đỏ."
+        ],
+        "final": "Tô quả thứ nhất và quả thứ ba."
+      }
+    }
+  ]
+}

@@ -1,0 +1,1668 @@
+{
+  "$defs": {
+    "ChoiceOption": {
+      "additionalProperties": false,
+      "properties": {
+        "option_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Option Key",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "image_key": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Key"
+        }
+      },
+      "required": [
+        "option_key"
+      ],
+      "title": "ChoiceOption",
+      "type": "object"
+    },
+    "CompareEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "a row's slot_key",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "enum": [
+            "<",
+            ">",
+            "="
+          ],
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "CompareEntry",
+      "type": "object"
+    },
+    "ComparePart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: compare",
+          "enum": [
+            "compare"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/CompareRow"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per row slot_key",
+          "items": {
+            "$ref": "#/$defs/CompareEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "rows",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "ComparePart",
+      "type": "object"
+    },
+    "CompareRow": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Slot Key",
+          "type": "string"
+        },
+        "left": {
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "title": "Right",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_key",
+        "left",
+        "right"
+      ],
+      "title": "CompareRow",
+      "type": "object"
+    },
+    "ConnectDotsPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: connect_dots",
+          "enum": [
+            "connect_dots"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "image_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Key",
+          "type": "string"
+        },
+        "dots": {
+          "items": {
+            "$ref": "#/$defs/Dot"
+          },
+          "minItems": 2,
+          "title": "Dots",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "$ref": "#/$defs/SequenceAnswer"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "image_key",
+        "dots",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "ConnectDotsPart",
+      "type": "object"
+    },
+    "CountEntry": {
+      "additionalProperties": false,
+      "description": "A count: a non-negative integer (count_image, dot_draw).",
+      "properties": {
+        "key": {
+          "description": "a slot_key",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "CountEntry",
+      "type": "object"
+    },
+    "CountImagePart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: count_image",
+          "enum": [
+            "count_image"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "image_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Key",
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/LabeledSlot"
+          },
+          "minItems": 1,
+          "title": "Slots",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per slot_key",
+          "items": {
+            "$ref": "#/$defs/CountEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "image_key",
+        "slots",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "CountImagePart",
+      "type": "object"
+    },
+    "Dot": {
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "description": "the printed number; the dots are exactly 1..N",
+          "minimum": 1,
+          "title": "N",
+          "type": "integer"
+        },
+        "x": {
+          "description": "normalised 0-1 on the image (not the page)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "description": "normalised 0-1 on the image (not the page)",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "n",
+        "x",
+        "y"
+      ],
+      "title": "Dot",
+      "type": "object"
+    },
+    "DotBox": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Slot Key",
+          "type": "string"
+        },
+        "label": {
+          "description": "the printed number or text under the box",
+          "title": "Label",
+          "type": "string"
+        },
+        "given": {
+          "default": 0,
+          "description": "dots already printed in the box (for 'draw more')",
+          "minimum": 0,
+          "title": "Given",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slot_key",
+        "label"
+      ],
+      "title": "DotBox",
+      "type": "object"
+    },
+    "DotDrawPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: dot_draw",
+          "enum": [
+            "dot_draw"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "boxes": {
+          "items": {
+            "$ref": "#/$defs/DotBox"
+          },
+          "minItems": 1,
+          "title": "Boxes",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per slot_key; value = total dots, given included",
+          "items": {
+            "$ref": "#/$defs/CountEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "boxes",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "DotDrawPart",
+      "type": "object"
+    },
+    "FallbackPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: fallback",
+          "enum": [
+            "fallback"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "image_key": {
+          "description": "the cropped Problem, shown as it is printed",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Key",
+          "type": "string"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "default": null,
+          "description": "always null: the solution only",
+          "title": "Answer",
+          "type": "null"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "image_key",
+        "hint",
+        "solution"
+      ],
+      "title": "FallbackPart",
+      "type": "object"
+    },
+    "GridCell": {
+      "additionalProperties": false,
+      "properties": {
+        "given": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the printed value; an empty cell is an Answer Slot keyed r{i}c{j} (0-based row i, column j)",
+          "title": "Given"
+        }
+      },
+      "title": "GridCell",
+      "type": "object"
+    },
+    "GridFillPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: grid_fill",
+          "enum": [
+            "grid_fill"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "rows": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "cols": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Cols",
+          "type": "integer"
+        },
+        "cells": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/GridCell"
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Cells",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per empty cell r{i}c{j}",
+          "items": {
+            "$ref": "#/$defs/NumericEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "rows",
+        "cols",
+        "cells",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "GridFillPart",
+      "type": "object"
+    },
+    "ImageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "image_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Key",
+          "type": "string"
+        },
+        "page": {
+          "description": "1-based page; must be one of the source_pages",
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "bbox": {
+          "description": "[x0, y0, x1, y1] normalised 0-1 on the page",
+          "items": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Bbox",
+          "type": "array"
+        }
+      },
+      "required": [
+        "image_key",
+        "page",
+        "bbox"
+      ],
+      "title": "ImageRef",
+      "type": "object"
+    },
+    "ImageSelectPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: image_select",
+          "enum": [
+            "image_select"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "image_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Key",
+          "type": "string"
+        },
+        "regions": {
+          "items": {
+            "$ref": "#/$defs/Region"
+          },
+          "minItems": 1,
+          "title": "Regions",
+          "type": "array"
+        },
+        "multi": {
+          "title": "Multi",
+          "type": "boolean"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "$ref": "#/$defs/SelectedAnswer"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "image_key",
+        "regions",
+        "multi",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "ImageSelectPart",
+      "type": "object"
+    },
+    "LabeledSlot": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Slot Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_key",
+        "label"
+      ],
+      "title": "LabeledSlot",
+      "type": "object"
+    },
+    "MatchAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "pairs": {
+          "description": "[left item_key, right item_key]",
+          "items": {
+            "items": {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "minItems": 1,
+          "title": "Pairs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "pairs"
+      ],
+      "title": "MatchAnswer",
+      "type": "object"
+    },
+    "MatchItem": {
+      "additionalProperties": false,
+      "properties": {
+        "item_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Item Key",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "image_key": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Key"
+        }
+      },
+      "required": [
+        "item_key"
+      ],
+      "title": "MatchItem",
+      "type": "object"
+    },
+    "MatchPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: match",
+          "enum": [
+            "match"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "left": {
+          "items": {
+            "$ref": "#/$defs/MatchItem"
+          },
+          "minItems": 1,
+          "title": "Left",
+          "type": "array"
+        },
+        "right": {
+          "items": {
+            "$ref": "#/$defs/MatchItem"
+          },
+          "minItems": 1,
+          "title": "Right",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "$ref": "#/$defs/MatchAnswer"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "left",
+        "right",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "MatchPart",
+      "type": "object"
+    },
+    "MultipleChoicePart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: multiple_choice",
+          "enum": [
+            "multiple_choice"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/ChoiceOption"
+          },
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        },
+        "multi": {
+          "title": "Multi",
+          "type": "boolean"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "$ref": "#/$defs/SelectedAnswer"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "options",
+        "multi",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "MultipleChoicePart",
+      "type": "object"
+    },
+    "NumberInputPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: number_input",
+          "enum": [
+            "number_input"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "template": {
+          "description": "text with [[slot_key]] markers",
+          "title": "Template",
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "minItems": 1,
+          "title": "Slots",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per slot_key",
+          "items": {
+            "$ref": "#/$defs/NumericEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "template",
+        "slots",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "NumberInputPart",
+      "type": "object"
+    },
+    "NumberTreePart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: number_tree",
+          "enum": [
+            "number_tree"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/TreeNode"
+          },
+          "minItems": 2,
+          "title": "Nodes",
+          "type": "array"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per empty node_key",
+          "items": {
+            "$ref": "#/$defs/NumericEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "nodes",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "NumberTreePart",
+      "type": "object"
+    },
+    "NumericEntry": {
+      "additionalProperties": false,
+      "description": "One keyed answer value: `key` is a slot_key, empty node_key or empty cell `r{i}c{j}`.",
+      "properties": {
+        "key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(0|[1-9][0-9]*)(,[0-9]+)?$",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "NumericEntry",
+      "type": "object"
+    },
+    "OrderAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Order",
+          "type": "array"
+        }
+      },
+      "required": [
+        "order"
+      ],
+      "title": "OrderAnswer",
+      "type": "object"
+    },
+    "OrderItem": {
+      "additionalProperties": false,
+      "properties": {
+        "item_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Item Key",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_key",
+        "text"
+      ],
+      "title": "OrderItem",
+      "type": "object"
+    },
+    "OrderPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: order",
+          "enum": [
+            "order"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/OrderItem"
+          },
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "direction": {
+          "enum": [
+            "asc",
+            "desc",
+            "custom"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "$ref": "#/$defs/OrderAnswer"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "items",
+        "direction",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "OrderPart",
+      "type": "object"
+    },
+    "Region": {
+      "additionalProperties": false,
+      "properties": {
+        "region_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Region Key",
+          "type": "string"
+        },
+        "bbox": {
+          "description": "[x0, y0, x1, y1] normalised 0-1 on the image (not the page)",
+          "items": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Bbox",
+          "type": "array"
+        }
+      },
+      "required": [
+        "region_key",
+        "bbox"
+      ],
+      "title": "Region",
+      "type": "object"
+    },
+    "SelectedAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "selected": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Selected",
+          "type": "array"
+        }
+      },
+      "required": [
+        "selected"
+      ],
+      "title": "SelectedAnswer",
+      "type": "object"
+    },
+    "SequenceAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "description": "the dot numbers in drawing order: 1..N",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Sequence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sequence"
+      ],
+      "title": "SequenceAnswer",
+      "type": "object"
+    },
+    "Slot": {
+      "additionalProperties": false,
+      "properties": {
+        "slot_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Slot Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_key"
+      ],
+      "title": "Slot",
+      "type": "object"
+    },
+    "Solution": {
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "final": {
+          "title": "Final",
+          "type": "string"
+        }
+      },
+      "required": [
+        "steps",
+        "final"
+      ],
+      "title": "Solution",
+      "type": "object"
+    },
+    "SourcePage": {
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "description": "1-based page number in the book PDF",
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "bbox": {
+          "description": "[x0, y0, x1, y1] normalised 0-1 on the page",
+          "items": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Bbox",
+          "type": "array"
+        }
+      },
+      "required": [
+        "page",
+        "bbox"
+      ],
+      "title": "SourcePage",
+      "type": "object"
+    },
+    "SpotDifferenceAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "regions": {
+          "description": "the differences, on the right image",
+          "items": {
+            "$ref": "#/$defs/Region"
+          },
+          "title": "Regions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "regions"
+      ],
+      "title": "SpotDifferenceAnswer",
+      "type": "object"
+    },
+    "SpotDifferencePart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: spot_difference",
+          "enum": [
+            "spot_difference"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "image_left": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Left",
+          "type": "string"
+        },
+        "image_right": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Image Right",
+          "type": "string"
+        },
+        "count": {
+          "description": "how many differences the child must find",
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "$ref": "#/$defs/SpotDifferenceAnswer"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "image_left",
+        "image_right",
+        "count",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "SpotDifferencePart",
+      "type": "object"
+    },
+    "TreeNode": {
+      "additionalProperties": false,
+      "properties": {
+        "node_key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Node Key",
+          "type": "string"
+        },
+        "parent_key": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Key"
+        },
+        "given": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the printed value; a node without `given` is an Answer Slot",
+          "title": "Given"
+        }
+      },
+      "required": [
+        "node_key"
+      ],
+      "title": "TreeNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "ProblemDoc v1. Answers live only in each Part's `answer`, `hint` and `solution`.",
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "v1"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "problem_id": {
+      "description": "{book_id}.{unit_key}.{lesson_key}.{problem_label}",
+      "title": "Problem Id",
+      "type": "string"
+    },
+    "book_id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+      "title": "Book Id",
+      "type": "string"
+    },
+    "unit_key": {
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+      "title": "Unit Key",
+      "type": "string"
+    },
+    "lesson_key": {
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+      "title": "Lesson Key",
+      "type": "string"
+    },
+    "problem_label": {
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+      "title": "Problem Label",
+      "type": "string"
+    },
+    "display_label": {
+      "description": "as printed, e.g. \"Bài 3\"",
+      "title": "Display Label",
+      "type": "string"
+    },
+    "instruction": {
+      "title": "Instruction",
+      "type": "string"
+    },
+    "layout": {
+      "description": "sequence: the Parts are shown one at a time, in order; together: all Parts are shown at once on one screen",
+      "enum": [
+        "sequence",
+        "together"
+      ],
+      "title": "Layout",
+      "type": "string"
+    },
+    "source_pages": {
+      "items": {
+        "$ref": "#/$defs/SourcePage"
+      },
+      "minItems": 1,
+      "title": "Source Pages",
+      "type": "array"
+    },
+    "images": {
+      "items": {
+        "$ref": "#/$defs/ImageRef"
+      },
+      "title": "Images",
+      "type": "array"
+    },
+    "concept_ids": {
+      "description": "existing curated Concept ids, e.g. g1.so-sanh-so; may be empty",
+      "items": {
+        "pattern": "^g[1-5]\\.[a-z0-9][a-z0-9-]{0,47}$",
+        "type": "string"
+      },
+      "title": "Concept Ids",
+      "type": "array"
+    },
+    "concept_proposals": {
+      "description": "names of new Concepts proposed for review (not existing concept_ids); may be empty, and both lists may be empty while tags are pending",
+      "items": {
+        "type": "string"
+      },
+      "title": "Concept Proposals",
+      "type": "array"
+    },
+    "parts": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "compare": "#/$defs/ComparePart",
+            "connect_dots": "#/$defs/ConnectDotsPart",
+            "count_image": "#/$defs/CountImagePart",
+            "dot_draw": "#/$defs/DotDrawPart",
+            "fallback": "#/$defs/FallbackPart",
+            "grid_fill": "#/$defs/GridFillPart",
+            "image_select": "#/$defs/ImageSelectPart",
+            "match": "#/$defs/MatchPart",
+            "multiple_choice": "#/$defs/MultipleChoicePart",
+            "number_input": "#/$defs/NumberInputPart",
+            "number_tree": "#/$defs/NumberTreePart",
+            "order": "#/$defs/OrderPart",
+            "spot_difference": "#/$defs/SpotDifferencePart"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/NumberInputPart"
+          },
+          {
+            "$ref": "#/$defs/ComparePart"
+          },
+          {
+            "$ref": "#/$defs/MultipleChoicePart"
+          },
+          {
+            "$ref": "#/$defs/ImageSelectPart"
+          },
+          {
+            "$ref": "#/$defs/OrderPart"
+          },
+          {
+            "$ref": "#/$defs/NumberTreePart"
+          },
+          {
+            "$ref": "#/$defs/GridFillPart"
+          },
+          {
+            "$ref": "#/$defs/MatchPart"
+          },
+          {
+            "$ref": "#/$defs/CountImagePart"
+          },
+          {
+            "$ref": "#/$defs/DotDrawPart"
+          },
+          {
+            "$ref": "#/$defs/ConnectDotsPart"
+          },
+          {
+            "$ref": "#/$defs/SpotDifferencePart"
+          },
+          {
+            "$ref": "#/$defs/FallbackPart"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Parts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "problem_id",
+    "book_id",
+    "unit_key",
+    "lesson_key",
+    "problem_label",
+    "display_label",
+    "instruction",
+    "layout",
+    "source_pages",
+    "images",
+    "concept_ids",
+    "concept_proposals",
+    "parts"
+  ],
+  "title": "ProblemDoc",
+  "type": "object"
+}

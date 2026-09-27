@@ -1,0 +1,89 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-9.tiet-2.bai-4",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-9",
+  "lesson_key": "tiet-2",
+  "problem_label": "bai-4",
+  "display_label": "Bài 4",
+  "instruction": "Nối phép tính với kết quả đúng:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.phep-cong-trong-pham-vi-10",
+    "g1.phep-tru-trong-pham-vi-10"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "match",
+      "prompt": "",
+      "image_keys": [],
+      "left": [
+        {
+          "item_key": "l1",
+          "text": "2 + 3"
+        },
+        {
+          "item_key": "l2",
+          "text": "6 - 2"
+        },
+        {
+          "item_key": "l3",
+          "text": "1 + 4"
+        }
+      ],
+      "right": [
+        {
+          "item_key": "r4",
+          "text": "4"
+        },
+        {
+          "item_key": "r5",
+          "text": "5"
+        },
+        {
+          "item_key": "r6",
+          "text": "6"
+        }
+      ],
+      "answer": {
+        "pairs": [
+          [
+            "l1",
+            "r5"
+          ],
+          [
+            "l2",
+            "r4"
+          ],
+          [
+            "l3",
+            "r5"
+          ]
+        ]
+      },
+      "hint": "Con tính từng phép tính trước rồi mới nối.",
+      "solution": {
+        "steps": [
+          "2 + 3 = 5.",
+          "6 - 2 = 4.",
+          "1 + 4 = 5."
+        ],
+        "final": "Nối 2 + 3 và 1 + 4 với 5; nối 6 - 2 với 4."
+      }
+    }
+  ]
+}

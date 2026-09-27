@@ -1,0 +1,70 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-6.tiet-2.bai-5",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-6",
+  "lesson_key": "tiet-2",
+  "problem_label": "bai-5",
+  "display_label": "Bài 5",
+  "instruction": "Viết các số 6, 2, 9, 4 theo thứ tự từ bé đến lớn.",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.so-sanh-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "order",
+      "prompt": "",
+      "image_keys": [],
+      "items": [
+        {
+          "item_key": "n6",
+          "text": "6"
+        },
+        {
+          "item_key": "n2",
+          "text": "2"
+        },
+        {
+          "item_key": "n9",
+          "text": "9"
+        },
+        {
+          "item_key": "n4",
+          "text": "4"
+        }
+      ],
+      "direction": "asc",
+      "answer": {
+        "order": [
+          "n2",
+          "n4",
+          "n6",
+          "n9"
+        ]
+      },
+      "hint": "Tìm số bé nhất trước.",
+      "solution": {
+        "steps": [
+          "Số bé nhất là 2, rồi đến 4.",
+          "Tiếp theo là 6, cuối cùng là 9."
+        ],
+        "final": "2, 4, 6, 9"
+      }
+    }
+  ]
+}

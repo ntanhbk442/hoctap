@@ -1,0 +1,75 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-3.tiet-1.bai-2",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-3",
+  "lesson_key": "tiet-1",
+  "problem_label": "bai-2",
+  "display_label": "Bài 2",
+  "instruction": "Điền dấu >, <, = thích hợp vào chỗ chấm:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 12,
+      "bbox": [
+        0.08,
+        0.1,
+        0.92,
+        0.35
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [
+    "g1.so-sanh-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "compare",
+      "prompt": "",
+      "image_keys": [],
+      "rows": [
+        {
+          "slot_key": "r1",
+          "left": "3",
+          "right": "5"
+        },
+        {
+          "slot_key": "r2",
+          "left": "7",
+          "right": "4"
+        },
+        {
+          "slot_key": "r3",
+          "left": "6",
+          "right": "6"
+        }
+      ],
+      "answer": [
+        {
+          "key": "r1",
+          "value": "<"
+        },
+        {
+          "key": "r2",
+          "value": ">"
+        },
+        {
+          "key": "r3",
+          "value": "="
+        }
+      ],
+      "hint": "Số nào đứng trước khi đếm thì bé hơn.",
+      "solution": {
+        "steps": [
+          "3 đứng trước 5 nên 3 bé hơn 5.",
+          "7 đứng sau 4 nên 7 lớn hơn 4.",
+          "6 bằng 6."
+        ],
+        "final": "3 < 5; 7 > 4; 6 = 6"
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+/Sach_Arch/
+/data/
+node_modules/
+.venv/
+/frontend/dist/
+/frontend/dev-dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+/hoctap.toml
+*.tsbuildinfo

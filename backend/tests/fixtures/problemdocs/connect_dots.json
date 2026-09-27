@@ -1,0 +1,96 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan1-2020-q1.tuan-4.tiet-4.bai-5",
+  "book_id": "toan1-2020-q1",
+  "unit_key": "tuan-4",
+  "lesson_key": "tiet-4",
+  "problem_label": "bai-5",
+  "display_label": "Bài 5",
+  "instruction": "Nối các chấm theo thứ tự từ 1 đến 6 để được hình con cá.",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 22,
+      "bbox": [
+        0.1,
+        0.25,
+        0.9,
+        0.75
+      ]
+    }
+  ],
+  "images": [
+    {
+      "image_key": "con-ca",
+      "page": 22,
+      "bbox": [
+        0.15,
+        0.3,
+        0.85,
+        0.7
+      ]
+    }
+  ],
+  "concept_ids": [
+    "g1.dem-so"
+  ],
+  "concept_proposals": [],
+  "parts": [
+    {
+      "part_key": "p1",
+      "type": "connect_dots",
+      "prompt": "",
+      "image_keys": [],
+      "image_key": "con-ca",
+      "dots": [
+        {
+          "n": 1,
+          "x": 0.1,
+          "y": 0.5
+        },
+        {
+          "n": 2,
+          "x": 0.3,
+          "y": 0.2
+        },
+        {
+          "n": 3,
+          "x": 0.6,
+          "y": 0.25
+        },
+        {
+          "n": 4,
+          "x": 0.9,
+          "y": 0.5
+        },
+        {
+          "n": 5,
+          "x": 0.6,
+          "y": 0.75
+        },
+        {
+          "n": 6,
+          "x": 0.3,
+          "y": 0.8
+        }
+      ],
+      "answer": {
+        "sequence": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "hint": "Tìm số 1 trước, rồi đến số liền sau.",
+      "solution": {
+        "steps": [
+          "Nối 1 với 2, 2 với 3, cứ thế đến 6."
+        ],
+        "final": "Nối 1, 2, 3, 4, 5, 6."
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ApiError, apiGet, apiPost } from './client'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+function stubFetch(impl: () => Promise<Response>) {
+  const fetchMock = vi.fn(impl)
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+describe('apiGet', () => {
+  it('maps a JSON error body without `error` to HTTP_ERROR', async () => {
+    stubFetch(async () =>
+      new Response(JSON.stringify({ detail: 'nope' }), {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    const err = await apiGet('/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 400, code: 'HTTP_ERROR', message: 'Bad Request' })
+  })
+
+  it('maps the error envelope', async () => {
+    stubFetch(async () =>
+      new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Không tìm thấy.' } }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await expect(apiGet('/x')).rejects.toMatchObject({ code: 'NOT_FOUND', status: 404 })
+  })
+
+  it('propagates a network failure', async () => {
+    stubFetch(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    await expect(apiGet('/x')).rejects.toThrow('Failed to fetch')
+  })
+
+  it('returns undefined for 204 and non-JSON success', async () => {
+    stubFetch(async () => new Response(null, { status: 204 }))
+    await expect(apiGet('/x')).resolves.toBeUndefined()
+    stubFetch(async () => new Response('hi', { status: 200, headers: { 'Content-Type': 'text/plain' } }))
+    await expect(apiGet('/x')).resolves.toBeUndefined()
+  })
+
+  it('keeps caller headers passed as a Headers instance', async () => {
+    const fetchMock = stubFetch(async () =>
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    await apiGet('/x', { headers: new Headers({ 'X-Test': '1' }) })
+    const headers = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Headers
+    expect(headers.get('X-Test')).toBe('1')
+    expect(headers.get('Accept')).toBe('application/json')
+  })
+})
+
+describe('apiPost', () => {
+  it('sends POST with a JSON body and Content-Type', async () => {
+    const fetchMock = stubFetch(async () => new Response(null, { status: 204 }))
+    await apiPost('/parent/login', { pin: '1234' })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/v1/parent/login')
+    expect(init.method).toBe('POST')
+    expect((init.headers as Headers).get('Content-Type')).toBe('application/json')
+    expect(init.body).toBe('{"pin":"1234"}')
+  })
+
+  it('sends no Content-Type and no body without a body', async () => {
+    const fetchMock = stubFetch(async () => new Response(null, { status: 204 }))
+    await apiPost('/parent/logout')
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect((init.headers as Headers).has('Content-Type')).toBe(false)
+    expect(init.body).toBeUndefined()
+  })
+})
