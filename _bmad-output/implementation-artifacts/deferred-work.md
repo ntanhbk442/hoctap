@@ -61,3 +61,18 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-speech-normaliser-tts-adapter-and-speak-missing.md`
   summary: Improve `content.speech`'s `\overline{...}`/`\frac{a}{b}` number reading from digit-by-digit spelling to proper Vietnamese number-to-words (e.g. "12" as "mười hai", not "một hai").
   evidence: v1 normaliser per the frozen intent ("not a full LaTeX parser"); digit-by-digit matches the spec's own worked example (`\overline{2a4b}` -> "số hai a bốn b") exactly, but is a rough approximation for a multi-digit `\frac` numerator/denominator.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-child-home-and-library.md`
+  summary: A Grade switcher UI on the Library, to reach Books of a Grade other than the child's own.
+  evidence: frozen intent explicitly defers this ("a Grade switcher UI is explicitly out of scope"); `GET /library/grades/{grade}/books` already accepts any grade, only the frontend has no picker for it yet.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-child-home-and-library.md`
+  summary: "Tiếp tục" (continue), Retry Queue, and Streak/Stars/badges Home cards.
+  evidence: blocked on Story 2.4 (Sessions/`progress_events`/`ProblemSetRef` do not exist yet); this story's Home deliberately renders neither a fake "0" nor these cards at all, per the frozen intent.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-child-home-and-library.md`
+  summary: The actual Problem player/interaction in Lesson detail (tapping a Problem in the list is currently a no-op -- no click handler at all).
+  evidence: frozen intent explicitly scopes Lesson detail here to a read-only list; the Problem player is a later Epic 2 widget story.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-child-home-and-library.md`
+  summary: Replace `frontend/src/audio/speech.ts`'s hardcoded `DEFAULT_VOICE_ID` duplication of `Settings.tts_voice_id` with a real single source of truth (e.g. a `voice_id` field on an existing public endpoint, or generated from `config.py`).
+  evidence: no endpoint currently exposes `tts_voice_id`; this story needed a `speech_key()`-matching frontend hash to resolve an already-synthesised UI phrase's audio URL (`content.speech.speech_url()`'s frontend counterpart) and settled for a documented, deliberate duplication rather than adding a new backend concept -- see this story's Implementation Notes.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-child-home-and-library.md`
+  summary: Real progress numerators ("k/n ✓") once Story 2.4 ships Sessions/`progress_events`.
+  evidence: this story's Library/Lesson lists always show "0/n" honestly (no child has ever done a Problem, because there is no way to start a Session yet), per the frozen intent.

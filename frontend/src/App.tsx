@@ -3,6 +3,8 @@ import { createBrowserRouter, RouterProvider } from 'react-router'
 import { authRedirect } from './api/errors'
 import ExtractionPage from './pages/ExtractionPage.tsx'
 import Home from './pages/Home.tsx'
+import LessonDetail from './pages/LessonDetail.tsx'
+import Library from './pages/Library.tsx'
 import ParentHome from './pages/ParentHome.tsx'
 import ParentLogin from './pages/ParentLogin.tsx'
 import ProblemEditor from './pages/review/ProblemEditor.tsx'
@@ -13,6 +15,8 @@ import PWABadge from './PWABadge.tsx'
 const routes = [
   { path: '/', element: <Home /> },
   { path: '/setup', element: <Setup /> },
+  { path: '/library', element: <Library /> },
+  { path: '/library/:bookId/:unitKey/:lessonKey', element: <LessonDetail /> },
   { path: '/parent/login', element: <ParentLogin /> },
   { path: '/parent', element: <ParentHome /> },
   { path: '/parent/review', element: <ReviewPage /> },

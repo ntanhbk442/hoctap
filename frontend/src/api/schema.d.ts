@@ -416,6 +416,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/library/grades/{grade}/books": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Grade Books */
+        get: operations["list_library_books"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/lessons/{book_id}/{unit_key}/{lesson_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lesson Problems */
+        get: operations["get_library_lesson_problems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/home/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Home */
+        get: operations["get_library_home"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/build/status": {
         parameters: {
             query?: never;
@@ -691,6 +742,59 @@ export interface components {
             /** Page Count */
             page_count: number;
         };
+        /**
+         * ChildProblemView
+         * @description A ProblemDoc without Answer Keys, Hints or Solutions.
+         */
+        ChildProblemView: {
+            /**
+             * Schema Version
+             * @enum {string}
+             */
+            schema_version: "v1";
+            /**
+             * Problem Id
+             * @description {book_id}.{unit_key}.{lesson_key}.{problem_label}
+             */
+            problem_id: string;
+            /** Book Id */
+            book_id: string;
+            /** Unit Key */
+            unit_key: string;
+            /** Lesson Key */
+            lesson_key: string;
+            /** Problem Label */
+            problem_label: string;
+            /**
+             * Display Label
+             * @description as printed, e.g. "Bài 3"
+             */
+            display_label: string;
+            /** Instruction */
+            instruction: string;
+            /**
+             * Layout
+             * @description sequence: the Parts are shown one at a time, in order; together: all Parts are shown at once on one screen
+             * @enum {string}
+             */
+            layout: "sequence" | "together";
+            /** Source Pages */
+            source_pages: components["schemas"]["SourcePage"][];
+            /** Images */
+            images: components["schemas"]["ImageRef"][];
+            /**
+             * Concept Ids
+             * @description existing curated Concept ids, e.g. g1.so-sanh-so; may be empty
+             */
+            concept_ids: string[];
+            /**
+             * Concept Proposals
+             * @description names of new Concepts proposed for review (not existing concept_ids); may be empty, and both lists may be empty while tags are pending
+             */
+            concept_proposals: string[];
+            /** Parts */
+            parts: (components["schemas"]["NumberInputView"] | components["schemas"]["CompareView"] | components["schemas"]["MultipleChoiceView"] | components["schemas"]["ImageSelectView"] | components["schemas"]["OrderView"] | components["schemas"]["NumberTreeView"] | components["schemas"]["GridFillView"] | components["schemas"]["MatchView"] | components["schemas"]["CountImageView"] | components["schemas"]["DotDrawView"] | components["schemas"]["ConnectDotsView"] | components["schemas"]["SpotDifferenceView"] | components["schemas"]["FallbackView"])[];
+        };
         /** ChoiceOption */
         ChoiceOption: {
             /** Option Key */
@@ -754,6 +858,28 @@ export interface components {
             left: string;
             /** Right */
             right: string;
+        };
+        /** CompareView */
+        CompareView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: compare (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "compare";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Rows */
+            rows: components["schemas"]["CompareRow"][];
         };
         /** ConceptOut */
         ConceptOut: {
@@ -821,6 +947,30 @@ export interface components {
             solution: components["schemas"]["Solution"];
             answer: components["schemas"]["SequenceAnswer"];
         };
+        /** ConnectDotsView */
+        ConnectDotsView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: connect_dots (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "connect_dots";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Image Key */
+            image_key: string;
+            /** Dots */
+            dots: components["schemas"]["Dot"][];
+        };
         /**
          * CountEntry
          * @description A count: a non-negative integer (count_image, dot_draw).
@@ -868,6 +1018,30 @@ export interface components {
              * @description [{key, value}], one per slot_key
              */
             answer: components["schemas"]["CountEntry"][];
+        };
+        /** CountImageView */
+        CountImageView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: count_image (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "count_image";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Image Key */
+            image_key: string;
+            /** Slots */
+            slots: components["schemas"]["LabeledSlot"][];
         };
         /** Dot */
         Dot: {
@@ -935,6 +1109,28 @@ export interface components {
              * @description [{key, value}], one per slot_key; value = total dots, given included
              */
             answer: components["schemas"]["CountEntry"][];
+        };
+        /** DotDrawView */
+        DotDrawView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: dot_draw (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "dot_draw";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Boxes */
+            boxes: components["schemas"]["DotBox"][];
         };
         /** EditIn */
         EditIn: {
@@ -1023,6 +1219,31 @@ export interface components {
              * @description always null: the solution only
              */
             answer?: null;
+        };
+        /** FallbackView */
+        FallbackView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: fallback (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "fallback";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /**
+             * Image Key
+             * @description the cropped Problem, shown as it is printed
+             */
+            image_key: string;
         };
         /** GateApproval */
         GateApproval: {
@@ -1153,6 +1374,32 @@ export interface components {
              */
             answer: components["schemas"]["NumericEntry"][];
         };
+        /** GridFillView */
+        GridFillView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: grid_fill (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "grid_fill";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Rows */
+            rows: number;
+            /** Cols */
+            cols: number;
+            /** Cells */
+            cells: components["schemas"]["GridCell"][][];
+        };
         /** Health */
         Health: {
             /**
@@ -1162,6 +1409,21 @@ export interface components {
             status: "ok";
             /** Version */
             version: string;
+        };
+        /** HomeLessonOut */
+        HomeLessonOut: {
+            /** Book Id */
+            book_id: string;
+            /** Book Title Vi */
+            book_title_vi: string;
+            /** Unit Key */
+            unit_key: string;
+            /** Lesson Key */
+            lesson_key: string;
+            /** Lesson Label */
+            lesson_label: string;
+            /** Lesson Title */
+            lesson_title: string;
         };
         /** ImageRef */
         ImageRef: {
@@ -1211,6 +1473,32 @@ export interface components {
             solution: components["schemas"]["Solution"];
             answer: components["schemas"]["SelectedAnswer"];
         };
+        /** ImageSelectView */
+        ImageSelectView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: image_select (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "image_select";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Image Key */
+            image_key: string;
+            /** Regions */
+            regions: components["schemas"]["Region"][];
+            /** Multi */
+            multi: boolean;
+        };
         JsonValue: unknown;
         /** LabeledSlot */
         LabeledSlot: {
@@ -1218,6 +1506,55 @@ export interface components {
             slot_key: string;
             /** Label */
             label: string;
+        };
+        /** LibraryBook */
+        LibraryBook: {
+            /** Book Id */
+            book_id: string;
+            /** Edition */
+            edition: string;
+            /** Grade */
+            grade: number;
+            /** Volume */
+            volume: number;
+            /** Title Vi */
+            title_vi: string;
+            /** Units */
+            units: components["schemas"]["LibraryUnit"][];
+        };
+        /** LibraryHomeOut */
+        LibraryHomeOut: {
+            /** Profile Id */
+            profile_id: string;
+            /** Grade */
+            grade: number;
+            lesson?: components["schemas"]["HomeLessonOut"] | null;
+        };
+        /** LibraryLesson */
+        LibraryLesson: {
+            /** Lesson Key */
+            lesson_key: string;
+            /** Label */
+            label: string;
+            /** Title */
+            title: string;
+            /** Position */
+            position: number;
+            /** Problem Count */
+            problem_count: number;
+        };
+        /** LibraryUnit */
+        LibraryUnit: {
+            /** Unit Key */
+            unit_key: string;
+            /** Label */
+            label: string;
+            /** Title */
+            title: string;
+            /** Position */
+            position: number;
+            /** Lessons */
+            lessons: components["schemas"]["LibraryLesson"][];
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1272,6 +1609,30 @@ export interface components {
             solution: components["schemas"]["Solution"];
             answer: components["schemas"]["MatchAnswer"];
         };
+        /** MatchView */
+        MatchView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: match (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "match";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Left */
+            left: components["schemas"]["MatchItem"][];
+            /** Right */
+            right: components["schemas"]["MatchItem"][];
+        };
         /** MergeIn */
         MergeIn: {
             /** Grade */
@@ -1312,6 +1673,30 @@ export interface components {
             solution: components["schemas"]["Solution"];
             answer: components["schemas"]["SelectedAnswer"];
         };
+        /** MultipleChoiceView */
+        MultipleChoiceView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: multiple_choice (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "multiple_choice";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Options */
+            options: components["schemas"]["ChoiceOption"][];
+            /** Multi */
+            multi: boolean;
+        };
         /** NumberInputPart */
         NumberInputPart: {
             /**
@@ -1350,6 +1735,33 @@ export interface components {
              */
             answer: components["schemas"]["NumericEntry"][];
         };
+        /** NumberInputView */
+        NumberInputView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: number_input (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "number_input";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /**
+             * Template
+             * @description text with [[slot_key]] markers
+             */
+            template: string;
+            /** Slots */
+            slots: components["schemas"]["Slot"][];
+        };
         /** NumberTreePart */
         NumberTreePart: {
             /**
@@ -1382,6 +1794,28 @@ export interface components {
              * @description [{key, value}], one per empty node_key
              */
             answer: components["schemas"]["NumericEntry"][];
+        };
+        /** NumberTreeView */
+        NumberTreeView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: number_tree (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "number_tree";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Nodes */
+            nodes: components["schemas"]["TreeNode"][];
         };
         /**
          * NumericEntry
@@ -1438,6 +1872,33 @@ export interface components {
             hint: string;
             solution: components["schemas"]["Solution"];
             answer: components["schemas"]["OrderAnswer"];
+        };
+        /** OrderView */
+        OrderView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: order (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "order";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Items */
+            items: components["schemas"]["OrderItem"][];
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "asc" | "desc" | "custom";
         };
         /** OverrideOut */
         OverrideOut: {
@@ -1983,6 +2444,35 @@ export interface components {
             hint: string;
             solution: components["schemas"]["Solution"];
             answer: components["schemas"]["SpotDifferenceAnswer"];
+        };
+        /** SpotDifferenceView */
+        SpotDifferenceView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: spot_difference (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "spot_difference";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /** Image Left */
+            image_left: string;
+            /** Image Right */
+            image_right: string;
+            /**
+             * Count
+             * @description how many differences the child must find
+             */
+            count: number;
         };
         /** TreeNode */
         TreeNode: {
@@ -3424,6 +3914,128 @@ export interface operations {
                 };
             };
             /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_library_books: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grade: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryBook"][];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_library_lesson_problems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                book_id: string;
+                unit_key: string;
+                lesson_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChildProblemView"][];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_library_home: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryHomeOut"];
+                };
+            };
+            /** @description Unknown profile */
             404: {
                 headers: {
                     [name: string]: unknown;

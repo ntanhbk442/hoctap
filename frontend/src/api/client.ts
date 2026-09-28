@@ -27,6 +27,12 @@ export type SpotCheckOut = Schemas['SpotCheckOut']
 export type SpotCheckItem = Schemas['SpotCheckItem']
 export type VerdictIn = Schemas['VerdictIn']
 export type GateReport = Schemas['GateReport']
+export type ChildProblemView = Schemas['ChildProblemView']
+export type LibraryBook = Schemas['LibraryBook']
+export type LibraryUnit = Schemas['LibraryUnit']
+export type LibraryLesson = Schemas['LibraryLesson']
+export type LibraryHomeOut = Schemas['LibraryHomeOut']
+export type HomeLessonOut = Schemas['HomeLessonOut']
 
 export const API_BASE = '/api/v1'
 
@@ -123,6 +129,34 @@ export function parentLogout(): Promise<void> {
 
 export function getParentSession(signal?: AbortSignal): Promise<SessionStatus> {
   return apiGet<SessionStatus>('/parent/session', { signal })
+}
+
+export function getProfiles(signal?: AbortSignal): Promise<Profile[]> {
+  return apiGet<Profile[]>('/profiles', { signal })
+}
+
+// --- Child Library (Sách, Story 2.3) ------------------------------------------------
+
+const LIBRARY = '/library'
+
+export function getLibraryBooks(grade: number, signal?: AbortSignal): Promise<LibraryBook[]> {
+  return apiGet<LibraryBook[]>(`${LIBRARY}/grades/${grade}/books`, { signal })
+}
+
+export function getLibraryLesson(
+  bookId: string,
+  unitKey: string,
+  lessonKey: string,
+  signal?: AbortSignal,
+): Promise<ChildProblemView[]> {
+  return apiGet<ChildProblemView[]>(
+    `${LIBRARY}/lessons/${encodeURIComponent(bookId)}/${encodeURIComponent(unitKey)}/${encodeURIComponent(lessonKey)}`,
+    { signal },
+  )
+}
+
+export function getLibraryHome(profileId: string, signal?: AbortSignal): Promise<LibraryHomeOut> {
+  return apiGet<LibraryHomeOut>(`${LIBRARY}/home/${encodeURIComponent(profileId)}`, { signal })
 }
 
 // --- Content Review (Duyệt nội dung) ---------------------------------------------

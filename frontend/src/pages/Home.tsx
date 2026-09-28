@@ -1,14 +1,39 @@
-import { Link, Navigate } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useNavigate } from 'react-router'
+import type { Profile } from '../api/client'
 import { errorMessage } from '../api/errors'
-import { useHealth, useSetupStatus } from '../api/queries'
+import { useLibraryHome, useProfiles, useSetupStatus } from '../api/queries'
+import { phrase } from '../audio/phrases'
+import { speak } from '../audio/speech'
+import HomeCard from '../components/HomeCard/HomeCard'
+import SpeakerButton from '../components/SpeakerButton/SpeakerButton'
+import { getCurrentProfileId, setCurrentProfileId } from '../profile'
+import ProfilePicker from './ProfilePicker'
 
+/**
+ * The child-facing Home (Story 2.3): a Profile picker (skipped when there is only one
+ * Profile), then "Học tiếp" (the first Lesson with a visible Problem, in the child's own
+ * Grade) and "Sách" (Library). Keeps `Home`'s original setup-redirect/loading/error
+ * handling around the (former placeholder) server-status screen.
+ */
 export default function Home() {
-  const health = useHealth()
   const setup = useSetupStatus()
+  const profiles = useProfiles()
+  const [profileId, setProfileId] = useState<string | null>(() => getCurrentProfileId())
+
+  const list = profiles.data ?? []
+  const onlyProfile = list.length === 1 ? list[0] : undefined
+
+  // Exactly one Profile: it becomes "current" for this browser session without a picker.
+  // `current` below already falls back to `onlyProfile` the moment it is known, so this
+  // effect only needs to persist it -- never a `setState` that would trigger another render.
+  useEffect(() => {
+    if (onlyProfile) setCurrentProfileId(onlyProfile.id)
+  }, [onlyProfile])
 
   if (setup.data?.setup_required) return <Navigate to="/setup" replace />
 
-  if (setup.isPending) {
+  if (setup.isPending || profiles.isPending) {
     return (
       <main className="home">
         <p>Đang tải…</p>
@@ -30,18 +55,92 @@ export default function Home() {
     )
   }
 
-  let status: string
-  if (health.isPending) status = 'đang kiểm tra…'
-  else if (health.isError) status = 'không kết nối được máy chủ'
-  else status = health.data.status
+  if (profiles.isError) {
+    return (
+      <main className="home">
+        <h1>Học Tập</h1>
+        <p role="alert" className="form-error">
+          {errorMessage(profiles.error)}
+        </p>
+        <button type="button" onClick={() => void profiles.refetch()}>
+          Thử lại
+        </button>
+      </main>
+    )
+  }
+
+  const current = list.find((p) => p.id === profileId) ?? onlyProfile
+
+  if (!current) {
+    return (
+      <ProfilePicker
+        profiles={list}
+        onSelect={(id) => {
+          setCurrentProfileId(id)
+          setProfileId(id)
+        }}
+      />
+    )
+  }
+
+  return <HomeContent profile={current} />
+}
+
+function HomeContent({ profile }: { profile: Profile }) {
+  const navigate = useNavigate()
+  const home = useLibraryHome(profile.id)
+  const lesson = home.data?.lesson
+  const keepLearningLabel = phrase('home_keep_learning')
+  const libraryLabel = phrase('home_library')
 
   return (
     <main className="home">
       <h1>Học Tập</h1>
-      <p>
-        Máy chủ: <strong data-testid="health-status">{status}</strong>
-        {health.data && <span className="version"> (v{health.data.version})</span>}
-      </p>
+      <div className="home-cards">
+        <div className="home-card-slot">
+          {home.isPending ? (
+            <p>Đang tải…</p>
+          ) : home.isError ? (
+            <div>
+              <p role="alert" className="form-error">
+                {errorMessage(home.error)}
+              </p>
+              <button type="button" onClick={() => void home.refetch()}>
+                Thử lại
+              </button>
+            </div>
+          ) : lesson ? (
+            <>
+              <HomeCard
+                title={keepLearningLabel}
+                icon="📖"
+                wide
+                onClick={() =>
+                  navigate(`/library/${lesson.book_id}/${lesson.unit_key}/${lesson.lesson_key}`)
+                }
+                onLongPress={() => void speak(keepLearningLabel)}
+              />
+              <SpeakerButton
+                label={`Nghe: ${keepLearningLabel}`}
+                onClick={() => void speak(keepLearningLabel)}
+              />
+            </>
+          ) : (
+            <p className="home-empty" data-testid="home-empty">
+              {phrase('home_nothing_yet')}
+            </p>
+          )}
+        </div>
+        <div className="home-card-slot">
+          <HomeCard
+            title={libraryLabel}
+            icon="📚"
+            onClick={() => navigate('/library')}
+            onLongPress={() => void speak(libraryLabel)}
+          />
+          <SpeakerButton label={`Nghe: ${libraryLabel}`} onClick={() => void speak(libraryLabel)} />
+        </div>
+      </div>
       <p className="parent-link">
         <Link to="/parent/login">Khu vực phụ huynh</Link>
       </p>

@@ -5,7 +5,11 @@ import {
   getCurrentRun,
   getGate,
   getHealth,
+  getLibraryBooks,
+  getLibraryHome,
+  getLibraryLesson,
   getParentSession,
+  getProfiles,
   getReviewBooks,
   getReviewProblem,
   getReviewProblems,
@@ -32,6 +36,11 @@ export const queryKeys = {
   gate: ['build', 'gate'] as const,
   catalogueBooks: ['build', 'books'] as const,
   currentRun: ['build', 'runs', 'current'] as const,
+  profiles: ['profiles'] as const,
+  libraryBooks: (grade: number) => ['library', 'books', grade] as const,
+  libraryLesson: (bookId: string, unitKey: string, lessonKey: string) =>
+    ['library', 'lesson', bookId, unitKey, lessonKey] as const,
+  libraryHome: (profileId: string) => ['library', 'home', profileId] as const,
 }
 
 export function useHealth() {
@@ -115,6 +124,45 @@ export function useCatalogueBooks() {
   return useQuery({
     queryKey: queryKeys.catalogueBooks,
     queryFn: ({ signal }) => getCatalogueBooks(signal),
+  })
+}
+
+export function useProfiles() {
+  return useQuery({
+    queryKey: queryKeys.profiles,
+    queryFn: ({ signal }) => getProfiles(signal),
+  })
+}
+
+/** Books/Units/Lessons of one Grade, each Lesson's visible-Problem count (Story 2.3's
+ * Library). `enabled: false` until the current Profile's Grade is known. */
+export function useLibraryBooks(grade: number, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.libraryBooks(grade),
+    queryFn: ({ signal }) => getLibraryBooks(grade, signal),
+    enabled: options.enabled ?? true,
+  })
+}
+
+export function useLibraryLesson(
+  bookId: string,
+  unitKey: string,
+  lessonKey: string,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: queryKeys.libraryLesson(bookId, unitKey, lessonKey),
+    queryFn: ({ signal }) => getLibraryLesson(bookId, unitKey, lessonKey, signal),
+    enabled: options.enabled ?? true,
+  })
+}
+
+/** The resolved "Học tiếp" Lesson for a Profile's Grade; `data.lesson` is null when
+ * nothing is visible yet (honest empty state, not an error). */
+export function useLibraryHome(profileId: string) {
+  return useQuery({
+    queryKey: queryKeys.libraryHome(profileId),
+    queryFn: ({ signal }) => getLibraryHome(profileId, signal),
   })
 }
 

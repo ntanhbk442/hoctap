@@ -1725,6 +1725,188 @@
         }
       }
     },
+    "/api/v1/library/grades/{grade}/books": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Get Grade Books",
+        "operationId": "list_library_books",
+        "parameters": [
+          {
+            "name": "grade",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Grade"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryBook"
+                  },
+                  "title": "Response List Library Books"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library/lessons/{book_id}/{unit_key}/{lesson_key}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Get Lesson Problems",
+        "operationId": "get_library_lesson_problems",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Book Id"
+            }
+          },
+          {
+            "name": "unit_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Unit Key"
+            }
+          },
+          {
+            "name": "lesson_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Lesson Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChildProblemView"
+                  },
+                  "title": "Response Get Library Lesson Problems"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library/home/{profile_id}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Get Home",
+        "operationId": "get_library_home",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryHomeOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/build/status": {
       "get": {
         "tags": [
@@ -2148,6 +2330,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
               "default": 20,
               "title": "Limit"
             }
@@ -2751,6 +2935,178 @@
         ],
         "title": "CatalogueBookOut"
       },
+      "ChildProblemView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "v1"
+            ],
+            "title": "Schema Version"
+          },
+          "problem_id": {
+            "type": "string",
+            "title": "Problem Id",
+            "description": "{book_id}.{unit_key}.{lesson_key}.{problem_label}"
+          },
+          "book_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+            "title": "Book Id"
+          },
+          "unit_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Unit Key"
+          },
+          "lesson_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Lesson Key"
+          },
+          "problem_label": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Problem Label"
+          },
+          "display_label": {
+            "type": "string",
+            "title": "Display Label",
+            "description": "as printed, e.g. \"Bài 3\""
+          },
+          "instruction": {
+            "type": "string",
+            "title": "Instruction"
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "sequence",
+              "together"
+            ],
+            "title": "Layout",
+            "description": "sequence: the Parts are shown one at a time, in order; together: all Parts are shown at once on one screen"
+          },
+          "source_pages": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePage"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Source Pages"
+          },
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/ImageRef"
+            },
+            "type": "array",
+            "title": "Images"
+          },
+          "concept_ids": {
+            "items": {
+              "type": "string",
+              "pattern": "^g[1-5]\\.[a-z0-9][a-z0-9-]{0,47}$"
+            },
+            "type": "array",
+            "title": "Concept Ids",
+            "description": "existing curated Concept ids, e.g. g1.so-sanh-so; may be empty"
+          },
+          "concept_proposals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Concept Proposals",
+            "description": "names of new Concepts proposed for review (not existing concept_ids); may be empty, and both lists may be empty while tags are pending"
+          },
+          "parts": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/NumberInputView"
+                },
+                {
+                  "$ref": "#/components/schemas/CompareView"
+                },
+                {
+                  "$ref": "#/components/schemas/MultipleChoiceView"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageSelectView"
+                },
+                {
+                  "$ref": "#/components/schemas/OrderView"
+                },
+                {
+                  "$ref": "#/components/schemas/NumberTreeView"
+                },
+                {
+                  "$ref": "#/components/schemas/GridFillView"
+                },
+                {
+                  "$ref": "#/components/schemas/MatchView"
+                },
+                {
+                  "$ref": "#/components/schemas/CountImageView"
+                },
+                {
+                  "$ref": "#/components/schemas/DotDrawView"
+                },
+                {
+                  "$ref": "#/components/schemas/ConnectDotsView"
+                },
+                {
+                  "$ref": "#/components/schemas/SpotDifferenceView"
+                },
+                {
+                  "$ref": "#/components/schemas/FallbackView"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "compare": "#/components/schemas/CompareView",
+                  "connect_dots": "#/components/schemas/ConnectDotsView",
+                  "count_image": "#/components/schemas/CountImageView",
+                  "dot_draw": "#/components/schemas/DotDrawView",
+                  "fallback": "#/components/schemas/FallbackView",
+                  "grid_fill": "#/components/schemas/GridFillView",
+                  "image_select": "#/components/schemas/ImageSelectView",
+                  "match": "#/components/schemas/MatchView",
+                  "multiple_choice": "#/components/schemas/MultipleChoiceView",
+                  "number_input": "#/components/schemas/NumberInputView",
+                  "number_tree": "#/components/schemas/NumberTreeView",
+                  "order": "#/components/schemas/OrderView",
+                  "spot_difference": "#/components/schemas/SpotDifferenceView"
+                }
+              }
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Parts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "problem_id",
+          "book_id",
+          "unit_key",
+          "lesson_key",
+          "problem_label",
+          "display_label",
+          "instruction",
+          "layout",
+          "source_pages",
+          "images",
+          "concept_ids",
+          "concept_proposals",
+          "parts"
+        ],
+        "title": "ChildProblemView",
+        "description": "A ProblemDoc without Answer Keys, Hints or Solutions."
+      },
       "ChoiceOption": {
         "properties": {
           "option_key": {
@@ -2907,6 +3263,55 @@
           "right"
         ],
         "title": "CompareRow"
+      },
+      "CompareView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "compare"
+            ],
+            "title": "Type",
+            "description": "Problem Type: compare"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/CompareRow"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "rows"
+        ],
+        "title": "CompareView"
       },
       "ConceptOut": {
         "properties": {
@@ -3077,6 +3482,61 @@
         ],
         "title": "ConnectDotsPart"
       },
+      "ConnectDotsView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "connect_dots"
+            ],
+            "title": "Type",
+            "description": "Problem Type: connect_dots"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "image_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Image Key"
+          },
+          "dots": {
+            "items": {
+              "$ref": "#/components/schemas/Dot"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Dots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "image_key",
+          "dots"
+        ],
+        "title": "ConnectDotsView"
+      },
       "CountEntry": {
         "properties": {
           "key": {
@@ -3173,6 +3633,61 @@
           "answer"
         ],
         "title": "CountImagePart"
+      },
+      "CountImageView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "count_image"
+            ],
+            "title": "Type",
+            "description": "Problem Type: count_image"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "image_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Image Key"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/LabeledSlot"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Slots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "image_key",
+          "slots"
+        ],
+        "title": "CountImageView"
       },
       "Dot": {
         "properties": {
@@ -3301,6 +3816,55 @@
           "answer"
         ],
         "title": "DotDrawPart"
+      },
+      "DotDrawView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "dot_draw"
+            ],
+            "title": "Type",
+            "description": "Problem Type: dot_draw"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "boxes": {
+            "items": {
+              "$ref": "#/components/schemas/DotBox"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Boxes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "boxes"
+        ],
+        "title": "DotDrawView"
       },
       "EditIn": {
         "properties": {
@@ -3510,6 +4074,53 @@
           "solution"
         ],
         "title": "FallbackPart"
+      },
+      "FallbackView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "fallback"
+            ],
+            "title": "Type",
+            "description": "Problem Type: fallback"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "image_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Image Key",
+            "description": "the cropped Problem, shown as it is printed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "image_key"
+        ],
+        "title": "FallbackView"
       },
       "GateApproval": {
         "properties": {
@@ -3821,6 +4432,72 @@
         ],
         "title": "GridFillPart"
       },
+      "GridFillView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "grid_fill"
+            ],
+            "title": "Type",
+            "description": "Problem Type: grid_fill"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "rows": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Rows"
+          },
+          "cols": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Cols"
+          },
+          "cells": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/GridCell"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Cells"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "rows",
+          "cols",
+          "cells"
+        ],
+        "title": "GridFillView"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -3839,6 +4516,44 @@
           "version"
         ],
         "title": "Health"
+      },
+      "HomeLessonOut": {
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "book_title_vi": {
+            "type": "string",
+            "title": "Book Title Vi"
+          },
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "lesson_key": {
+            "type": "string",
+            "title": "Lesson Key"
+          },
+          "lesson_label": {
+            "type": "string",
+            "title": "Lesson Label"
+          },
+          "lesson_title": {
+            "type": "string",
+            "title": "Lesson Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id",
+          "book_title_vi",
+          "unit_key",
+          "lesson_key",
+          "lesson_label",
+          "lesson_title"
+        ],
+        "title": "HomeLessonOut"
       },
       "ImageRef": {
         "properties": {
@@ -3949,6 +4664,66 @@
         ],
         "title": "ImageSelectPart"
       },
+      "ImageSelectView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "image_select"
+            ],
+            "title": "Type",
+            "description": "Problem Type: image_select"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "image_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Image Key"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/Region"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Regions"
+          },
+          "multi": {
+            "type": "boolean",
+            "title": "Multi"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "image_key",
+          "regions",
+          "multi"
+        ],
+        "title": "ImageSelectView"
+      },
       "JsonValue": {},
       "LabeledSlot": {
         "properties": {
@@ -3969,6 +4744,144 @@
           "label"
         ],
         "title": "LabeledSlot"
+      },
+      "LibraryBook": {
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "edition": {
+            "type": "string",
+            "title": "Edition"
+          },
+          "grade": {
+            "type": "integer",
+            "title": "Grade"
+          },
+          "volume": {
+            "type": "integer",
+            "title": "Volume"
+          },
+          "title_vi": {
+            "type": "string",
+            "title": "Title Vi"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryUnit"
+            },
+            "type": "array",
+            "title": "Units"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id",
+          "edition",
+          "grade",
+          "volume",
+          "title_vi",
+          "units"
+        ],
+        "title": "LibraryBook"
+      },
+      "LibraryHomeOut": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "grade": {
+            "type": "integer",
+            "title": "Grade"
+          },
+          "lesson": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomeLessonOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "grade"
+        ],
+        "title": "LibraryHomeOut"
+      },
+      "LibraryLesson": {
+        "properties": {
+          "lesson_key": {
+            "type": "string",
+            "title": "Lesson Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "problem_count": {
+            "type": "integer",
+            "title": "Problem Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lesson_key",
+          "label",
+          "title",
+          "position",
+          "problem_count"
+        ],
+        "title": "LibraryLesson"
+      },
+      "LibraryUnit": {
+        "properties": {
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "lessons": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryLesson"
+            },
+            "type": "array",
+            "title": "Lessons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_key",
+          "label",
+          "title",
+          "position",
+          "lessons"
+        ],
+        "title": "LibraryUnit"
       },
       "LoginRequest": {
         "properties": {
@@ -4120,6 +5033,64 @@
         ],
         "title": "MatchPart"
       },
+      "MatchView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "match"
+            ],
+            "title": "Type",
+            "description": "Problem Type: match"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "left": {
+            "items": {
+              "$ref": "#/components/schemas/MatchItem"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Left"
+          },
+          "right": {
+            "items": {
+              "$ref": "#/components/schemas/MatchItem"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Right"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "left",
+          "right"
+        ],
+        "title": "MatchView"
+      },
       "MergeIn": {
         "properties": {
           "grade": {
@@ -4214,6 +5185,60 @@
         ],
         "title": "MultipleChoicePart"
       },
+      "MultipleChoiceView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "multiple_choice"
+            ],
+            "title": "Type",
+            "description": "Problem Type: multiple_choice"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceOption"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Options"
+          },
+          "multi": {
+            "type": "boolean",
+            "title": "Multi"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "options",
+          "multi"
+        ],
+        "title": "MultipleChoiceView"
+      },
       "NumberInputPart": {
         "properties": {
           "part_key": {
@@ -4288,6 +5313,61 @@
         ],
         "title": "NumberInputPart"
       },
+      "NumberInputView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "number_input"
+            ],
+            "title": "Type",
+            "description": "Problem Type: number_input"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template",
+            "description": "text with [[slot_key]] markers"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/Slot"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Slots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "template",
+          "slots"
+        ],
+        "title": "NumberInputView"
+      },
       "NumberTreePart": {
         "properties": {
           "part_key": {
@@ -4355,6 +5435,55 @@
           "answer"
         ],
         "title": "NumberTreePart"
+      },
+      "NumberTreeView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "number_tree"
+            ],
+            "title": "Type",
+            "description": "Problem Type: number_tree"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/TreeNode"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Nodes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "nodes"
+        ],
+        "title": "NumberTreeView"
       },
       "NumericEntry": {
         "properties": {
@@ -4488,6 +5617,65 @@
           "answer"
         ],
         "title": "OrderPart"
+      },
+      "OrderView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "order"
+            ],
+            "title": "Type",
+            "description": "Problem Type: order"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderItem"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Items"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc",
+              "custom"
+            ],
+            "title": "Direction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "items",
+          "direction"
+        ],
+        "title": "OrderView"
       },
       "OverrideOut": {
         "properties": {
@@ -5958,6 +7146,66 @@
           "answer"
         ],
         "title": "SpotDifferencePart"
+      },
+      "SpotDifferenceView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "spot_difference"
+            ],
+            "title": "Type",
+            "description": "Problem Type: spot_difference"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "image_left": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Image Left"
+          },
+          "image_right": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Image Right"
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "description": "how many differences the child must find"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "image_left",
+          "image_right",
+          "count"
+        ],
+        "title": "SpotDifferenceView"
       },
       "TreeNode": {
         "properties": {

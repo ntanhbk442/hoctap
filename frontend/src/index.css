@@ -21,6 +21,112 @@ body {
   color: #59636e;
 }
 
+/* Home cards (Story 2.3): a 2-column grid; "Học tiếp" spans both via home-card-wide. */
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4, 1rem);
+  margin: 1.5rem 0;
+}
+
+.home-card-slot {
+  position: relative;
+}
+
+/* The 🔊 sits over its card's corner rather than nested inside the card's own <button>
+ * (invalid HTML, and would open the card on tap); its own click never bubbles into it. */
+.home-card-slot .speaker-button {
+  position: absolute;
+  top: var(--space-2, 0.5rem);
+  right: var(--space-2, 0.5rem);
+}
+
+.home-empty {
+  grid-column: span 2;
+  color: #59636e;
+}
+
+/* Profile Picker (Story 2.3) */
+.profile-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.profile-picker-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: none;
+  border-radius: var(--radius-lg, 12px);
+  background: var(--color-surface-raised, #f6f8fa);
+  font: inherit;
+  cursor: pointer;
+}
+
+.profile-picker-avatar {
+  font-size: 2.5rem;
+}
+
+/* Library / Lesson detail (Story 2.3) */
+.library-book {
+  margin-top: 1.5rem;
+}
+
+.library-unit {
+  margin: 0.75rem 0;
+}
+
+.library-lesson-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.library-lesson-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  font: inherit;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.library-lesson-progress {
+  color: #59636e;
+}
+
+.lesson-problem-list {
+  margin: 1.5rem 0;
+  padding-left: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lesson-problem-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.lesson-problem-label {
+  font-weight: 600;
+}
+
+.lesson-problem-instruction {
+  color: #59636e;
+}
+
 /* Parent Area: plain, readable styling only (design tokens arrive in Epic 2). */
 .parent {
   max-width: 32rem;
