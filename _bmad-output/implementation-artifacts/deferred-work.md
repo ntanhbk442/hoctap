@@ -22,3 +22,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-10-extraction-control-from-the-parent-area.md`
   summary: DB-level single-active-run constraint and multi-process/instance safety for RunManager.
   evidence: currently enforced only in-process; fine for the single-instance local-PC architecture (AD-13) but worth hardening later.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-11-https-on-the-lan-and-windows-runtime.md`
+  summary: Optional --check/status and uninstall paths for hoctap certs / install-windows.
+  evidence: reviewer suggestion, explicitly out of scope for this story per the frozen intent.

@@ -318,3 +318,134 @@ def test_export_openapi(tmp_path: Path) -> None:
     schema = json.loads(out.read_text(encoding="utf-8"))
     assert "/api/v1/health" in schema["paths"]
     assert "ErrorResponse" in schema["components"]["schemas"]
+
+
+# --- Story 1.11: HTTPS config -----------------------------------------------------
+
+
+def test_config_tls_defaults() -> None:
+    from hoctap.config import REPO_ROOT
+
+    settings = load_settings(REPO_ROOT / "does-not-exist.toml", env={})
+    assert settings.tls_port == 8443
+    assert settings.tls_cert_dir == REPO_ROOT / "data" / "certs"
+    assert settings.tls_cert_file == REPO_ROOT / "data" / "certs" / "cert.pem"
+    assert settings.tls_key_file == REPO_ROOT / "data" / "certs" / "key.pem"
+
+
+def test_config_tls_from_toml(tmp_path: Path) -> None:
+    cfg = tmp_path / "hoctap.toml"
+    cfg.write_text(
+        '[server]\ntls_port = 9443\ntls_cert_dir = "my-certs"\n', encoding="utf-8"
+    )
+    settings = load_settings(cfg, env={})
+    assert settings.tls_port == 9443
+    assert settings.tls_cert_dir == tmp_path / "my-certs"
+
+
+def test_config_tls_port_invalid_in_toml(tmp_path: Path) -> None:
+    cfg = tmp_path / "hoctap.toml"
+    cfg.write_text("[server]\ntls_port = 0\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_settings(cfg, env={})
+
+
+def test_config_tls_env_overrides(tmp_path: Path) -> None:
+    cfg = tmp_path / "hoctap.toml"
+    cfg.write_text('[server]\ntls_port = 9443\n', encoding="utf-8")
+    settings = load_settings(
+        cfg, env={"HOCTAP_TLS_PORT": "8888", "HOCTAP_TLS_CERT_DIR": str(tmp_path / "env-certs")}
+    )
+    assert settings.tls_port == 8888
+    assert settings.tls_cert_dir == tmp_path / "env-certs"
+
+
+def test_config_tls_env_port_invalid() -> None:
+    with pytest.raises(ConfigError):
+        load_settings(env={"HOCTAP_TLS_PORT": "not-a-port"})
+
+
+# --- Story 1.11: `hoctap serve` TLS behaviour ---------------------------------------
+
+
+@pytest.fixture
+def serve_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    monkeypatch.setenv("HOCTAP_CONFIG", str(tmp_path / "hoctap.toml"))
+    (tmp_path / "hoctap.toml").write_text("", encoding="utf-8")
+    monkeypatch.setenv("HOCTAP_DATA_DIR", str(tmp_path / "cli-data"))
+    monkeypatch.setenv("HOCTAP_TLS_CERT_DIR", str(tmp_path / "certs"))
+    return tmp_path
+
+
+class _RecordingUvicornRun:
+    def __init__(self) -> None:
+        self.kwargs: dict[str, object] = {}
+
+    def __call__(self, _app: object, **kwargs: object) -> None:
+        self.kwargs = kwargs
+
+
+def test_serve_no_certs_plain_http(
+    serve_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_run = _RecordingUvicornRun()
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    assert cli_main(["serve"]) == 0
+    assert "ssl_certfile" not in fake_run.kwargs
+    assert "ssl_keyfile" not in fake_run.kwargs
+    assert fake_run.kwargs["port"] == 8000
+    out = capsys.readouterr().out
+    assert "HTTPS" in out and "off" in out.lower()
+
+
+def test_serve_certs_present_uses_tls_port_and_ssl_kwargs(
+    serve_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert_dir = serve_env / "certs"
+    cert_dir.mkdir()
+    cert_file = cert_dir / "cert.pem"
+    key_file = cert_dir / "key.pem"
+    cert_file.write_text("cert", encoding="utf-8")
+    key_file.write_text("key", encoding="utf-8")
+
+    fake_run = _RecordingUvicornRun()
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    assert cli_main(["serve"]) == 0
+    assert fake_run.kwargs["ssl_certfile"] == str(cert_file)
+    assert fake_run.kwargs["ssl_keyfile"] == str(key_file)
+    assert fake_run.kwargs["port"] == 8443
+    out = capsys.readouterr().out
+    assert "HTTPS" in out and "on" in out.lower()
+
+
+def test_serve_explicit_port_overrides_tls_port(
+    serve_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cert_dir = serve_env / "certs"
+    cert_dir.mkdir()
+    (cert_dir / "cert.pem").write_text("cert", encoding="utf-8")
+    (cert_dir / "key.pem").write_text("key", encoding="utf-8")
+
+    fake_run = _RecordingUvicornRun()
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    assert cli_main(["serve", "--port", "9999"]) == 0
+    assert fake_run.kwargs["port"] == 9999
+    assert fake_run.kwargs["ssl_certfile"]  # TLS still active
+
+
+def test_serve_one_file_missing_falls_back_with_warning(
+    serve_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cert_dir = serve_env / "certs"
+    cert_dir.mkdir()
+    key_file = cert_dir / "key.pem"
+    key_file.write_text("key", encoding="utf-8")  # only key.pem, no cert.pem
+
+    fake_run = _RecordingUvicornRun()
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    assert cli_main(["serve"]) == 0
+    assert "ssl_certfile" not in fake_run.kwargs
+    assert fake_run.kwargs["port"] == 8000
+    captured = capsys.readouterr()
+    assert "cert.pem" in captured.err
+    assert "HTTPS" in captured.out and "off" in captured.out.lower()

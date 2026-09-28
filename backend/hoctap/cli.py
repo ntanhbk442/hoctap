@@ -47,12 +47,62 @@ def _serve(args: argparse.Namespace) -> int:
         settings = replace(settings, host=args.host)
     if args.port is not None:
         settings = replace(settings, port=validate_port(args.port, "--port"))
+
+    cert_file, key_file = settings.tls_cert_file, settings.tls_key_file
+    ssl_kwargs: dict[str, str] = {}
+    port = settings.port
+    if cert_file.is_file() and key_file.is_file():
+        ssl_kwargs = {"ssl_certfile": str(cert_file), "ssl_keyfile": str(key_file)}
+        if args.port is None:
+            port = settings.tls_port
+        print(f"HTTPS bật / HTTPS is on (cert: {cert_file}); binding port {port}.")
+    else:
+        if cert_file.exists() != key_file.exists():
+            missing = key_file if cert_file.exists() else cert_file
+            print(
+                f"Cảnh báo / Warning: thiếu {missing}, coi như chưa có chứng chỉ / missing "
+                f"{missing}, treating the certificate as absent.",
+                file=sys.stderr,
+            )
+        print(
+            "HTTPS tắt / HTTPS is off: serving plain HTTP. Chạy `hoctap certs --ip <ip>` "
+            "để bật / run `hoctap certs --ip <ip>` to enable it."
+        )
+
     uvicorn.run(
         create_app(settings),
         host=settings.host,
-        port=settings.port,
+        port=port,
         log_level=settings.log_level.lower(),
+        **ssl_kwargs,
     )
+    return 0
+
+
+def _certs_cmd(args: argparse.Namespace) -> int:
+    from hoctap.builder.certs import CertsError, generate
+
+    settings = load_settings()
+    try:
+        paths = generate(args.ip, args.hostname, settings.tls_cert_dir, args.force)
+    except CertsError as exc:
+        print(exc.message, file=sys.stderr)
+        return exc.code
+    print(f"Đã ghi {paths.cert_file} / wrote {paths.cert_file}")
+    print(f"Đã ghi {paths.key_file} / wrote {paths.key_file}")
+    return 0
+
+
+def _install_windows_cmd(_args: argparse.Namespace) -> int:
+    from hoctap.builder.winfw import FirewallError, install
+
+    settings = load_settings()
+    try:
+        result = install(settings.tls_port)
+    except FirewallError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(result.message)
     return 0
 
 
@@ -577,6 +627,23 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", help="bind address (default from config: 127.0.0.1)")
     serve.add_argument("--port", type=int, help="port (default from config: 8000)")
     serve.set_defaults(func=_serve)
+
+    certs = sub.add_parser(
+        "certs", help="generate an mkcert-signed certificate for the PC's LAN IP"
+    )
+    certs.add_argument("--ip", required=True, help="the PC's LAN IPv4 address")
+    certs.add_argument("--hostname", help="an extra hostname to include in the certificate")
+    certs.add_argument(
+        "--force", action="store_true", help="overwrite an existing cert.pem/key.pem"
+    )
+    certs.set_defaults(func=_certs_cmd)
+
+    install_windows = sub.add_parser(
+        "install-windows",
+        help="add a Windows Firewall rule for the TLS port (prints it and does nothing "
+        "elsewhere)",
+    )
+    install_windows.set_defaults(func=_install_windows_cmd)
 
     export = sub.add_parser("export-openapi", help="write the OpenAPI schema for gen:api")
     export.add_argument("--out", default=str(DEFAULT_OPENAPI_OUT), help="output file")

@@ -27,9 +27,14 @@ Sach_Arch/         source PDFs, read-only
 ## Configuration
 
 Optional. Copy `hoctap.toml.example` to `hoctap.toml` (gitignored). `HOCTAP_DATA_DIR`,
-`HOCTAP_HOST`, `HOCTAP_PORT`, `HOCTAP_LOG_LEVEL`, `HOCTAP_FRONTEND_DIST` and
-`HOCTAP_SOURCE_DIR` (source PDFs, default `Sach_Arch/`) override the file; `HOCTAP_CONFIG`
-selects another file. Secrets such as `ANTHROPIC_API_KEY` come from the environment only.
+`HOCTAP_HOST`, `HOCTAP_PORT`, `HOCTAP_LOG_LEVEL`, `HOCTAP_FRONTEND_DIST`,
+`HOCTAP_SOURCE_DIR` (source PDFs, default `Sach_Arch/`), `HOCTAP_TLS_PORT` and
+`HOCTAP_TLS_CERT_DIR` override the file; `HOCTAP_CONFIG` selects another file. Secrets such
+as `ANTHROPIC_API_KEY` come from the environment only.
+
+For HTTPS on the home LAN (so the tablet gets full PWA install/offline features) and
+running the server natively on Windows, see
+[docs/https-and-windows-setup.md](docs/https-and-windows-setup.md).
 
 ## Development commands
 
@@ -42,6 +47,8 @@ uv run ruff check .                  # lint
 uv run hoctap serve                  # http://localhost:8000 (flags: --host, --port)
 uv run hoctap export-openapi         # write frontend/openapi.json for offline gen:api
 uv run hoctap build catalogue        # check the Toán PDFs and upsert the book catalogue
+uv run hoctap certs --ip <lan-ip>    # mkcert-signed cert for HTTPS on the LAN
+uv run hoctap install-windows        # add a Windows Firewall rule for the TLS port
 ```
 
 Frontend (from `frontend/`):

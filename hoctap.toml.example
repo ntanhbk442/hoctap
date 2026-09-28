@@ -7,11 +7,18 @@
 [server]
 # Relative paths are resolved against this file's folder.
 data_dir = "data"
+# 127.0.0.1 (default) only accepts connections from this PC. For the tablet/LAN setup in
+# docs/https-and-windows-setup.md, bind every interface instead:
+# host = "0.0.0.0"
 host = "127.0.0.1"
 port = 8000
 log_level = "INFO"
 # frontend_dist = "frontend/dist"
 # source_dir = "Sach_Arch"
+# HTTPS on the LAN (Story 1.11, see docs/https-and-windows-setup.md). `serve` uses these
+# only when data/certs/cert.pem and key.pem both exist (created by `hoctap certs`).
+# tls_port = 8443
+# tls_cert_dir = "data/certs"
 
 [build]
 # Extraction settings (HOCTAP_EXTRACTION_MODEL etc. override them). Pages are sent

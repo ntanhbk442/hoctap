@@ -18,7 +18,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-_PATH_KEYS = ("data_dir", "frontend_dist", "source_dir")
+_PATH_KEYS = ("data_dir", "frontend_dist", "source_dir", "tls_cert_dir")
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
@@ -64,6 +64,10 @@ class Settings:
     gate_max_fallback_share: float = 0.15
     gate_min_key_accuracy: float = 0.98
     gate_min_sample: int = 30
+    # HTTPS on the LAN (Story 1.11): the port `serve` binds when an mkcert certificate is
+    # present, and the folder `hoctap certs` writes cert.pem/key.pem into.
+    tls_port: int = 8443
+    tls_cert_dir: Path = REPO_ROOT / "data" / "certs"
 
     def __post_init__(self) -> None:
         if self.verify_model is None:
@@ -80,6 +84,14 @@ class Settings:
     @property
     def build_dir(self) -> Path:
         return self.data_dir / "build"
+
+    @property
+    def tls_cert_file(self) -> Path:
+        return self.tls_cert_dir / "cert.pem"
+
+    @property
+    def tls_key_file(self) -> Path:
+        return self.tls_cert_dir / "key.pem"
 
 
 def _resolve(value: str | Path, base: Path) -> Path:
@@ -179,6 +191,8 @@ def load_settings(config_file: Path | None = None, env: dict[str, str] | None = 
         "log_level": "INFO",
         "frontend_dist": REPO_ROOT / "frontend" / "dist",
         "source_dir": REPO_ROOT / "Sach_Arch",
+        "tls_port": 8443,
+        "tls_cert_dir": REPO_ROOT / "data" / "certs",
     }
 
     if config_file.is_file():
@@ -204,6 +218,8 @@ def load_settings(config_file: Path | None = None, env: dict[str, str] | None = 
             values["port"] = validate_port(section["port"], src)
         if "log_level" in section:
             values["log_level"] = _level(section["log_level"], src)
+        if "tls_port" in section:
+            values["tls_port"] = validate_port(section["tls_port"], f"{src}: tls_port")
         build = data.get("build", {})
         if not isinstance(build, dict):
             raise ConfigError(f"{src}: [build] must be a table")
@@ -219,6 +235,8 @@ def load_settings(config_file: Path | None = None, env: dict[str, str] | None = 
         values["host"] = env["HOCTAP_HOST"]
     if env.get("HOCTAP_PORT"):
         values["port"] = validate_port(env["HOCTAP_PORT"], "HOCTAP_PORT")
+    if env.get("HOCTAP_TLS_PORT"):
+        values["tls_port"] = validate_port(env["HOCTAP_TLS_PORT"], "HOCTAP_TLS_PORT")
     if env.get("HOCTAP_LOG_LEVEL"):
         values["log_level"] = _level(env["HOCTAP_LOG_LEVEL"], "HOCTAP_LOG_LEVEL")
     for key in _BUILD_KEYS:
