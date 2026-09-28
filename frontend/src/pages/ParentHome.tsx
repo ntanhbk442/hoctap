@@ -44,6 +44,9 @@ export default function ParentHome() {
               <li>
                 <Link to="/parent/review">Duyệt nội dung</Link>
               </li>
+              <li>
+                <Link to="/parent/extraction">Chạy thử (pilot)</Link>
+              </li>
             </ul>
           </nav>
           <section aria-labelledby="gate-heading">

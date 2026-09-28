@@ -232,3 +232,32 @@ export function approveGate(estCostSeen: number): Promise<GateReport> {
 export function revokeGate(): Promise<GateReport> {
   return apiPost<GateReport>('/build/gate/revoke')
 }
+
+// --- Extraction control / Chạy thử (Story 1.10) ------------------------------------
+
+export type CatalogueBook = Schemas['CatalogueBookOut']
+export type BuildRun = Schemas['RunOut']
+
+export function getCatalogueBooks(signal?: AbortSignal): Promise<CatalogueBook[]> {
+  return apiGet<CatalogueBook[]>('/build/books', { signal })
+}
+
+export function getCurrentRun(signal?: AbortSignal): Promise<BuildRun | null> {
+  return apiGet<BuildRun | null>('/build/runs/current', { signal })
+}
+
+export function startRun(bookId: string, pages: string, yesSpend: boolean): Promise<BuildRun> {
+  return apiPost<BuildRun>('/build/runs', { book_id: bookId, pages, yes_spend: yesSpend })
+}
+
+export function pauseRun(runId: string): Promise<BuildRun> {
+  return apiPost<BuildRun>(`/build/runs/${enc(runId)}/pause`)
+}
+
+export function resumeRun(runId: string): Promise<BuildRun> {
+  return apiPost<BuildRun>(`/build/runs/${enc(runId)}/resume`)
+}
+
+export function cancelRun(runId: string): Promise<BuildRun> {
+  return apiPost<BuildRun>(`/build/runs/${enc(runId)}/cancel`)
+}

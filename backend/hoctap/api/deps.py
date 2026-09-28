@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import Request
 from sqlalchemy import Engine
 
+from hoctap.builder.jobs import RunManager
 from hoctap.config import Settings
 from hoctap.parent.auth import get_clock
 
@@ -21,3 +22,7 @@ def get_now(request: Request) -> datetime:
 
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
+
+
+def get_run_manager(request: Request) -> RunManager:
+    return request.app.state.run_manager

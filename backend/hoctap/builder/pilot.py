@@ -328,14 +328,21 @@ def run_pilot(
     max_total_usd: float | None = None,
     verify: bool = True,
     publish_pages: bool = True,
+    on_stage: Callable[[str], None] = lambda stage: None,
 ) -> PilotReport:
     """Renders the range (plus the context page), then either writes the extract requests
     (`dry_run`) or extracts the pending pages, validates the range, (unless `verify` is
     false) verifies it and (unless `publish_pages` is false) crops and publishes it.
-    Extract and verify share the run budget."""
+    Extract and verify share the run budget.
+
+    `on_stage(stage)` is called just before each of render/extract/validate/verify/crop
+    starts (a caller such as `builder.jobs.RunManager` uses it to report live progress);
+    it defaults to a no-op, so the CLI's own behaviour is unchanged.
+    """
     report = PilotReport()
     book = plan.book
     render_pages = plan.pages + ([plan.context_page] if plan.context_page else [])
+    on_stage("render")
     previous = pymupdf.TOOLS.mupdf_display_errors()
     pymupdf.TOOLS.mupdf_display_errors(False)
     try:
@@ -392,6 +399,7 @@ def run_pilot(
                 "Có trang cần gọi Claude sau khi vẽ lại; chạy lại với --yes-spend / "
                 "Pages need extraction after re-rendering; re-run with --yes-spend."
             )
+        on_stage("extract")
         budget = settings.extraction_max_total_usd if max_total_usd is None else max_total_usd
         out(
             f"extract: {len(todo)} page(s), up to {settings.extraction_concurrency} at a time, "
@@ -408,6 +416,7 @@ def run_pilot(
     else:
         out("extract: nothing to do (every page already extracted)")
 
+    on_stage("validate")
     current = current_extract_hashes(engine, settings, book)
     report.validate = validate.run_validate(engine, book.book_id, book.page_count, current)
     if not report.validate.unchanged:
@@ -417,6 +426,7 @@ def run_pilot(
             engine, settings, book.book_id, exclude=verified_now
         )
     if verify:
+        on_stage("verify")
         budget = settings.extraction_max_total_usd if max_total_usd is None else max_total_usd
         report.verify = run_verify(
             engine,
@@ -429,6 +439,7 @@ def run_pilot(
             no_problems=NO_PROBLEMS_PILOT,
         )
     if publish_pages:
+        on_stage("crop")
         report.publish_report = run_publish(engine, settings, plan)
     with engine.connect() as conn:
         report.book_cost_usd = costs.total_cost(conn, f"{book.book_id}#p")

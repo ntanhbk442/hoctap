@@ -13,6 +13,7 @@ from hoctap.api import build, health, parent, profiles, review, setup
 from hoctap.api.assets import build_assets_router
 from hoctap.api.errors import ErrorResponse, install_error_handlers
 from hoctap.api.spa import build_spa_router
+from hoctap.builder import jobs
 from hoctap.config import Settings, load_settings
 from hoctap.db.engine import create_db_engine, run_migrations
 from hoctap.ids import utc_now
@@ -41,7 +42,9 @@ def build_api_router() -> APIRouter:
     return api
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, run_client_factory: jobs.ClientFactory | None = None
+) -> FastAPI:
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -57,6 +60,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 engine.dispose()
                 raise
             app.state.engine = engine
+            app.state.run_manager = jobs.RunManager(
+                engine,
+                settings,
+                run_client_factory or jobs.default_client_factory,
+            )
             log.info(
                 "startup",
                 extra={"version": __version__, "data_dir": str(settings.data_dir)},

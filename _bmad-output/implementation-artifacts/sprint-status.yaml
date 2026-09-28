@@ -45,7 +45,7 @@ development_status:
   1-7-crop-concept-tagging-and-publish: review
   1-8-content-review-with-overrides: review
   1-9-spot-check-pilot-report-and-go-no-go-gate: review
-  1-10-extraction-control-from-the-parent-area: backlog
+  1-10-extraction-control-from-the-parent-area: review
   1-11-https-on-the-lan-and-windows-runtime: backlog
   epic-1-retrospective: optional
 

@@ -1,6 +1,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
+  getCatalogueBooks,
   getConcepts,
+  getCurrentRun,
   getGate,
   getHealth,
   getParentSession,
@@ -12,6 +14,9 @@ import {
   getSpotCheck,
   type ProblemFilter,
 } from './client'
+
+// A run polled while it is active (running/pausing); polling stops once it settles.
+const ACTIVE_RUN_STATUSES = new Set(['running', 'pausing'])
 
 export const queryKeys = {
   health: ['health'] as const,
@@ -25,6 +30,8 @@ export const queryKeys = {
   reviewConcepts: ['review', 'concepts'] as const,
   spotCheck: ['review', 'spot-check'] as const,
   gate: ['build', 'gate'] as const,
+  catalogueBooks: ['build', 'books'] as const,
+  currentRun: ['build', 'runs', 'current'] as const,
 }
 
 export function useHealth() {
@@ -101,5 +108,25 @@ export function useGate() {
   return useQuery({
     queryKey: queryKeys.gate,
     queryFn: ({ signal }) => getGate(signal),
+  })
+}
+
+export function useCatalogueBooks() {
+  return useQuery({
+    queryKey: queryKeys.catalogueBooks,
+    queryFn: ({ signal }) => getCatalogueBooks(signal),
+  })
+}
+
+/** Polls `GET /build/runs/current` every 2s while a run is active; stops once it settles
+ * (done/failed/cancelled/paused) or there is no run at all. */
+export function useCurrentRun() {
+  return useQuery({
+    queryKey: queryKeys.currentRun,
+    queryFn: ({ signal }) => getCurrentRun(signal),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status && ACTIVE_RUN_STATUSES.has(status) ? 2000 : false
+    },
   })
 }

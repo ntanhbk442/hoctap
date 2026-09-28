@@ -6,6 +6,8 @@
 - `build_page_results`: one row per problem draft of a page: the validated ProblemDoc
   JSON, or the invalid draft with its errors, plus the verify verdict (`verify_status`,
   `verify_reasons_json`, `needs_review`). A row starts `unverified` with `needs_review` 1.
+- `build_runs` (Story 1.10): one row per background pilot run started from the Parent
+  Area's Extraction screen. `builder.jobs.RunManager` is the only writer.
 """
 
 from __future__ import annotations
@@ -108,4 +110,36 @@ build_gate = Table(
     Column("sample_id", Text, nullable=False),
     Column("scope_hash", Text, nullable=False),  # sha256 of the sorted pilot page refs
     Column("revoked_at", Text, nullable=True),
+)
+
+build_runs = Table(
+    "build_runs",
+    metadata,
+    Column("id", Text, primary_key=True),  # UUIDv7
+    Column("book_id", Text, nullable=False),
+    Column("first_page", Integer, nullable=False),
+    Column("last_page", Integer, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("stage", Text, nullable=True),  # render | extract | validate | verify | crop | publish
+    Column("pages_total", Integer, nullable=False),
+    Column("pages_done", Integer, nullable=False, server_default="0"),
+    Column("cost_usd", Float, nullable=False, server_default="0"),
+    Column("cost_unknown_count", Integer, nullable=False, server_default="0"),
+    Column("failed_pages_json", Text, nullable=False, server_default="[]"),
+    Column("error", Text, nullable=True),
+    # The paused/cancelled run this run resumes (Resume always starts a new row).
+    Column("resumed_from", Text, nullable=True),
+    Column("started_at", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
+    Column("finished_at", Text, nullable=True),
+    CheckConstraint(
+        "status IN ('running', 'pausing', 'paused', 'done', 'failed', 'cancelled')",
+        name="ck_build_runs_status",
+    ),
+    CheckConstraint(
+        "stage IS NULL OR stage IN ('render', 'extract', 'validate', 'verify', 'crop', 'publish')",
+        name="ck_build_runs_stage",
+    ),
+    Index("ix_build_runs_status", "status"),
+    Index("ix_build_runs_book_id", "book_id"),
 )

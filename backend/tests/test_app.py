@@ -188,7 +188,7 @@ def test_fresh_data_dir_created_with_wal_and_migrations(data_dir: Path, dist: Pa
     try:
         assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert con.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("0009_build_jobs_run_kind",)
+            ("0010_build_runs",)
         ]
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert tables == {
@@ -212,6 +212,7 @@ def test_fresh_data_dir_created_with_wal_and_migrations(data_dir: Path, dist: Pa
             "build_gate",
             "content_review_spot_check_samples",
             "content_review_spot_checks",
+            "build_runs",
         }
     finally:
         con.close()
