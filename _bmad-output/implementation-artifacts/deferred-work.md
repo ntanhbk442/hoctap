@@ -25,3 +25,30 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-11-https-on-the-lan-and-windows-runtime.md`
   summary: Optional --check/status and uninstall paths for hoctap certs / install-windows.
   evidence: reviewer suggestion, explicitly out of scope for this story per the frozen intent.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-10-extraction-control-from-the-parent-area.md`
+  summary: Investigate and fix 3 failing tests in frontend/src/pages/ExtractionPage.test.tsx, discovered for the first time during Story 2.1 (this exact file could never run to completion on this machine before now, per Story 1.10's own Spec Change Log -- these may never have passed).
+  evidence: |
+    Run standalone from a native filesystem (npm ci + npx vitest run in /tmp, working
+    around the /mnt/c WSL9P I/O latency issue): 3/8 tests in this file fail, reproducibly.
+    (1) "shows the picker when there is no run, and starts one": uses synchronous
+    `screen.getByRole(...)` immediately after `renderAt(...)`, but the component shows a
+    "Đang tải..." loading state until its async GET queries resolve -- likely a test-authoring
+    race (should be `findByRole`), not a component bug.
+    (2) "asks to confirm the spend, then starts on confirm": after the mocked 422
+    SPEND_NOT_CONFIRMED response, the DOM is byte-identical before and after the click --
+    no estimate text, no confirmation UI, and the submit button ends up disabled. This does
+    NOT look like a simple text-matcher issue (unlike #3) -- it looks like the mutation's
+    onError never fires, or `start.isPending` never resolves, or the click/submit never
+    reaches `start.mutate(false)` at all. Traced as far as: the onError handler in
+    ExtractionPage.tsx (checks `error instanceof ApiError && error.code === 'SPEND_NOT_CONFIRMED'`)
+    and mockApi's request matching (`src/test/render.tsx`) both look correct on inspection;
+    root cause not yet found. THIS ONE MAY BE A REAL BUG in the spend-confirmation flow
+    shipped in Story 1.10, not merely a test issue -- needs a debugger/console.log trace,
+    not just static reading.
+    (3) "cancels a run": `findByText('Đã hủy')` (exact match) fails because the actual
+    rendered text is the longer `"Đã hủy (1/3 trang) · Chi phí: $0.2500"` -- testing-library's
+    default exact-string matching doesn't substring-match; this is a test-authoring bug
+    (needs a regex or `{exact: false}`), the component itself renders correctly.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-design-tokens-nunito-and-core-components.md`
+  summary: Add a barrel export (src/components/index.ts) for the ten shared components once more consumers exist.
+  evidence: reviewer suggestion, no current consumer needs it yet.

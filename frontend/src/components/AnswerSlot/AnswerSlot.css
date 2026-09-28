@@ -1,0 +1,61 @@
+.answer-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  border: 3px solid var(--color-slot-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  font-family: var(--font-answer-family);
+  font-size: var(--font-answer-size);
+  font-weight: var(--font-answer-weight);
+  line-height: var(--font-answer-line-height);
+  cursor: pointer;
+  padding: 0;
+}
+
+.answer-slot-active {
+  border-color: var(--color-slot-border-active);
+}
+
+.answer-slot-correct {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.answer-slot-wrong {
+  border-color: var(--color-retry);
+  background: var(--color-retry-soft);
+}
+
+.answer-slot-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.answer-slot-shake {
+  animation: answer-slot-shake 0.4s ease-in-out;
+}
+
+@keyframes answer-slot-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .answer-slot-shake {
+    animation: none;
+  }
+}

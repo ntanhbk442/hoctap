@@ -49,8 +49,8 @@ development_status:
   1-11-https-on-the-lan-and-windows-runtime: review
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-design-tokens-nunito-and-core-components: backlog
+  epic-2: in-progress
+  2-1-design-tokens-nunito-and-core-components: done
   2-2-speech-normaliser-tts-adapter-and-speak-missing: backlog
   2-3-child-home-and-library: backlog
   2-4-sessions-resolver-and-the-event-api: backlog

@@ -1,0 +1,27 @@
+.numpad {
+  display: grid;
+  grid-template-columns: repeat(3, var(--space-key));
+  gap: var(--space-3);
+}
+
+.numpad-key {
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  font-family: var(--font-answer-family);
+  font-size: var(--font-answer-size);
+  font-weight: var(--font-answer-weight);
+  line-height: var(--font-answer-line-height);
+  box-shadow: 0 4px 0 0 var(--color-surface-sunken);
+  cursor: pointer;
+}
+
+.numpad-key:active {
+  box-shadow: none;
+  transform: translateY(4px);
+}
+
+.numpad-filler {
+  display: block;
+}

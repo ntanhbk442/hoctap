@@ -1,0 +1,76 @@
+/* GENERATED FILE. Do not edit by hand — run `npm run gen:tokens`.
+ * Source of truth: _bmad-output/planning-artifacts/ux-designs/ux-hoctap-2026-09-26/DESIGN.md (frontmatter). */
+:root {
+  /* colors */
+  --color-surface-base: #FFF8EC;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-sunken: #F3EBDD;
+  --color-ink-primary: #2B2D42;
+  --color-ink-secondary: #5C6178;
+  --color-ink-on-color: #FFFFFF;
+  --color-primary: #1971C2;
+  --color-primary-pressed: #145591;
+  --color-primary-soft: #D0EBFF;
+  --color-success: #2A7D3A;
+  --color-success-pressed: #1E5E2B;
+  --color-success-soft: #D3F9D8;
+  --color-retry: #C2410C;
+  --color-retry-soft: #FFE8CC;
+  --color-hint: #7048E8;
+  --color-hint-soft: #EDE7FF;
+  --color-star: #FAB005;
+  --color-star-outline: #946800;
+  --color-progress-todo: #978770;
+  --color-streak: #FF6B2C;
+  --color-slot-border: #6B7A90;
+  --color-slot-border-active: #1971C2;
+  --color-parent-surface: #F8F9FA;
+  --color-parent-border: #DEE2E6;
+
+  /* typography */
+  --font-display-family: Nunito, sans-serif;
+  --font-display-size: 40px;
+  --font-display-weight: 800;
+  --font-display-line-height: 1.2;
+  --font-instruction-family: Nunito, sans-serif;
+  --font-instruction-size: 28px;
+  --font-instruction-weight: 700;
+  --font-instruction-line-height: 1.35;
+  --font-answer-family: Nunito, sans-serif;
+  --font-answer-size: 40px;
+  --font-answer-weight: 800;
+  --font-answer-line-height: 1;
+  --font-body-family: Nunito, sans-serif;
+  --font-body-size: 22px;
+  --font-body-weight: 600;
+  --font-body-line-height: 1.45;
+  --font-label-family: Nunito, sans-serif;
+  --font-label-size: 18px;
+  --font-label-weight: 700;
+  --font-label-line-height: 1.2;
+  --font-parent-body-family: Nunito, sans-serif;
+  --font-parent-body-size: 16px;
+  --font-parent-body-weight: 500;
+  --font-parent-body-line-height: 1.5;
+  --font-parent-heading-family: Nunito, sans-serif;
+  --font-parent-heading-size: 22px;
+  --font-parent-heading-weight: 800;
+  --font-parent-heading-line-height: 1.3;
+
+  /* rounded corners */
+  --radius-sm: 12px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --radius-full: 9999px;
+
+  /* spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-touch-min: 64px;
+  --space-key: 80px;
+}

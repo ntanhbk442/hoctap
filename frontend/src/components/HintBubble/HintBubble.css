@@ -1,0 +1,23 @@
+.hint-bubble {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-hint-soft);
+  color: var(--color-ink-primary);
+}
+
+.hint-bubble-icon {
+  font-size: 1.5rem;
+  color: var(--color-hint);
+}
+
+.hint-bubble-text {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-body-family);
+  font-size: var(--font-body-size);
+  font-weight: var(--font-body-weight);
+  line-height: var(--font-body-line-height);
+}

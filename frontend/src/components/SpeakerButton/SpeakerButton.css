@@ -1,0 +1,33 @@
+.speaker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.speaker-button-playing {
+  animation: speaker-pulse 1s ease-in-out infinite;
+}
+
+@keyframes speaker-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speaker-button-playing {
+    animation: none;
+  }
+}

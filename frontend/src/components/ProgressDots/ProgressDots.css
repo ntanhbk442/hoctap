@@ -1,0 +1,27 @@
+.progress-dots {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--color-progress-todo);
+}
+
+.progress-dot-done {
+  background: var(--color-success);
+}
+
+.progress-dot-current {
+  background: var(--color-primary);
+}
+
+.progress-dot-todo {
+  background: transparent;
+  border: 2px solid var(--color-progress-todo);
+}
