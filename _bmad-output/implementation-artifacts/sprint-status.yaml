@@ -51,7 +51,7 @@ development_status:
 
   epic-2: in-progress
   2-1-design-tokens-nunito-and-core-components: done
-  2-2-speech-normaliser-tts-adapter-and-speak-missing: backlog
+  2-2-speech-normaliser-tts-adapter-and-speak-missing: done
   2-3-child-home-and-library: backlog
   2-4-sessions-resolver-and-the-event-api: backlog
   2-5-grading-and-staged-help: backlog

@@ -20,6 +20,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _PATH_KEYS = ("data_dir", "frontend_dist", "source_dir", "tls_cert_dir")
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+# Kept in sync with `builder.tts_client.ENGINE_NAMES` (not imported, to keep config.py
+# free of the builder's dependencies).
+_TTS_ENGINES = {"edge-tts", "google-tts"}
 
 
 class ConfigError(ValueError):
@@ -68,10 +71,20 @@ class Settings:
     # present, and the folder `hoctap certs` writes cert.pem/key.pem into.
     tls_port: int = 8443
     tls_cert_dir: Path = REPO_ROOT / "data" / "certs"
+    # `hoctap build speak-missing` (Story 2.2): the TTS engine and voice, and the same
+    # spend-cap pattern as `extraction_max_total_usd` (edge-tts is free, so this only bounds
+    # the cloud engine). The cloud engine's API key is read from the environment only.
+    tts_engine: str = "edge-tts"
+    tts_voice_id: str = "vi-VN-HoaiMyNeural"
+    tts_max_total_usd: float = 5.0
 
     def __post_init__(self) -> None:
         if self.verify_model is None:
             object.__setattr__(self, "verify_model", self.extraction_model)
+        if self.tts_engine not in _TTS_ENGINES:
+            raise ConfigError(
+                f"tts_engine must be one of {sorted(_TTS_ENGINES)}, got {self.tts_engine!r}"
+            )
 
     @property
     def db_path(self) -> Path:
@@ -136,6 +149,9 @@ _BUILD_KEYS: dict[str, type] = {
     "gate_max_fallback_share": float,
     "gate_min_key_accuracy": float,
     "gate_min_sample": int,
+    "tts_engine": str,
+    "tts_voice_id": str,
+    "tts_max_total_usd": float,
 }
 _POSITIVE = {
     "render_long_edge",
@@ -145,6 +161,7 @@ _POSITIVE = {
     "extraction_max_total_usd",
     "pilot_max_pages",
     "gate_min_sample",
+    "tts_max_total_usd",
 }
 # Shares: between 0 and 1.
 _FRACTIONS = {"gate_max_fallback_share", "gate_min_key_accuracy"}

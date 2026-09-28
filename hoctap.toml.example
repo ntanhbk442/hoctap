@@ -35,3 +35,10 @@ log_level = "INFO"
 # price_output_per_mtok = 25.0
 # estimate_input_tokens_per_page = 30000
 # estimate_output_tokens_per_page = 10000
+
+# `hoctap build speak-missing` (Story 2.2): synthesises the Vietnamese audio referenced by
+# Problems and the UI phrase catalogue. edge-tts (default) is free and needs no API key;
+# google-tts needs GOOGLE_APPLICATION_CREDENTIALS in the environment (never put it here).
+# tts_engine = "edge-tts"          # "edge-tts" or "google-tts"
+# tts_voice_id = "vi-VN-HoaiMyNeural"
+# tts_max_total_usd = 5.0          # --max-total-usd; edge-tts calls cost nothing

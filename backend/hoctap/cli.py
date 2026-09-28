@@ -1,5 +1,5 @@
 """`hoctap` command line: `serve`, `export-*` schemas and
-`build catalogue|pilot|verify|publish|gate|full`."""
+`build catalogue|pilot|verify|publish|speak-missing|gate|full`."""
 
 from __future__ import annotations
 
@@ -484,6 +484,72 @@ def _build_verify(args: argparse.Namespace) -> int:
     return _run_build(args, body)
 
 
+def _tts_client(settings):  # noqa: ANN001, ANN202 - replaced in tests
+    from hoctap.builder.tts_client import make_engine
+
+    return make_engine(settings.tts_engine)
+
+
+def _spend_tts_client(args: argparse.Namespace, settings, needs_calls: bool):  # noqa: ANN001, ANN202
+    """Like `_spend_client`, but edge-tts (free) never needs `--yes-spend`: only the cloud
+    engine is gated behind it."""
+    from hoctap.builder.tts_client import EDGE_ENGINE
+
+    if args.dry_run or not needs_calls:
+        return None
+    if settings.tts_engine != EDGE_ENGINE and not args.yes_spend:
+        print(_SPEND_REFUSED, file=sys.stderr)
+        raise _Refused
+    return _tts_client(settings)
+
+
+def _build_speak_missing(args: argparse.Namespace) -> int:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from hoctap.builder.stages import speak
+    from hoctap.builder.tts_client import PRICE_PER_CHAR_USD
+    from hoctap.config import REPO_ROOT
+    from hoctap.db.engine import create_db_engine, run_migrations
+
+    settings = load_settings()
+    try:
+        engine = create_db_engine(settings.db_path)
+    except OSError as exc:
+        print(f"Lỗi cơ sở dữ liệu / Database error at {settings.db_path}: {exc}", file=sys.stderr)
+        return 1
+    try:
+        run_migrations(engine)
+        with engine.connect() as conn:
+            refs = speak.collect_refs(conn, REPO_ROOT, settings.tts_voice_id)
+        todo = speak.pending_keys(settings.data_dir, refs)
+        print(f"speak-missing: {len(refs)} referenced key(s), {len(todo)} missing")
+        client = _spend_tts_client(args, settings, bool(todo))
+        max_total = settings.tts_max_total_usd if args.max_total_usd is None else args.max_total_usd
+        cost_per_char = PRICE_PER_CHAR_USD.get(settings.tts_engine, 0.0)
+        report = speak.run_speak(
+            engine,
+            settings.data_dir,
+            REPO_ROOT,
+            client,
+            settings.tts_voice_id,
+            dry_run=args.dry_run,
+            max_total_usd=max_total,
+            cost_per_char_usd=cost_per_char,
+        )
+        for line in speak.describe(report):
+            print(line)
+        for line in speak.describe_failures(report):
+            print(line, file=sys.stderr)
+        return 1 if report.failed else 0
+    except _Refused:
+        return 2
+    except (SQLAlchemyError, OSError) as exc:
+        print(f"Lỗi / Error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        engine.dispose()
+
+
 def _open_db(body) -> int:  # noqa: ANN001
     """Opens the database (migrated) and runs `body(engine, settings)`; database errors
     exit 1."""
@@ -619,6 +685,24 @@ def _spend_flags(command: argparse.ArgumentParser) -> None:
     )
 
 
+def _speak_flags(command: argparse.ArgumentParser) -> None:
+    """Like `_spend_flags`, but `speak-missing` has no `--book`/`--pages`: it scans every
+    currently-referenced key across all published content."""
+    mode = command.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="report what would be synthesised")
+    mode.add_argument(
+        "--yes-spend",
+        action="store_true",
+        help="allow calls to the cloud TTS engine (costs money; not needed for edge-tts)",
+    )
+    command.add_argument(
+        "--max-total-usd",
+        type=_positive_usd,
+        help="stop starting new syntheses once this run has spent this much "
+        "(default from config: tts_max_total_usd)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hoctap", description="Học Tập server")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -695,6 +779,13 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_argument("--book", required=True, help="book_id, e.g. toan1-2020-q1")
     publish.add_argument("--pages", required=True, help="1-based page range a-b, e.g. 5-7")
     publish.set_defaults(func=_build_publish)
+    speak_missing = build_sub.add_parser(
+        "speak-missing",
+        help="synthesise the Vietnamese audio of every currently-referenced speech key that "
+        "is missing (Problems, Concept Guides once they have text, and the UI phrase catalogue)",
+    )
+    _speak_flags(speak_missing)
+    speak_missing.set_defaults(func=_build_speak_missing)
     gate_cmd = build_sub.add_parser(
         "gate", help="the go/no-go report: pilot quality and cost against the thresholds"
     )

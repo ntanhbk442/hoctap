@@ -13,6 +13,8 @@ dependencies = [
     "anthropic>=1.8,<2",
     "bcrypt==5.0.0",
     "itsdangerous==2.2.0",
+    "google-cloud-texttospeech>=2.37.0",
+    "edge-tts>=7.2.8",
 ]
 
 [project.scripts]
