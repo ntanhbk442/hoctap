@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import type { Profile } from '../api/client'
 import { errorMessage } from '../api/errors'
-import { useLibraryHome, useProfiles, useSetupStatus } from '../api/queries'
+import { useLibraryHome, useProfiles, useSetupStatus, useStartSession } from '../api/queries'
 import { phrase } from '../audio/phrases'
 import { speak } from '../audio/speech'
 import HomeCard from '../components/HomeCard/HomeCard'
@@ -69,6 +69,11 @@ export default function Home() {
     )
   }
 
+  // `setup_required: false` with zero Profiles is an inconsistent but reachable state
+  // (e.g. the sole Profile deleted from the Parent Area post-setup) -- without this guard
+  // it would leave a dead-end blank ProfilePicker with nothing to pick.
+  if (list.length === 0) return <Navigate to="/setup" replace />
+
   const current = list.find((p) => p.id === profileId) ?? onlyProfile
 
   if (!current) {
@@ -89,9 +94,26 @@ export default function Home() {
 function HomeContent({ profile }: { profile: Profile }) {
   const navigate = useNavigate()
   const home = useLibraryHome(profile.id)
+  const startSession = useStartSession()
   const lesson = home.data?.lesson
   const keepLearningLabel = phrase('home_keep_learning')
   const libraryLabel = phrase('home_library')
+
+  const startLesson = () => {
+    if (!lesson) return
+    startSession.mutate(
+      {
+        profileId: profile.id,
+        ref: {
+          kind: 'lesson',
+          book_id: lesson.book_id,
+          unit_key: lesson.unit_key,
+          lesson_key: lesson.lesson_key,
+        },
+      },
+      { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
+    )
+  }
 
   return (
     <main className="home">
@@ -115,15 +137,18 @@ function HomeContent({ profile }: { profile: Profile }) {
                 title={keepLearningLabel}
                 icon="📖"
                 wide
-                onClick={() =>
-                  navigate(`/library/${lesson.book_id}/${lesson.unit_key}/${lesson.lesson_key}`)
-                }
+                onClick={startLesson}
                 onLongPress={() => void speak(keepLearningLabel)}
               />
               <SpeakerButton
                 label={`Nghe: ${keepLearningLabel}`}
                 onClick={() => void speak(keepLearningLabel)}
               />
+              {startSession.isError && (
+                <p role="alert" className="form-error">
+                  {errorMessage(startSession.error)}
+                </p>
+              )}
             </>
           ) : (
             <p className="home-empty" data-testid="home-empty">

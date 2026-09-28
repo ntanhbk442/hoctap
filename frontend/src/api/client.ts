@@ -33,6 +33,12 @@ export type LibraryUnit = Schemas['LibraryUnit']
 export type LibraryLesson = Schemas['LibraryLesson']
 export type LibraryHomeOut = Schemas['LibraryHomeOut']
 export type HomeLessonOut = Schemas['HomeLessonOut']
+export type SessionOut = Schemas['SessionOut']
+export type LessonRefIn = Schemas['LessonRefIn']
+export type BundleOut = Schemas['BundleOut']
+export type BundleProblemOut = Schemas['BundleProblemOut']
+export type EventIn = Schemas['EventIn']
+export type EventOut = Schemas['EventOut']
 
 export const API_BASE = '/api/v1'
 
@@ -139,8 +145,13 @@ export function getProfiles(signal?: AbortSignal): Promise<Profile[]> {
 
 const LIBRARY = '/library'
 
-export function getLibraryBooks(grade: number, signal?: AbortSignal): Promise<LibraryBook[]> {
-  return apiGet<LibraryBook[]>(`${LIBRARY}/grades/${grade}/books`, { signal })
+export function getLibraryBooks(
+  grade: number,
+  profileId?: string,
+  signal?: AbortSignal,
+): Promise<LibraryBook[]> {
+  const query = profileId ? `?profile_id=${encodeURIComponent(profileId)}` : ''
+  return apiGet<LibraryBook[]>(`${LIBRARY}/grades/${grade}/books${query}`, { signal })
 }
 
 export function getLibraryLesson(
@@ -157,6 +168,37 @@ export function getLibraryLesson(
 
 export function getLibraryHome(profileId: string, signal?: AbortSignal): Promise<LibraryHomeOut> {
   return apiGet<LibraryHomeOut>(`${LIBRARY}/home/${encodeURIComponent(profileId)}`, { signal })
+}
+
+// --- Sessions (Story 2.4) ------------------------------------------------------------
+
+const SESSIONS = '/sessions'
+
+export function startSession(profileId: string, ref: LessonRefIn): Promise<SessionOut> {
+  return apiPost<SessionOut>(SESSIONS, { profile_id: profileId, ref })
+}
+
+export function getSessionBundle(
+  sessionId: string,
+  profileId: string,
+  chunk: number,
+  signal?: AbortSignal,
+): Promise<BundleOut> {
+  return apiGet<BundleOut>(
+    `${SESSIONS}/${enc(sessionId)}/bundle?profile_id=${encodeURIComponent(profileId)}&chunk=${chunk}`,
+    { signal },
+  )
+}
+
+export function postSessionEvents(
+  sessionId: string,
+  profileId: string,
+  events: EventIn[],
+): Promise<EventOut[]> {
+  return apiPost<EventOut[]>(`${SESSIONS}/${enc(sessionId)}/events`, {
+    profile_id: profileId,
+    events,
+  })
 }
 
 // --- Content Review (Duyệt nội dung) ---------------------------------------------

@@ -9,6 +9,7 @@ import ParentHome from './pages/ParentHome.tsx'
 import ParentLogin from './pages/ParentLogin.tsx'
 import ProblemEditor from './pages/review/ProblemEditor.tsx'
 import ReviewPage from './pages/review/ReviewPage.tsx'
+import SessionPlayer from './pages/SessionPlayer.tsx'
 import Setup from './pages/Setup.tsx'
 import PWABadge from './PWABadge.tsx'
 
@@ -17,6 +18,7 @@ const routes = [
   { path: '/setup', element: <Setup /> },
   { path: '/library', element: <Library /> },
   { path: '/library/:bookId/:unitKey/:lessonKey', element: <LessonDetail /> },
+  { path: '/sessions/:sessionId', element: <SessionPlayer /> },
   { path: '/parent/login', element: <ParentLogin /> },
   { path: '/parent', element: <ParentHome /> },
   { path: '/parent/review', element: <ReviewPage /> },

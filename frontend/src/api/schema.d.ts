@@ -423,7 +423,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Grade Books */
+        /**
+         * Get Grade Books
+         * @description `profile_id` is optional: omitted, every Lesson's `attempted` is honestly 0 (no
+         *     Profile to count for); given, `attempted` is the real "done at least once" numerator
+         *     (Story 2.4, `learning.progress`) -- never "correct", no grader exists yet. An unknown
+         *     `profile_id` 404s (matching `/library/home/{profile_id}`'s own convention) rather than
+         *     silently returning a real book/lesson tree with an all-zero `attempted` column.
+         */
         get: operations["list_library_books"];
         put?: never;
         post?: never;
@@ -440,7 +447,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Lesson Problems */
+        /**
+         * Get Lesson Problems
+         * @description Intentionally always 200: `[]` covers both "this Book/Unit/Lesson doesn't exist" and
+         *     "it exists but has no visible Problems" -- both are the same "nothing to show" answer to
+         *     the child, and `visible_to_child()`'s filter can't (and shouldn't) distinguish an unknown
+         *     key from a real one with zero matches. Not an oversight; no 404 is used here.
+         */
         get: operations["get_library_lesson_problems"];
         put?: never;
         post?: never;
@@ -461,6 +474,57 @@ export interface paths {
         get: operations["get_library_home"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Session */
+        post: operations["start_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Bundle */
+        get: operations["get_session_bundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{session_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Events */
+        post: operations["post_session_events"];
         delete?: never;
         options?: never;
         head?: never;
@@ -732,6 +796,33 @@ export interface components {
              * @constant
              */
             state: "idle";
+        };
+        /** BundleOut */
+        BundleOut: {
+            /** Session Id */
+            session_id: string;
+            /** Chunk */
+            chunk: number;
+            /** Chunk Count */
+            chunk_count: number;
+            /** Chunk Label */
+            chunk_label: string;
+            /** Problems */
+            problems: components["schemas"]["BundleProblemOut"][];
+        };
+        /** BundleProblemOut */
+        BundleProblemOut: {
+            problem: components["schemas"]["ChildProblemView"];
+            /** Crop Urls */
+            crop_urls: string[];
+            /** Page Urls */
+            page_urls: string[];
+            /** Audio */
+            audio: {
+                [key: string]: string;
+            };
+            /** Attempted */
+            attempted: boolean;
         };
         /** CatalogueBookOut */
         CatalogueBookOut: {
@@ -1159,6 +1250,36 @@ export interface components {
         ErrorResponse: {
             error: components["schemas"]["ErrorBody"];
         };
+        /** EventIn */
+        EventIn: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Problem Id */
+            problem_id?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+            /** Occurred At */
+            occurred_at: string;
+        };
+        /** EventOut */
+        EventOut: {
+            /** Id */
+            id: string;
+            /** Session Id */
+            session_id: string;
+            /** Kind */
+            kind: string;
+            /** Problem Id */
+            problem_id: string | null;
+            /** Occurred At */
+            occurred_at: string;
+            /** Received At */
+            received_at: string;
+        };
         /** FailedPage */
         FailedPage: {
             /** Page */
@@ -1507,6 +1628,21 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** LessonRefIn */
+        LessonRefIn: {
+            /**
+             * Kind
+             * @default lesson
+             * @constant
+             */
+            kind: "lesson";
+            /** Book Id */
+            book_id: string;
+            /** Unit Key */
+            unit_key: string;
+            /** Lesson Key */
+            lesson_key: string;
+        };
         /** LibraryBook */
         LibraryBook: {
             /** Book Id */
@@ -1542,6 +1678,11 @@ export interface components {
             position: number;
             /** Problem Count */
             problem_count: number;
+            /**
+             * Attempted
+             * @default 0
+             */
+            attempted: number;
         };
         /** LibraryUnit */
         LibraryUnit: {
@@ -1925,6 +2066,13 @@ export interface components {
             /** Edits */
             edits: components["schemas"]["EditIn"][];
         };
+        /** PostEventsIn */
+        PostEventsIn: {
+            /** Profile Id */
+            profile_id: string;
+            /** Events */
+            events: components["schemas"]["EventIn"][];
+        };
         /** ProblemDetail */
         ProblemDetail: {
             summary: components["schemas"]["ProblemSummary"];
@@ -2275,6 +2423,23 @@ export interface components {
              */
             sequence: number[];
         };
+        /** SessionOut */
+        SessionOut: {
+            /** Id */
+            id: string;
+            /** Profile Id */
+            profile_id: string;
+            /** Ref Kind */
+            ref_kind: string;
+            /** Problem Ids */
+            problem_ids: string[];
+            /** Chunk Size */
+            chunk_size: number;
+            /** Mode */
+            mode: string;
+            /** Started At */
+            started_at: string;
+        };
         /** SessionStatus */
         SessionStatus: {
             /**
@@ -2473,6 +2638,12 @@ export interface components {
              * @description how many differences the child must find
              */
             count: number;
+        };
+        /** StartSessionIn */
+        StartSessionIn: {
+            /** Profile Id */
+            profile_id: string;
+            ref: components["schemas"]["LessonRefIn"];
         };
         /** TreeNode */
         TreeNode: {
@@ -3935,7 +4106,9 @@ export interface operations {
     };
     list_library_books: {
         parameters: {
-            query?: never;
+            query?: {
+                profile_id?: string | null;
+            };
             header?: never;
             path: {
                 grade: number;
@@ -3953,7 +4126,7 @@ export interface operations {
                     "application/json": components["schemas"]["LibraryBook"][];
                 };
             };
-            /** @description Not found */
+            /** @description Unknown profile */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4045,6 +4218,153 @@ export interface operations {
                 };
             };
             /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSessionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description Unknown profile */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Empty Problem set */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_session_bundle: {
+        parameters: {
+            query: {
+                profile_id: string;
+                chunk?: number;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleOut"];
+                };
+            };
+            /** @description Profile doesn't own this Session */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown Session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Chunk out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_session_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostEventsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventOut"][];
+                };
+            };
+            /** @description Profile doesn't own this Session */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown Session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid event id, kind, or problem_id */
             422: {
                 headers: {
                     [name: string]: unknown;

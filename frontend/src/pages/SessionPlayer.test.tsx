@@ -1,0 +1,154 @@
+import { fireEvent, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setCurrentProfileId } from '../profile'
+import { mockApi, renderAt } from '../test/render'
+import SessionPlayer from './SessionPlayer'
+
+const PROFILE_ID = 'profile-1'
+
+const PROBLEM = {
+  schema_version: 'v1',
+  problem_id: 'toan1-2020-q1.tuan-5.tiet-2.bai-1',
+  book_id: 'toan1-2020-q1',
+  unit_key: 'tuan-5',
+  lesson_key: 'tiet-2',
+  problem_label: 'bai-1',
+  display_label: 'Bài 1',
+  instruction: 'Tính:',
+  layout: 'sequence',
+  source_pages: [{ page: 12, bbox: [0, 0, 1, 1] }],
+  images: [],
+  concept_ids: [],
+  concept_proposals: [],
+  parts: [
+    {
+      part_key: 'a',
+      type: 'number_input',
+      prompt: '',
+      image_keys: [],
+      template: '3 + 2 = [[s1]]',
+      slots: [{ slot_key: 's1' }],
+    },
+  ],
+}
+
+function bundle(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    session_id: 'session-1',
+    chunk: 1,
+    chunk_count: 1,
+    chunk_label: 'Phần 1/1',
+    problems: [
+      {
+        problem: PROBLEM,
+        crop_urls: ['/assets-data/crops/toan1-2020-q1/x/_problem.jpg'],
+        page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
+        audio: { abc123: '/assets-data/audio/abc123.mp3' },
+        attempted: false,
+      },
+    ],
+    ...overrides,
+  }
+}
+
+const ROUTE = '/sessions/session-1'
+const PATTERN = '/sessions/:sessionId'
+
+beforeEach(() => {
+  setCurrentProfileId(PROFILE_ID)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  sessionStorage.clear()
+})
+
+describe('SessionPlayer', () => {
+  it('shows the current chunk label and the Problems, without their Answer Key', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Phần 1/1')).toBeInTheDocument()
+    expect(screen.getByText('Bài 1')).toBeInTheDocument()
+    expect(screen.getByText('Tính:')).toBeInTheDocument()
+    expect(screen.queryByText(/answer/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a friendly message, not a bare empty list, when every Problem in the chunk was skipped', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle({ problems: [] }) },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Phần này chưa có bài tập nào để hiển thị.')).toBeInTheDocument()
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('marks an attempted Problem as "Đã làm"', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ problems: [{ ...bundle().problems[0], attempted: true }] }),
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByTestId('attempted-mark')).toHaveTextContent('Đã làm')
+  })
+
+  it('shows a loading state while the bundle is being fetched', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {})),
+    )
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(screen.getByText('Đang tải…')).toBeInTheDocument()
+  })
+
+  it('shows an error with retry when the bundle fetch fails', async () => {
+    const fetchMock = mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 502 } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Đã xảy ra lỗi. Vui lòng thử lại.')
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalled()
+  })
+
+  it('shows a "go back to Library" message, not an endless retry, for a gone/unknown Session', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 404,
+        body: { error: { code: 'SESSION_NOT_FOUND', message: 'Không tìm thấy lượt học.' } },
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(
+      await screen.findByText('Lượt học này không còn tồn tại. Hãy quay lại Sách để bắt đầu lại.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Thử lại' })).not.toBeInTheDocument()
+  })
+
+  it('Phần sau/trước switch chunks for a multi-chunk Session', async () => {
+    const chunk1 = bundle({ chunk: 1, chunk_count: 2, chunk_label: 'Phần 1/2' })
+    const chunk2 = bundle({
+      chunk: 2,
+      chunk_count: 2,
+      chunk_label: 'Phần 2/2',
+      problems: [
+        { ...bundle().problems[0], problem: { ...PROBLEM, display_label: 'Bài 2' } },
+      ],
+    })
+    const fetchMock = vi.fn(async (url: string) => {
+      const chunkParam = new URL(url, 'http://x').searchParams.get('chunk')
+      const body = chunkParam === '2' ? chunk2 : chunk1
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Phần 1/2')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Phần sau' }))
+    expect(await screen.findByText('Phần 2/2')).toBeInTheDocument()
+    expect(screen.getByText('Bài 2')).toBeInTheDocument()
+  })
+})

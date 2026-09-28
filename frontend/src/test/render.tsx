@@ -18,6 +18,7 @@ export function renderAt(path: string, element: ReactElement, pattern: string = 
     { path: '/', element: <p>home screen</p> },
     { path: '/library', element: <p>library screen</p> },
     { path: '/library/:bookId/:unitKey/:lessonKey', element: <p>lesson detail screen</p> },
+    { path: '/sessions/:sessionId', element: <p>session player screen</p> },
   ].filter((s) => s.path !== pattern)
   const router = createMemoryRouter([{ path: pattern, element }, ...stubs], {
     initialEntries: [path],

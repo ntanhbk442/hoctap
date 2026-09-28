@@ -1,5 +1,6 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  type EventIn,
   getCatalogueBooks,
   getConcepts,
   getCurrentRun,
@@ -14,9 +15,13 @@ import {
   getReviewProblem,
   getReviewProblems,
   getReviewQueue,
+  getSessionBundle,
   getSetupStatus,
   getSpotCheck,
+  type LessonRefIn,
+  postSessionEvents,
   type ProblemFilter,
+  startSession,
 } from './client'
 
 // A run polled while it is active (running/pausing); polling stops once it settles.
@@ -37,10 +42,13 @@ export const queryKeys = {
   catalogueBooks: ['build', 'books'] as const,
   currentRun: ['build', 'runs', 'current'] as const,
   profiles: ['profiles'] as const,
-  libraryBooks: (grade: number) => ['library', 'books', grade] as const,
+  libraryBooks: (grade: number, profileId?: string) =>
+    ['library', 'books', grade, profileId] as const,
   libraryLesson: (bookId: string, unitKey: string, lessonKey: string) =>
     ['library', 'lesson', bookId, unitKey, lessonKey] as const,
   libraryHome: (profileId: string) => ['library', 'home', profileId] as const,
+  sessionBundle: (sessionId: string, profileId: string, chunk: number) =>
+    ['sessions', sessionId, 'bundle', profileId, chunk] as const,
 }
 
 export function useHealth() {
@@ -135,11 +143,16 @@ export function useProfiles() {
 }
 
 /** Books/Units/Lessons of one Grade, each Lesson's visible-Problem count (Story 2.3's
- * Library). `enabled: false` until the current Profile's Grade is known. */
-export function useLibraryBooks(grade: number, options: { enabled?: boolean } = {}) {
+ * Library) and, when `profileId` is given, its real "attempted at least once" numerator
+ * (Story 2.4). `enabled: false` until the current Profile's Grade is known. */
+export function useLibraryBooks(
+  grade: number,
+  profileId?: string,
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
-    queryKey: queryKeys.libraryBooks(grade),
-    queryFn: ({ signal }) => getLibraryBooks(grade, signal),
+    queryKey: queryKeys.libraryBooks(grade, profileId),
+    queryFn: ({ signal }) => getLibraryBooks(grade, profileId, signal),
     enabled: options.enabled ?? true,
   })
 }
@@ -163,6 +176,41 @@ export function useLibraryHome(profileId: string) {
   return useQuery({
     queryKey: queryKeys.libraryHome(profileId),
     queryFn: ({ signal }) => getLibraryHome(profileId, signal),
+  })
+}
+
+/** Starts a Session (Story 2.4: `POST /sessions`) for a resolved `ProblemSetRef`, e.g. the
+ * Lesson `useLibraryHome()` resolved. Callers navigate to the Session route on success. */
+export function useStartSession() {
+  return useMutation({
+    mutationFn: ({ profileId, ref }: { profileId: string; ref: LessonRefIn }) =>
+      startSession(profileId, ref),
+  })
+}
+
+/** One chunk ("Phần i/n") of a started Session's bundle: each Problem's child_view, its
+ * crop/page/audio URLs, and honest `attempted` progress state. `profileId` must be the
+ * Session's own owner (Story 2.4 review follow-up: the backend now 403s a mismatch, the
+ * same ownership check `usePostEvent()` already needed). */
+export function useSessionBundle(sessionId: string, profileId: string, chunk: number) {
+  return useQuery({
+    queryKey: queryKeys.sessionBundle(sessionId, profileId, chunk),
+    queryFn: ({ signal }) => getSessionBundle(sessionId, profileId, chunk, signal),
+    enabled: sessionId !== '' && profileId !== '',
+  })
+}
+
+/** Posts one or more progress events (Story 2.4: `POST /sessions/{id}/events`); each
+ * event's own client-generated UUIDv7 id makes a resend idempotent. Invalidates that
+ * Session's bundle so `attempted` reflects the new event on the next read. */
+export function usePostEvent(sessionId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ profileId, events }: { profileId: string; events: EventIn[] }) =>
+      postSessionEvents(sessionId, profileId, events),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', sessionId, 'bundle'] })
+    },
   })
 }
 

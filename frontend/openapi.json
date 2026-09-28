@@ -1731,6 +1731,7 @@
           "library"
         ],
         "summary": "Get Grade Books",
+        "description": "`profile_id` is optional: omitted, every Lesson's `attempted` is honestly 0 (no\nProfile to count for); given, `attempted` is the real \"done at least once\" numerator\n(Story 2.4, `learning.progress`) -- never \"correct\", no grader exists yet. An unknown\n`profile_id` 404s (matching `/library/home/{profile_id}`'s own convention) rather than\nsilently returning a real book/lesson tree with an all-zero `attempted` column.",
         "operationId": "list_library_books",
         "parameters": [
           {
@@ -1740,6 +1741,22 @@
             "schema": {
               "type": "integer",
               "title": "Grade"
+            }
+          },
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
             }
           }
         ],
@@ -1759,7 +1776,7 @@
             }
           },
           "404": {
-            "description": "Not found",
+            "description": "Unknown profile",
             "content": {
               "application/json": {
                 "schema": {
@@ -1787,6 +1804,7 @@
           "library"
         ],
         "summary": "Get Lesson Problems",
+        "description": "Intentionally always 200: `[]` covers both \"this Book/Unit/Lesson doesn't exist\" and\n\"it exists but has no visible Problems\" -- both are the same \"nothing to show\" answer to\nthe child, and `visible_to_child()`'s filter can't (and shouldn't) distinguish an unknown\nkey from a real one with zero matches. Not an oversight; no 404 is used here.",
         "operationId": "get_library_lesson_problems",
         "parameters": [
           {
@@ -1896,6 +1914,215 @@
           },
           "422": {
             "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Start Session",
+        "operationId": "start_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Empty Problem set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/bundle": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Bundle",
+        "operationId": "get_session_bundle",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "chunk",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Chunk"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundleOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Chunk out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Profile doesn't own this Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/events": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Post Events",
+        "operationId": "post_session_events",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostEventsIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventOut"
+                  },
+                  "title": "Response Post Session Events"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid event id, kind, or problem_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Profile doesn't own this Session",
             "content": {
               "application/json": {
                 "schema": {
@@ -2911,6 +3138,83 @@
           "state"
         ],
         "title": "BuildStatus"
+      },
+      "BundleOut": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "chunk": {
+            "type": "integer",
+            "title": "Chunk"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "chunk_label": {
+            "type": "string",
+            "title": "Chunk Label"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/BundleProblemOut"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "chunk",
+          "chunk_count",
+          "chunk_label",
+          "problems"
+        ],
+        "title": "BundleOut"
+      },
+      "BundleProblemOut": {
+        "properties": {
+          "problem": {
+            "$ref": "#/components/schemas/ChildProblemView"
+          },
+          "crop_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Crop Urls"
+          },
+          "page_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Page Urls"
+          },
+          "audio": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Audio"
+          },
+          "attempted": {
+            "type": "boolean",
+            "title": "Attempted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "problem",
+          "crop_urls",
+          "page_urls",
+          "audio",
+          "attempted"
+        ],
+        "title": "BundleProblemOut"
       },
       "CatalogueBookOut": {
         "properties": {
@@ -3949,6 +4253,90 @@
         ],
         "title": "ErrorResponse"
       },
+      "EventIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "occurred_at": {
+            "type": "string",
+            "title": "Occurred At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "occurred_at"
+        ],
+        "title": "EventIn"
+      },
+      "EventOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "problem_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "title": "Occurred At"
+          },
+          "received_at": {
+            "type": "string",
+            "title": "Received At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "kind",
+          "problem_id",
+          "occurred_at",
+          "received_at"
+        ],
+        "title": "EventOut"
+      },
       "FailedPage": {
         "properties": {
           "page": {
@@ -4745,6 +5133,35 @@
         ],
         "title": "LabeledSlot"
       },
+      "LessonRefIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "lesson",
+            "title": "Kind",
+            "default": "lesson"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "lesson_key": {
+            "type": "string",
+            "title": "Lesson Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id",
+          "unit_key",
+          "lesson_key"
+        ],
+        "title": "LessonRefIn"
+      },
       "LibraryBook": {
         "properties": {
           "book_id": {
@@ -4835,6 +5252,11 @@
           "problem_count": {
             "type": "integer",
             "title": "Problem Count"
+          },
+          "attempted": {
+            "type": "integer",
+            "title": "Attempted",
+            "default": 0
           }
         },
         "type": "object",
@@ -5759,6 +6181,28 @@
           "edits"
         ],
         "title": "OverridesIn"
+      },
+      "PostEventsIn": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventIn"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "events"
+        ],
+        "title": "PostEventsIn"
       },
       "ProblemDetail": {
         "properties": {
@@ -6726,6 +7170,52 @@
         ],
         "title": "SequenceAnswer"
       },
+      "SessionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "ref_kind": {
+            "type": "string",
+            "title": "Ref Kind"
+          },
+          "problem_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problem Ids"
+          },
+          "chunk_size": {
+            "type": "integer",
+            "title": "Chunk Size"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "started_at": {
+            "type": "string",
+            "title": "Started At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "ref_kind",
+          "problem_ids",
+          "chunk_size",
+          "mode",
+          "started_at"
+        ],
+        "title": "SessionOut"
+      },
       "SessionStatus": {
         "properties": {
           "authenticated": {
@@ -7206,6 +7696,23 @@
           "count"
         ],
         "title": "SpotDifferenceView"
+      },
+      "StartSessionIn": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/LessonRefIn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "ref"
+        ],
+        "title": "StartSessionIn"
       },
       "TreeNode": {
         "properties": {

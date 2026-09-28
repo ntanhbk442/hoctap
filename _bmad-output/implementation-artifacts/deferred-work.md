@@ -76,3 +76,32 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-child-home-and-library.md`
   summary: Real progress numerators ("k/n ✓") once Story 2.4 ships Sessions/`progress_events`.
   evidence: this story's Library/Lesson lists always show "0/n" honestly (no child has ever done a Problem, because there is no way to start a Session yet), per the frozen intent.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-sessions-resolver-and-the-event-api.md`
+  summary: `ProblemSetRef` kinds `concept`/`retry`/`replay` (AD-9) -- resolving a personalised set for a Concept, the Retry Queue, or a replay of past Sessions.
+  evidence: frozen intent explicitly scopes this story to `kind: "lesson"` only; the other kinds need Concepts/Retry Queue/replay history, none of which exist yet. `learning.problem_sets.resolve()` raises `UnsupportedProblemSetRef` (a clear, bilingual, documented `NotImplementedError`) for them rather than guessing.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-sessions-resolver-and-the-event-api.md`
+  summary: A "Tiếp tục" (continue) Home card for the last unfinished Session.
+  evidence: needs "unfinished" to be well-defined, which needs `session_completed` semantics and/or grading (Story 2.5) to be meaningful; building a half-correct heuristic now (e.g. "has an incomplete problem_ids_json") was explicitly avoided per the frozen intent.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-sessions-resolver-and-the-event-api.md`
+  summary: The actual Problem player/interaction (answering a Part, submitting, seeing feedback).
+  evidence: frozen intent explicitly scopes this story's Session route (`SessionPlayer.tsx`) to a read-only bundle-rendering placeholder, matching `LessonDetail.tsx`'s existing pattern; the real player is a later Epic 2 widget story. No grading exists yet either (Story 2.5), so a player couldn't give real feedback regardless.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-sessions-resolver-and-the-event-api.md`
+  summary: Garbage-collect `progress_sessions` rows whose frozen `problem_ids_json` references a Problem that was later fully deleted (not merely retired/hidden) from `content_catalog_problems`.
+  evidence: `GET /sessions/{id}/bundle` already handles this defensively (skips an id `content.effective.load_one()` can no longer find, via `ProblemNotFound`, rather than 500ing), but Problems are in practice never hard-deleted (only `retired_at`-marked) by the current builder, so this path is untested by any real data flow; noted for completeness, not urgent.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-sessions-resolver-and-the-event-api.md`
+  summary: Fix `backend/hoctap/api/assets.py`'s `except OSError, ValueError:` (Python-2 tuple-exception syntax, pre-existing, not touched by Story 2.4) to `except (OSError, ValueError):`.
+  evidence: |
+    Discovered during Story 2.4 verification: this line only happens to parse on this
+    machine's exact Python 3.14.7 build (its PEG parser accepts the old comma form as
+    sugar for a tuple, confirmed via dis.dis showing a correct BUILD_TUPLE 2), but is
+    invalid syntax on Python 3.11-3.13 and should not be relied upon going forward.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-sessions-resolver-and-the-event-api.md`
+  summary: Dedup concurrent/repeated `POST /sessions` for the same Profile+`ProblemSetRef` -- currently each call creates an independent, fully-frozen `progress_sessions` row with no coalescing.
+  evidence: |
+    Finding #17 of the orchestrator's independent review round (2026-09-29): each
+    Session is individually a legitimate, correctly-frozen Session, so this is not a
+    correctness bug, but it is undocumented/untested behavior. Real dedup needs
+    "the current unfinished Session for this ref", which needs `session_completed`
+    semantics and/or grading (Story 2.5) to define "unfinished" -- the same blocker
+    already noted above for the "Tiếp tục" card. Deferred to Story 2.5 rather than
+    building a heuristic now.

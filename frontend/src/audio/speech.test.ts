@@ -40,6 +40,26 @@ describe('speechKey (ported from content.speech.speech_key)', () => {
     expect(await speechKey('xin chào', 'vi-VN-HoaiMyNeural')).toBe('d3acdc0fbc87b28f')
   })
 
+  // Every one of the 9 operators in `_OPERATOR_WORDS`/`OPERATOR_WORDS`, each hash
+  // computed from the real Python source of truth, e.g.:
+  //   python -c "from hoctap.content.speech import speech_key; \
+  //     print(speech_key('3 > 5', 'vi-VN-HoaiMyNeural'))"
+  // A silent divergence on any single operator (a typo'd word, a swapped char) would
+  // change that operator's hash and fail here.
+  it.each([
+    ['<', '3 < 5', '3d0b45f5f9b8ef1c'],
+    ['>', '3 > 5', '3f75f726e07cbcdd'],
+    ['=', '3 = 5', '3844ec4a5dbd2bfa'],
+    ['+', '1 + 2', '90c37ed6c9de6817'],
+    ['-', '3 - 1', '4c527e3710edd365'],
+    ['×', '2 × 3', '1406331ac1423e4c'],
+    ['*', '2 * 3', '1406331ac1423e4c'],
+    ['÷', '6 ÷ 2', 'ca92f8d077f8d84b'],
+    ['/', '6 / 2', 'ca92f8d077f8d84b'],
+  ])('matches the backend hash for the "%s" operator', async (_op, text, expected) => {
+    expect(await speechKey(text, 'vi-VN-HoaiMyNeural')).toBe(expected)
+  })
+
   it('is stable for the same input', async () => {
     const a = await speechKey('3 < 5', 'vi-VN-HoaiMyNeural')
     const b = await speechKey('3 < 5', 'vi-VN-HoaiMyNeural')

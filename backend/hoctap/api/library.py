@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import Engine, select
 
@@ -15,6 +15,7 @@ from hoctap.api.deps import get_engine
 from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.content import library
 from hoctap.content.views import ChildProblemView
+from hoctap.learning import progress as learning_progress
 from hoctap.parent.models import parent_profiles
 
 router = APIRouter(prefix="/library", tags=["library"])
@@ -28,6 +29,9 @@ class LibraryLesson(BaseModel):
     title: str
     position: int
     problem_count: int
+    # Story 2.4: the real "attempted at least once" numerator (see `learning.progress`),
+    # honest -- not "correct" (no grader exists yet). 0 when `profile_id` isn't given.
+    attempted: int = 0
 
 
 class LibraryUnit(BaseModel):
@@ -47,7 +51,7 @@ class LibraryBook(BaseModel):
     units: list[LibraryUnit]
 
 
-def _book_out(book: library.BookGroup) -> LibraryBook:
+def _book_out(book: library.BookGroup, attempted: dict[tuple[str, str], int]) -> LibraryBook:
     return LibraryBook(
         book_id=book.book_id,
         edition=book.edition,
@@ -67,6 +71,7 @@ def _book_out(book: library.BookGroup) -> LibraryBook:
                         title=lc.title,
                         position=lc.position,
                         problem_count=lc.problem_count,
+                        attempted=attempted.get((u.unit_key, lc.lesson_key), 0),
                     )
                     for lc in u.lessons
                 ],
@@ -77,11 +82,36 @@ def _book_out(book: library.BookGroup) -> LibraryBook:
 
 
 @router.get(
-    "/grades/{grade}/books", response_model=list[LibraryBook], operation_id="list_library_books"
+    "/grades/{grade}/books",
+    response_model=list[LibraryBook],
+    operation_id="list_library_books",
+    responses={404: {"model": ErrorResponse, "description": "Unknown profile"}},
 )
-def get_grade_books(grade: int, engine: EngineDep) -> list[LibraryBook]:
+def get_grade_books(
+    grade: int, engine: EngineDep, profile_id: Annotated[str | None, Query()] = None
+) -> list[LibraryBook]:
+    """`profile_id` is optional: omitted, every Lesson's `attempted` is honestly 0 (no
+    Profile to count for); given, `attempted` is the real "done at least once" numerator
+    (Story 2.4, `learning.progress`) -- never "correct", no grader exists yet. An unknown
+    `profile_id` 404s (matching `/library/home/{profile_id}`'s own convention) rather than
+    silently returning a real book/lesson tree with an all-zero `attempted` column."""
     with engine.connect() as conn:
-        return [_book_out(b) for b in library.grade_books(conn, grade)]
+        if profile_id is not None:
+            exists = conn.execute(
+                select(parent_profiles.c.id).where(parent_profiles.c.id == profile_id)
+            ).scalar_one_or_none()
+            if exists is None:
+                raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
+        books = library.grade_books(conn, grade)
+        return [
+            _book_out(
+                b,
+                learning_progress.attempted_lesson_counts(conn, b.book_id, profile_id)
+                if profile_id
+                else {},
+            )
+            for b in books
+        ]
 
 
 @router.get(

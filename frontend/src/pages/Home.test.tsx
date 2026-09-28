@@ -113,15 +113,66 @@ describe('Home', () => {
     expect(screen.queryByRole('button', { name: /Học tiếp/ })).not.toBeInTheDocument()
   })
 
-  it('"Học tiếp" navigates to the resolved Lesson; "Sách" navigates to the Library', async () => {
+  it('shows an error with retry when the Home lesson fetch fails', async () => {
+    const fetchMock = mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': { status: 502 },
+    })
+    renderAt('/', <Home />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Đã xảy ra lỗi. Vui lòng thử lại.')
     mockApi({
       'GET /api/v1/setup/status': SETUP_OK,
       'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
       'GET /api/v1/library/home/p1': HOME_WITH_LESSON,
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
+    expect(await screen.findByRole('button', { name: 'Học tiếp' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalled()
+  })
+
+  it('redirects to /setup when there are zero profiles despite setup_required: false', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: [] },
+    })
+    renderAt('/', <Home />)
+    expect(await screen.findByText('setup screen')).toBeInTheDocument()
+  })
+
+  it('"Học tiếp" starts a Session and navigates to it; "Sách" navigates to the Library', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_WITH_LESSON,
+      'POST /api/v1/sessions': {
+        status: 201,
+        body: {
+          id: 'session-1',
+          profile_id: 'p1',
+          ref_kind: 'lesson',
+          problem_ids: ['toan1-2020-q1.tuan-5.tiet-2.bai-1'],
+          chunk_size: 10,
+          mode: 'practice',
+          started_at: '2026-09-28T10:00:00+00:00',
+        },
+      },
+    })
     renderAt('/', <Home />)
     fireEvent.click(await screen.findByRole('button', { name: 'Học tiếp' }))
-    expect(await screen.findByText('lesson detail screen')).toBeInTheDocument()
+    expect(await screen.findByText('session player screen')).toBeInTheDocument()
+  })
+
+  it('shows an error when starting a Session fails', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_WITH_LESSON,
+      'POST /api/v1/sessions': { status: 502 },
+    })
+    renderAt('/', <Home />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Học tiếp' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Đã xảy ra lỗi. Vui lòng thử lại.')
   })
 
   it('the Library card navigates to /library', async () => {

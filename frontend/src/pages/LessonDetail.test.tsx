@@ -49,6 +49,16 @@ describe('LessonDetail', () => {
     expect(screen.queryByText(/answer/i)).not.toBeInTheDocument()
   })
 
+  it('falls back to "Bài {n}" when a Problem has a blank display_label', async () => {
+    const blankLabel = structuredClone(PROBLEMS)
+    blankLabel[0].display_label = ''
+    mockApi({
+      'GET /api/v1/library/lessons/toan1-2020-q1/tuan-5/tiet-2': { status: 200, body: blankLabel },
+    })
+    renderAt(ROUTE, <LessonDetail />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+  })
+
   it('shows a friendly empty state for a Lesson with no visible Problems', async () => {
     mockApi({
       'GET /api/v1/library/lessons/toan1-2020-q1/tuan-5/tiet-2': { status: 200, body: [] },

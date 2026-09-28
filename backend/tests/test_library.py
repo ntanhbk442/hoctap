@@ -233,16 +233,169 @@ def test_lesson_count_excludes_hidden_needs_review_retired(
     assert lesson["problem_count"] != 3
 
 
-def test_lesson_count_never_shows_a_nonzero_numerator(client: TestClient, engine: Engine) -> None:
-    """The response only ever carries `n` (the denominator); Story 2.3 never fabricates a
-    numerator -- the frontend renders "0/n" itself."""
+def test_lesson_count_no_profile_never_shows_a_nonzero_numerator(
+    client: TestClient, engine: Engine
+) -> None:
+    """Without `profile_id`, `attempted` is honestly 0 -- Story 2.4 never fabricates a
+    numerator when there is no Profile to count for."""
     Pub(engine, BOOK_2020, "2020", 1)(make_doc(BOOK_2020, "bai-1"))
     resp = client.get(f"{API}/grades/1/books")
     lesson = resp.json()[0]["units"][0]["lessons"][0]
-    assert set(lesson) == {"lesson_key", "label", "title", "position", "problem_count"}
+    assert set(lesson) == {"lesson_key", "label", "title", "position", "problem_count", "attempted"}
+    assert lesson["attempted"] == 0
+
+
+def test_grade_books_unknown_profile_id_404(client: TestClient, engine: Engine) -> None:
+    """#11 (orchestrator's independent review round): an unknown `profile_id` on
+    `/library/grades/{grade}/books` must 404, matching the sibling `/library/home/{id}`
+    convention -- not silently return a real book/lesson tree with an all-zero
+    `attempted` column as if the id had simply never attempted anything."""
+    Pub(engine, BOOK_2020, "2020", 1)(make_doc(BOOK_2020, "bai-1"))
+    resp = client.get(f"{API}/grades/1/books", params={"profile_id": "no-such-profile"})
+    _envelope(resp, 404, "PROFILE_NOT_FOUND")
+
+
+def test_lesson_attempted_counts_real_progress_with_profile_id(
+    client: TestClient, engine: Engine
+) -> None:
+    """Story 2.4: given `profile_id`, `attempted` is the real "done at least once" count --
+    distinct Problems with an `attempt` event, capped by the visible denominator."""
+    from hoctap.ids import new_id, utc_now
+    from hoctap.learning.models import progress_events
+
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    doc1 = make_doc(BOOK_2020, "bai-1")
+    doc2 = make_doc(BOOK_2020, "bai-2")
+    Pub(engine, BOOK_2020, "2020", 1)(doc1, doc2)
+
+    session = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+    with engine.begin() as conn:
+        now = utc_now()
+        conn.execute(
+            progress_events.insert().values(
+                id=new_id(),
+                session_id=session["id"],
+                profile_id=profile_id,
+                kind="attempt",
+                problem_id=doc1["problem_id"],
+                payload_json="{}",
+                occurred_at=now.isoformat(),
+                received_at=now.isoformat(),
+            )
+        )
+
+    resp = client.get(f"{API}/grades/1/books", params={"profile_id": profile_id})
+    lesson = resp.json()[0]["units"][0]["lessons"][0]
+    assert lesson["problem_count"] == 2
+    assert lesson["attempted"] == 1
+
+
+def test_lesson_attempted_numerator_never_exceeds_denominator_after_hide(
+    client: TestClient, engine: Engine
+) -> None:
+    """Story 2.4: attempt a Problem, then hide it -- `attempted` must drop together with
+    `problem_count` (both derived from the same visible-Problem set), never leaving a
+    numerator bigger than the denominator."""
+    from hoctap.ids import new_id, utc_now
+    from hoctap.learning.models import progress_events
+
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    doc1 = make_doc(BOOK_2020, "bai-1")
+    doc2 = make_doc(BOOK_2020, "bai-2")
+    Pub(engine, BOOK_2020, "2020", 1)(doc1, doc2)
+
+    session = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+    with engine.begin() as conn:
+        now = utc_now()
+        conn.execute(
+            progress_events.insert().values(
+                id=new_id(),
+                session_id=session["id"],
+                profile_id=profile_id,
+                kind="attempt",
+                problem_id=doc1["problem_id"],
+                payload_json="{}",
+                occurred_at=now.isoformat(),
+                received_at=now.isoformat(),
+            )
+        )
+
+    before = client.get(f"{API}/grades/1/books", params={"profile_id": profile_id}).json()
+    lesson_before = before[0]["units"][0]["lessons"][0]
+    assert lesson_before["problem_count"] == 2
+    assert lesson_before["attempted"] == 1
+
+    with engine.begin() as conn:
+        review.set_hidden(conn, doc1["problem_id"], True)
+
+    after = client.get(f"{API}/grades/1/books", params={"profile_id": profile_id}).json()
+    lesson_after = after[0]["units"][0]["lessons"][0]
+    assert lesson_after["problem_count"] == 1  # bai-1 no longer counted at all
+    assert lesson_after["attempted"] == 0  # its attempt no longer counted either
+    assert lesson_after["attempted"] <= lesson_after["problem_count"]
 
 
 # --- Lesson detail: visible Problems, child_view() shape ---------------------------
+
+
+def test_attempted_lesson_counts_matches_visible_counts_when_everything_attempted(
+    client: TestClient, engine: Engine
+) -> None:
+    """#12 (orchestrator's independent review round): `learning.progress.
+    attempted_lesson_counts()` and `content.library._visible_counts()` are two
+    independently-maintained copies of the same "iterate `load_effective()`, filter on
+    `state.visible`" loop, with nothing coupling them. When every visible Problem of a
+    Book has been attempted, the two should agree exactly -- a future change to one that
+    isn't mirrored in the other would show up here as a mismatch."""
+    from hoctap.content.library import _visible_counts
+    from hoctap.ids import new_id, utc_now
+    from hoctap.learning import progress as learning_progress
+    from hoctap.learning.models import progress_events
+
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    doc1 = make_doc(BOOK_2020, "bai-1")
+    doc2 = make_doc(BOOK_2020, "bai-2")
+    Pub(engine, BOOK_2020, "2020", 1)(doc1, doc2)
+
+    session = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+    with engine.begin() as conn:
+        now = utc_now()
+        for doc in (doc1, doc2):
+            conn.execute(
+                progress_events.insert().values(
+                    id=new_id(),
+                    session_id=session["id"],
+                    profile_id=profile_id,
+                    kind="attempt",
+                    problem_id=doc["problem_id"],
+                    payload_json="{}",
+                    occurred_at=now.isoformat(),
+                    received_at=now.isoformat(),
+                )
+            )
+
+    with engine.connect() as conn:
+        attempted = learning_progress.attempted_lesson_counts(conn, BOOK_2020, profile_id)
+        visible = _visible_counts(conn, BOOK_2020)
+    assert attempted == visible
 
 
 def test_lesson_problems_child_view_shape(client: TestClient, engine: Engine) -> None:

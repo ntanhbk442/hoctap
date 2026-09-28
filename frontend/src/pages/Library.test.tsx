@@ -19,7 +19,14 @@ const BOOKS = [
         title: '',
         position: 500,
         lessons: [
-          { lesson_key: 'tiet-2', label: 'Tiết 2', title: '', position: 501, problem_count: 3 },
+          {
+            lesson_key: 'tiet-2',
+            label: 'Tiết 2',
+            title: '',
+            position: 501,
+            problem_count: 3,
+            attempted: 0,
+          },
         ],
       },
     ],
@@ -53,6 +60,17 @@ describe('Library', () => {
     expect(await screen.findByText('Toán 1 – Quyển 1 (2020)')).toBeInTheDocument()
     expect(screen.getByText('Toán 1 – Tập 1 (2024–25)')).toBeInTheDocument()
     expect(screen.getByText('0/3 ✓')).toBeInTheDocument()
+  })
+
+  it('shows a real "done at least once" numerator (Story 2.4)', async () => {
+    const withProgress = structuredClone(BOOKS)
+    withProgress[0].units[0].lessons[0].attempted = 2
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: withProgress },
+    })
+    renderAt('/library', <Library />)
+    expect(await screen.findByText('2/3 ✓')).toBeInTheDocument()
   })
 
   it('tapping a Lesson opens its Lesson detail route', async () => {
@@ -94,6 +112,21 @@ describe('Library', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
     expect(await screen.findByText('Toán 1 – Quyển 1 (2020)')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalled()
+  })
+
+  it('shows a friendly empty state for a Grade with zero Books at all', async () => {
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: [] },
+    })
+    renderAt('/library', <Library />)
+    expect(await screen.findByText('Chưa có sách nào cho lớp 1.')).toBeInTheDocument()
+  })
+
+  it('redirects to /setup when there are zero profiles despite setup_required: false', async () => {
+    mockApi({ 'GET /api/v1/profiles': { status: 200, body: [] } })
+    renderAt('/library', <Library />)
+    expect(await screen.findByText('setup screen')).toBeInTheDocument()
   })
 
   it('redirects to Home when no current profile can be resolved (2+ profiles, none picked)', async () => {

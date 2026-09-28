@@ -15,7 +15,7 @@ export default function Library() {
   const profileId = getCurrentProfileId()
   const list = profiles.data ?? []
   const current = list.find((p) => p.id === profileId) ?? (list.length === 1 ? list[0] : undefined)
-  const books = useLibraryBooks(current?.grade ?? 0, { enabled: current !== undefined })
+  const books = useLibraryBooks(current?.grade ?? 0, current?.id, { enabled: current !== undefined })
 
   if (profiles.isPending) {
     return (
@@ -38,6 +38,11 @@ export default function Library() {
       </main>
     )
   }
+
+  // Zero Profiles at all (an inconsistent but reachable `setup_required: false` state,
+  // e.g. the sole Profile deleted from the Parent Area post-setup) has no picker to send
+  // them through -- go straight to Setup instead of bouncing through a dead-end Home.
+  if (list.length === 0) return <Navigate to="/setup" replace />
 
   // No current Profile resolvable (e.g. direct navigation with 2+ Profiles and none
   // picked yet this session): send them through Home's picker first.
@@ -81,7 +86,9 @@ export default function Library() {
                       }
                     >
                       <span>{lesson.label || lesson.title || lesson.lesson_key}</span>
-                      <span className="library-lesson-progress">0/{lesson.problem_count} ✓</span>
+                      <span className="library-lesson-progress">
+                        {lesson.attempted}/{lesson.problem_count} ✓
+                      </span>
                     </button>
                   </li>
                 ))}
