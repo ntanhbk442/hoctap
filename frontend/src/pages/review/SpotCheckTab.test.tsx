@@ -98,6 +98,49 @@ describe('SpotCheckTab', () => {
     expect(screen.getByText('cần kiểm tra lại', { selector: '.badge' })).toHaveClass('badge-conflict')
   })
 
+  it('renders a region overlay on the crop for an image_select answer', async () => {
+    const base = doc()
+    const imgDetail = detail({
+      effective: {
+        ...base,
+        images: [{ image_key: 'im1', page: 12, bbox: [0, 0, 1, 1] }],
+        parts: [
+          {
+            part_key: 'a',
+            type: 'image_select',
+            prompt: '',
+            image_keys: [],
+            image_key: 'im1',
+            regions: [
+              { region_key: 'r1', bbox: [0.1, 0.1, 0.4, 0.4] },
+              { region_key: 'r2', bbox: [0.5, 0.5, 0.9, 0.9] },
+            ],
+            multi: false,
+            hint: 'h',
+            solution: { steps: ['x'], final: 'y' },
+            answer: { selected: ['r2'] },
+          },
+        ],
+      },
+      crop_urls: [
+        `/assets-data/crops/toan1-2020-q1/${PROBLEM_ID}/_problem.jpg`,
+        `/assets-data/crops/toan1-2020-q1/${PROBLEM_ID}/im1.jpg`,
+      ],
+    })
+    mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: imgDetail },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    const overlayImg = await screen.findByRole('img', { name: 'Vùng chọn của phần a' })
+    expect(overlayImg).toHaveAttribute(
+      'src',
+      `/assets-data/crops/toan1-2020-q1/${PROBLEM_ID}/im1.jpg`,
+    )
+    expect(document.querySelectorAll('.answer-region')).toHaveLength(2)
+    expect(document.querySelector('.answer-region-selected')).toHaveTextContent('r2')
+  })
+
   it('asks before drawing a new sample over an existing one', async () => {
     const fetchMock = mockApi({
       [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },

@@ -11,7 +11,9 @@ import {
 } from '../../api/client'
 import { errorMessage } from '../../api/errors'
 import { queryKeys, useReviewProblem, useSpotCheck } from '../../api/queries'
+import { AnswerOverlay } from './answerOverlay'
 import { answerLines } from './answerText'
+import { cropUrlByImageKey, needsOverlay } from './overlayGeometry'
 
 const MSG_REDRAW =
   'Rút mẫu mới? Mẫu hiện tại vẫn được lưu nhưng không còn được tính vào báo cáo.'
@@ -45,6 +47,7 @@ function Answer({ detail }: { detail: ProblemDetail }) {
       </p>
     )
   }
+  const cropByImageKey = cropUrlByImageKey(doc, detail.crop_urls)
   return (
     <div className="spot-answer">
       <p className="problem-instruction">{doc.instruction}</p>
@@ -62,6 +65,7 @@ function Answer({ detail }: { detail: ProblemDetail }) {
               <li key={i}>{line}</li>
             ))}
           </ul>
+          {needsOverlay(part.type) && <AnswerOverlay part={part} cropByImageKey={cropByImageKey} />}
           <p>
             <strong>Gợi ý:</strong> {part.hint}
           </p>
@@ -138,7 +142,7 @@ function ItemView({
       {problem.isSuccess && (
         <div className="review-editor">
           <div className="review-source">
-            {problem.data.crop_urls.slice(0, 1).map((url) => (
+            {problem.data.crop_urls.map((url) => (
               <img key={url} src={url} alt="Ảnh cắt của bài" />
             ))}
           </div>

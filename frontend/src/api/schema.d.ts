@@ -528,6 +528,21 @@ export interface components {
              * @description false: chưa đủ mẫu
              */
             enough_sample: boolean;
+            /**
+             * Sample Outdated
+             * @description the latest sample was drawn from another pilot scope: cần rút mẫu mới
+             */
+            sample_outdated: boolean;
+            /**
+             * Eligible Problems
+             * @description pilot Problems that can be sampled
+             */
+            eligible_problems: number;
+            /**
+             * Enough Problems
+             * @description false: chưa đủ bài để đánh giá — hãy chạy thử thêm trang
+             */
+            enough_problems: boolean;
         };
         /** BookPilotPages */
         BookPilotPages: {
@@ -1661,13 +1676,23 @@ export interface components {
              */
             verdict_hash: string | null;
             /**
+             * First Wrong At
+             * @description set by the first Sai; the item then counts as wrong for good
+             */
+            first_wrong_at: string | null;
+            /**
+             * Counted
+             * @description how the item counts toward key_accuracy; null: not counted
+             */
+            counted: ("correct" | "wrong") | null;
+            /**
              * Content Hash
              * @description the current effective hash
              */
             content_hash: string | null;
             /**
              * Stale
-             * @description a verdict for an older hash: cần kiểm tra lại
+             * @description a Đúng for an older hash (never judged wrong): cần kiểm tra lại
              */
             stale: boolean;
             /** Retired */
@@ -1688,12 +1713,12 @@ export interface components {
             size: number;
             /**
              * Correct
-             * @description Đúng verdicts for the current hash
+             * @description Đúng verdicts for the current hash, never judged wrong
              */
             correct: number;
             /**
              * Wrong
-             * @description Sai verdicts for the current hash
+             * @description items ever judged Sai (counted wrong for good)
              */
             wrong: number;
             /** Stale */
@@ -1782,9 +1807,15 @@ export interface components {
         };
         /** ApproveIn */
         hoctap__builder__gate__ApproveIn: {
-            /** Accept Cost */
+            /**
+             * Accept Cost
+             * @description must be true (else 422 COST_NOT_ACCEPTED)
+             */
             accept_cost: boolean;
-            /** Est Cost Seen */
+            /**
+             * Est Cost Seen
+             * @description the estimate shown, USD; compared to the cent
+             */
             est_cost_seen: number;
         };
         /** ApproveIn */
@@ -3364,7 +3395,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Refused */
+            /** @description NO_PILOT, SAMPLE_OUTDATED, GATE_CHECKS_FAILED or ESTIMATE_CHANGED */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3373,7 +3404,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Validation error */
+            /** @description COST_NOT_ACCEPTED (accept_cost false) or VALIDATION_ERROR */
             422: {
                 headers: {
                     [name: string]: unknown;

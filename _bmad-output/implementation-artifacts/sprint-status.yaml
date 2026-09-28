@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-26-2026 20:00
-last_updated: 09-27-2026 10:10
+last_updated: 09-28-2026 00:30
 project: hoctap
 project_key: NOKEY
 tracking_system: file-system
@@ -44,7 +44,7 @@ development_status:
   1-6-verify-answers-and-flag-disagreements: review
   1-7-crop-concept-tagging-and-publish: review
   1-8-content-review-with-overrides: review
-  1-9-spot-check-pilot-report-and-go-no-go-gate: in-progress
+  1-9-spot-check-pilot-report-and-go-no-go-gate: review
   1-10-extraction-control-from-the-parent-area: backlog
   1-11-https-on-the-lan-and-windows-runtime: backlog
   epic-1-retrospective: optional

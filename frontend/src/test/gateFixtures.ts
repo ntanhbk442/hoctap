@@ -11,6 +11,8 @@ export function spotItem(overrides: Partial<SpotCheckItem> = {}): SpotCheckItem 
     note: '',
     checked_at: null,
     verdict_hash: null,
+    first_wrong_at: null,
+    counted: null,
     content_hash: 'h1',
     stale: false,
     retired: false,
@@ -70,6 +72,9 @@ export function gateReport(overrides: GateOverrides = {}): GateReport {
       sample_size: 30,
       min_sample: 30,
       enough_sample: true,
+      sample_outdated: false,
+      eligible_problems: 40,
+      enough_problems: true,
       ...accuracy,
     },
     cost: {

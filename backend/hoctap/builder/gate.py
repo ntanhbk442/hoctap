@@ -223,13 +223,16 @@ def _accuracy(conn: Connection, limits: GateThresholds, scope: str, eligible: in
 
 
 def _cost(conn: Connection, refs: list[str], settings: Settings) -> GateCost:
+    """Every recorded call (extract and verify, any status: failed and pending pages
+    included) for a page ref that has any `pilot`-kind job -- not merely the `done`
+    extract jobs that define the Problem scope in `refs`."""
     t, j = build_costs, build_jobs
-    full_refs = select(j.c.page_ref).where(j.c.run_kind == FULL)
+    pilot_page_refs = select(j.c.page_ref).where(j.c.run_kind == PILOT).distinct()
     reported, unknown = conn.execute(
         select(
             func.coalesce(func.sum(t.c.cost_usd), 0.0),
             func.coalesce(func.sum(t.c.cost_unknown), 0),
-        ).where(t.c.page_ref.not_in(full_refs))
+        ).where(t.c.page_ref.in_(pilot_page_refs))
     ).one()
     reported, unknown = float(reported), int(unknown)
     cap = settings.extraction_max_budget_usd

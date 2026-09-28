@@ -1886,7 +1886,7 @@
             }
           },
           "422": {
-            "description": "Validation error",
+            "description": "COST_NOT_ACCEPTED (accept_cost false) or VALIDATION_ERROR",
             "content": {
               "application/json": {
                 "schema": {
@@ -1916,7 +1916,7 @@
             }
           },
           "409": {
-            "description": "Refused",
+            "description": "NO_PILOT, SAMPLE_OUTDATED, GATE_CHECKS_FAILED or ESTIMATE_CHANGED",
             "content": {
               "application/json": {
                 "schema": {
@@ -2075,6 +2075,21 @@
             "type": "boolean",
             "title": "Enough Sample",
             "description": "false: chưa đủ mẫu"
+          },
+          "sample_outdated": {
+            "type": "boolean",
+            "title": "Sample Outdated",
+            "description": "the latest sample was drawn from another pilot scope: cần rút mẫu mới"
+          },
+          "eligible_problems": {
+            "type": "integer",
+            "title": "Eligible Problems",
+            "description": "pilot Problems that can be sampled"
+          },
+          "enough_problems": {
+            "type": "boolean",
+            "title": "Enough Problems",
+            "description": "false: chưa đủ bài để đánh giá — hãy chạy thử thêm trang"
           }
         },
         "type": "object",
@@ -2089,7 +2104,10 @@
           "sample_id",
           "sample_size",
           "min_sample",
-          "enough_sample"
+          "enough_sample",
+          "sample_outdated",
+          "eligible_problems",
+          "enough_problems"
         ],
         "title": "AccuracyCheck"
       },
@@ -4881,6 +4899,34 @@
             "title": "Verdict Hash",
             "description": "the effective hash the verdict was given for"
           },
+          "first_wrong_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Wrong At",
+            "description": "set by the first Sai; the item then counts as wrong for good"
+          },
+          "counted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "correct",
+                  "wrong"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counted",
+            "description": "how the item counts toward key_accuracy; null: not counted"
+          },
           "content_hash": {
             "anyOf": [
               {
@@ -4896,7 +4942,7 @@
           "stale": {
             "type": "boolean",
             "title": "Stale",
-            "description": "a verdict for an older hash: cần kiểm tra lại"
+            "description": "a Đúng for an older hash (never judged wrong): cần kiểm tra lại"
           },
           "retired": {
             "type": "boolean",
@@ -4913,6 +4959,8 @@
           "note",
           "checked_at",
           "verdict_hash",
+          "first_wrong_at",
+          "counted",
           "content_hash",
           "stale",
           "retired"
@@ -4962,12 +5010,12 @@
           "correct": {
             "type": "integer",
             "title": "Correct",
-            "description": "Đúng verdicts for the current hash"
+            "description": "Đúng verdicts for the current hash, never judged wrong"
           },
           "wrong": {
             "type": "integer",
             "title": "Wrong",
-            "description": "Sai verdicts for the current hash"
+            "description": "items ever judged Sai (counted wrong for good)"
           },
           "stale": {
             "type": "integer",
@@ -5165,13 +5213,17 @@
         "properties": {
           "accept_cost": {
             "type": "boolean",
-            "title": "Accept Cost"
+            "title": "Accept Cost",
+            "description": "must be true (else 422 COST_NOT_ACCEPTED)"
           },
           "est_cost_seen": {
             "type": "number",
-            "title": "Est Cost Seen"
+            "minimum": 0.0,
+            "title": "Est Cost Seen",
+            "description": "the estimate shown, USD; compared to the cent"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "accept_cost",

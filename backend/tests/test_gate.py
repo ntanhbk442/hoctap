@@ -227,13 +227,13 @@ def test_draw_sample_stratified(client: TestClient, engine: Engine, world: World
     counts = {"number_input": 20, "compare": 10, "order": 5, "match": 3, "grid_fill": 2}
     world.problems(counts)
     sample = draw(client)
-    assert sample["size"] == 30 and len(sample["items"]) == 30
+    assert sample["size"] == 35 and len(sample["items"]) == 35
     got: dict[str, int] = {}
     for item in sample["items"]:
         got[item["problem_type"]] = got.get(item["problem_type"], 0) + 1
     assert set(got) == set(counts) and min(got.values()) >= 1
-    assert got == {"number_input": 15, "compare": 7, "order": 4, "match": 2, "grid_fill": 2}
-    assert [i["position"] for i in sample["items"]] == list(range(1, 31))
+    assert got == {"number_input": 17, "compare": 9, "order": 4, "match": 3, "grid_fill": 2}
+    assert [i["position"] for i in sample["items"]] == list(range(1, 36))
     with engine.connect() as conn:
         seed = conn.execute(text("SELECT seed FROM content_review_spot_check_samples")).scalar()
     assert seed == sample["seed"] and seed is not None
@@ -243,8 +243,8 @@ def test_same_seed_same_sample(engine: Engine, world: World) -> None:
     world.pages(5)
     ids = world.problems({"number_input": 20, "compare": 20})
     with engine.begin() as conn:
-        a = spotcheck.draw_sample(conn, ids, 10, seed=7)
-        b = spotcheck.draw_sample(conn, ids, 10, seed=7)
+        a = spotcheck.draw_sample(conn, ids, 10, scope_hash="x", seed=7)
+        b = spotcheck.draw_sample(conn, ids, 10, scope_hash="x", seed=7)
         rows_ = conn.execute(
             text("SELECT sample_id, problem_id, position FROM content_review_spot_checks")
         ).all()
@@ -269,8 +269,8 @@ def test_mark_verdicts_one_wrong(client: TestClient, engine: Engine, world: Worl
     world.problems({"number_input": 25, "compare": 15})
     sample = mark_all(client, draw(client), wrong=1)
     acc = gate_report(client)["accuracy"]
-    assert (acc["correct"], acc["wrong"]) == (29, 1)
-    assert round(acc["value"] * 100, 1) == 96.7 and acc["passed"] is False
+    assert (acc["correct"], acc["wrong"]) == (34, 1)
+    assert round(acc["value"] * 100, 1) == 97.1 and acc["passed"] is False
     # The Sai verdict opened a parent note: the Problem is in Cần duyệt.
     wrong_id = next(i["problem_id"] for i in sample["items"] if i["verdict"] == "wrong")
     queue = [p["problem_id"] for p in client.get(f"{REVIEW}/queue").json()]
@@ -299,9 +299,10 @@ def test_stale_verdict(client: TestClient, world: World) -> None:
     now = client.get(f"{REVIEW}/spot-check").json()
     item = next(i for i in now["items"] if i["problem_id"] == target["problem_id"])
     assert item["stale"] is True and item["verdict"] == "correct"
-    assert (now["checked"], now["stale"]) == (29, 1)
+    assert (now["checked"], now["stale"]) == (34, 1)
     acc = gate_report(client)["accuracy"]
-    assert (acc["correct"], acc["stale"]) == (29, 1) and acc["passed"] is False
+    # The stale verdict is excluded from both sides of the ratio: 34/34 still passes.
+    assert (acc["correct"], acc["stale"]) == (34, 1) and acc["passed"] is True
     # A verdict for the old hash is refused; the new hash can be re-checked.
     old = mark(client, sample, target["problem_id"], "correct")
     assert old.status_code == 409 and code(old) == "STALE"
@@ -549,7 +550,7 @@ def full() -> int:
 
 
 def test_full_guard_without_approval(env: Path, capsys: pytest.CaptureFixture[str]) -> None:  # noqa: F811
-    assert full() == 2
+    assert full() == cli.EXIT_GATE_NOT_APPROVED
     assert "GATE_NOT_APPROVED" in capsys.readouterr().err
 
 
@@ -608,7 +609,7 @@ def test_acceptance_pilot_spot_check_approve_full(
         # One more pilot page: the pilot warns, and the guard refuses again.
         assert run("pilot", "--yes-spend", pages="8-8") == 0
         assert "invalidate" in capsys.readouterr().err
-        assert full() == 2
+        assert full() == cli.EXIT_GATE_NOT_APPROVED
         assert "GATE_NOT_APPROVED" in capsys.readouterr().err
     finally:
         engine.dispose()

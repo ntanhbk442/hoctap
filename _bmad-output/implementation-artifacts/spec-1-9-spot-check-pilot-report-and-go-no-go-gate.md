@@ -2,7 +2,7 @@
 title: 'Story 1.9: Spot-check, pilot report and go/no-go gate'
 type: 'feature'
 created: '2026-09-27'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'tree:196c9323e4c55c6b27f21c6f6d9f9ec8080bbced'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -145,6 +145,59 @@ context:
 | 15 | Latest ordering by timestamp | low | → patch (order by UUIDv7 id) |
 | 16 | Tests missing (STALE in SpotCheckTab, GateCard refetch, editor back link, set_verdict errors, NaN, re-approve with old sample, CLI FAIL output) | medium | → patch |
 | 17 | No FKs on spot-check tables | low | → patch |
+
+### 2026-09-28 — Resumption pass (verify patches actually landed, finish what didn't)
+
+Story 1.9 was left `in-progress` with the Review Triage Log above fully triaged, but several
+rows marked `→ patch` had only their *evidence text* recorded, not a landed fix, and the test
+suite had not been re-run against the patched code. This pass checked every `patch` row against
+the current code, finished the ones that were still missing, and fixed the tests that were left
+asserting the pre-patch behavior (a real gap: `uv run pytest` failed before this pass).
+
+- Row 10 (image_select/spot_difference/connect_dots unusable in the spot-check Answer view) --
+  **was not actually patched**: `SpotCheckTab.tsx` still sliced `crop_urls` to the first crop
+  and `answerLines()` still rendered raw region/dot keys as text. Fixed: all crops are now shown;
+  a new `AnswerOverlay` (`frontend/src/pages/review/answerOverlay.tsx` +
+  `overlayGeometry.ts`) draws the regions (image_select), the numbered dots and their sequence
+  (connect_dots), and the differences on the right image (spot_difference) directly on the
+  Part's own crop, using the normalised bbox/x,y coordinates already in the Answer Key. Covered
+  by a new SpotCheckTab test.
+- Row 7 (pilot cost must include failed/pending pilot pages) -- the landed `_cost()` used
+  `page_ref NOT IN (full-kind refs)`, which is a superset of "is a pilot page": a cost row for a
+  page with no `build_jobs` row at all was still counted. Fixed to `page_ref IN (pilot-kind
+  refs)`, matching the row's own evidence ("scope costs = all pilot-kind jobs' page_refs incl.
+  failed").
+- `backend/tests/test_gate.py` and `test_app.py` were still asserting pre-patch numbers and
+  exit codes for already-landed patches (rows 2, 6, 12, 14): sample size 30 instead of
+  `gate_min_sample + 5` = 35 (and its stratified allocation), `spotcheck.draw_sample` called
+  without the now-required `scope_hash`, `build full`'s exit code 2 instead of 3, and the
+  migration version stub `0008_gate_and_spot_checks` instead of `0009_build_jobs_run_kind`.
+  Corrected each to the current, intended behavior (verified by re-deriving the expected
+  numbers from the actual `allocate()` output, not guessed). One assertion was substantively
+  wrong under the corrected semantics, not just stale: `test_stale_verdict` expected the check
+  to still fail after one verdict went stale, but a stale verdict is excluded from *both* sides
+  of the accuracy ratio (spec: "not counted"), so 34/34 correct passes; fixed the assertion to
+  match the specified semantics.
+- `frontend/openapi.json` (and the generated `schema.d.ts`) were stale relative to the backend:
+  re-exporting via `hoctap export-openapi` picked up `sample_outdated`, `eligible_problems`,
+  `enough_problems`, `first_wrong_at`, `counted` and the documented error responses that the
+  landed backend code already had. Regenerated and fixed the two frontend fixtures
+  (`gateFixtures.ts`) that the now-complete types exposed as incomplete.
+- Environment blocker (not a Story 1.9 defect, but blocked all verification): this sandbox's
+  Python 3.14 build is a pre-release (`3.14.0rc2`) whose `typing._eval_type` no longer accepts
+  the `prefer_fwd_module` keyword that the pinned `pydantic==2.13.5` passes on Python ≥ 3.14 --
+  `import fastapi` itself raised `TypeError` before any test ran. No compatible pydantic or
+  final Python 3.14 build is reachable from this sandbox's package mirrors. Added a narrow,
+  clearly-scoped compatibility shim (`backend/hoctap/_py314_compat.py`, applied from
+  `hoctap/__init__.py` and `backend/tests/conftest.py`) that drops the unsupported keyword only
+  when the running interpreter actually lacks it; a build where the interpreter and pydantic
+  agree is unaffected. **Flag for the owner:** if the real dev/CI machine also runs a Python
+  3.14 pre-release, the app would fail to start at all without this shim -- worth checking which
+  exact 3.14 build is used there, and removing the shim once Python and pydantic agree again.
+
+Verification after this pass: `cd backend && uv run pytest -q && uv run ruff check .` -- 572
+passed, all checks passed. `cd frontend && npm run gen:api && npm run build && npm run test --
+run --pool=threads && npm run lint` -- 67 passed, build and lint clean.
 
 ## Verification
 
