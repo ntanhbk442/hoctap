@@ -26,6 +26,26 @@ describe('ProblemEditor', () => {
     expect(screen.getByLabelText('Đề bài')).toHaveValue('Tính:')
   })
 
+  it('links back to the spot-check tab when opened from it', async () => {
+    mockApi({ [`GET ${BASE}`]: { status: 200, body: detail() } })
+    renderAt(`${PATH}?from=spot-check`, <ProblemEditor />, PATTERN)
+    expect(await screen.findByRole('link', { name: 'Kiểm tra ngẫu nhiên' })).toHaveAttribute(
+      'href',
+      '/parent/review?tab=spot-check',
+    )
+    expect(screen.queryByRole('link', { name: 'Duyệt nội dung' })).not.toBeInTheDocument()
+  })
+
+  it('links back to the review list otherwise', async () => {
+    mockApi({ [`GET ${BASE}`]: { status: 200, body: detail() } })
+    renderAt(PATH, <ProblemEditor />, PATTERN)
+    expect(await screen.findByRole('link', { name: 'Duyệt nội dung' })).toHaveAttribute(
+      'href',
+      '/parent/review',
+    )
+    expect(screen.queryByRole('link', { name: 'Kiểm tra ngẫu nhiên' })).not.toBeInTheDocument()
+  })
+
   it('shows a refused save inline with the validation messages', async () => {
     const fetchMock = mockApi({
       [`GET ${BASE}`]: { status: 200, body: detail() },

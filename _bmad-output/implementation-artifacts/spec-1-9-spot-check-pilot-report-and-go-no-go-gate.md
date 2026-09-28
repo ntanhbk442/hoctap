@@ -108,17 +108,36 @@ context:
 
 ## Implementation Notes
 
-- **Pilot scope:** every page ref with a `done` extract job. No full-run extraction exists yet, so every extraction so far counts as pilot; Story 6.2 must keep full-run pages out of `gate.pilot_refs()` (for example by a distinct stage or marker). Otherwise the full run would invalidate its own approval.
-- **Problem Type for strata:** the type of the Problem's first Part (from the effective doc). Allocation gives each present type 1, then splits the rest in proportion to (count − 1) by largest remainder (`spotcheck.allocate`).
-- **Sai note:** stored with `review.add_error_report(kind="parent")`, because that is the only existing way into Cần duyệt. The note is prefixed "Kiểm tra ngẫu nhiên: đáp án sai." A side effect of the open parent note is that the Problem is also hidden from the child until the note is resolved. A repeated Sai for the same hash does not open a second note.
-- **Verdict API:** `PUT /parent/review/spot-check/{sample_id}/items/{problem_id}` takes `content_hash`. A different current hash gets 409 STALE, and an older sample gets 409 SAMPLE_OUTDATED. A retired sampled Problem's verdict counts as stale.
-- **`build_gate` extras:** `scope_hash` (sha256 of the sorted pilot refs) and `revoked_at` were added beside the listed columns. `metrics_json` also stores the pilot refs. Revoke is idempotent. `accept_cost: false` gets 422 COST_NOT_ACCEPTED.
-- **Pilot cost:** the reported `cost_usd` of every call for scope pages (extract and verify), plus `extraction_max_budget_usd` per unknown-cost call. `total_pages` is the sum of `content_catalog_books.page_count`.
-- **Fallback share:** computed on the effective doc (or the extracted doc when the merge is invalid), over published, non-retired pilot Problems. Hidden Problems are included.
-- **CLI:** `hoctap build gate` prints the report and exits 0. `hoctap build full` exits 2 with `GATE_NOT_APPROVED: …` on stderr, or prints "chưa triển khai (Story 6.2)" and exits 0. `build pilot` warns on stderr whenever a valid approval exists.
-- **Editor link:** "Sửa" opens `/parent/review/problems/{id}?from=spot-check`, whose back link returns to the spot-check tab. Saving in the editor refetches the spot-check and the gate report.
+Current behaviour, after the review patches (see the Spec Change Log for why it differs from the frozen text above).
+
+- **Pilot scope (`gate.pilot_refs`):** every page ref with a `done` extract job whose `build_jobs.run_kind` is `pilot` (migration `0009_build_jobs_run_kind`; `pilot` is the default and existing rows became pilot rows). `jobs_store.record(..., run_kind=)` sets the kind on insert only; the full run (Story 6.2) must pass `full`, so its pages never enter the scope and never invalidate its own approval. `pilot_pages` is the count; `scope_hash` = sha256 of the sorted refs.
+- **Pilot Problems:** published, non-retired Problems whose first page ref is in scope. Hidden Problems count for `fallback_share`.
+- **Fallback share:** Problems with any `fallback` Part (not only the first) in the effective doc, or the extracted doc when the merge is invalid, ÷ pilot Problems.
+- **Sample (`gate.draw_sample` → `spotcheck.draw_sample`):** size `gate_min_sample + 5` (`DRAW_MARGIN`), or every eligible Problem when there are fewer. Eligible = not retired, not hidden, no `fallback` Part; Problems awaiting review can be drawn. It is stratified by the first Part's type: each present type gets 1, the rest is split in proportion to (count − 1) by largest remainder (`spotcheck.allocate`). The seed and the current `scope_hash` are stored on the sample. Only the latest sample (by UUIDv7 `sample_id`, not by timestamp) counts; old samples are kept and refuse verdicts. With no candidate it returns 409 NO_PILOT, and with no eligible one 409 NOTHING_TO_SAMPLE.
+- **Not enough Problems:** the report carries `eligible_problems` and `enough_problems` (eligible ≥ `gate_min_sample`). When there are too few, the CLI and the GateCard say "Chưa đủ bài để đánh giá — hãy chạy thử thêm trang."
+- **Key accuracy (first-wrong rule):** the spot-check measures extraction accuracy. The first Sai sets `first_wrong_at`, which is never cleared, so the item counts as wrong for good, even after the Problem is fixed and re-marked Đúng. A Đúng counts only while the Problem's effective hash equals `verdict_hash`; otherwise it is stale ("cần kiểm tra lại"), and a retired Problem's Đúng is stale too. Stale items leave both sides of Đúng ÷ (Đúng + Sai). The check passes when counted verdicts ≥ `gate_min_sample`, the value ≥ `gate_min_key_accuracy`, and the sample is not outdated.
+- **Sample outdated:** a latest sample whose `scope_hash` differs from the current scope (new pilot pages were extracted after it was drawn). The report sets `accuracy.sample_outdated`, the accuracy check fails, the CLI and GateCard say "… cần rút mẫu mới", and approve returns 409 SAMPLE_OUTDATED.
+- **Verdict API:** `PUT /parent/review/spot-check/{sample_id}/items/{problem_id}` with `{verdict, note, content_hash}`. It returns 409 SAMPLE_OUTDATED for a sample that is not the latest, 404 NOT_IN_SAMPLE, 409 PROBLEM_RETIRED, 409 INVALID_EFFECTIVE (the merged doc is invalid, so there is no hash) and 409 STALE (a different current hash). A Sai opens a `parent`-kind note prefixed "Kiểm tra ngẫu nhiên: đáp án sai." (so the Problem is in Cần duyệt and hidden from the child until resolved), unless the previous verdict was already Sai for the same hash. Verdicts never change content or approvals.
+- **Pilot cost:** the reported `cost_usd` of every `build_costs` row (extract and verify, every attempt) whose page ref has any `pilot`-kind job of any stage or status. This includes failed pages, and pages whose extract call was cut off (they have a render job). Calls on `full`-only pages or pages with no job are not counted. Each unknown-cost call adds `extraction_max_budget_usd`. `per_page` = pilot_cost ÷ `pilot_pages` (done extract pages only). `est_cost` = round(per_page × (Σ `content_catalog_books.page_count` − pilot_pages), 2).
+- **Approve (`POST /build/gate/approve`):** the body `ApproveIn` forbids unknown fields and takes `est_cost_seen` ≥ 0 with no NaN or Infinity; a bad body gets 422 VALIDATION_ERROR and stores nothing. The checks run in order: 409 NO_PILOT, 422 COST_NOT_ACCEPTED, 409 SAMPLE_OUTDATED, 409 GATE_CHECKS_FAILED (a check fails, or there is no sample or estimate), then 409 ESTIMATE_CHANGED (`est_cost_seen` ≠ current to the cent). The `build_gate` row stores `metrics_json` (with the pilot refs), `thresholds_json`, `est_cost`, `sample_id`, `scope_hash` and `revoked_at`.
+- **Approval validity:** the latest `build_gate` row (by UUIDv7 id) is valid only while all of these hold:
+  - it is not revoked;
+  - `scope_hash` is unchanged (no new pilot page);
+  - its `sample_id` is still the latest sample, and that sample is not outdated;
+  - the thresholds are unchanged;
+  - both checks still pass (a later Sai, or an edit that makes a Đúng stale and drops the counted verdicts below `gate_min_sample`, invalidates it);
+  - `est_cost` is unchanged to the cent (a new cost row that moves the estimate by ≥ $0.01 invalidates it).
+
+  `invalid_reasons` lists each failed condition in Vietnamese. A revoked latest row shows no approval at all. Revoke is idempotent.
+- **Guard:** `gate.require_approval(engine, settings)` raises `GateNotApproved` (409 GATE_NOT_APPROVED, with the invalid reasons). `hoctap build full` prints `GATE_NOT_APPROVED: …` on stderr and exits **3** (`cli.EXIT_GATE_NOT_APPROVED`; 2 is argparse's usage error). With a valid approval it prints "chưa triển khai (Story 6.2)" and exits 0. `build pilot` warns on stderr only when a valid approval exists and the requested pages are outside the current scope (`gate.new_pages_would_invalidate`).
+- **CLI report:** `hoctap build gate` prints each check as `[ĐẠT / PASS]` or `[KHÔNG ĐẠT / FAIL]` with its numbers, then the stale count, the sample-outdated and not-enough-Problems guidance, "Chưa rút mẫu kiểm tra" when there is no sample, the cost with the unknown-cost calls, and the approval state. It exits 0.
+- **GateCard:** approve is enabled only when both checks pass, an estimate exists and the checkbox is ticked. The tick belongs to the estimate it was given for: any refetch showing a different `est_cost` unticks it. A 409 on approve (for example ESTIMATE_CHANGED) unticks it and refetches the report, so the new amount is shown. The card also shows the sample-outdated and "chạy thử thêm trang" notes.
+- **Spot-check tab:** it shows one item at a time with every crop and the effective answer, hint and solution. For image_select, spot_difference and connect_dots, `AnswerOverlay` draws the regions (selected ones highlighted), the differences on the right image, or the numbered dots and their path on the Part's own crop. It uses `overlayGeometry.cropUrlByImageKey`, which mirrors the backend crop order. A 409 STALE verdict refetches the Problem and the spot-check. "Sửa" opens `/parent/review/problems/{id}?from=spot-check`, whose back link goes to `/parent/review?tab=spot-check`; saving in the editor refetches the spot-check and the gate report.
+- **Tables:** `content_review_spot_check_samples` (`sample_id`, `seed`, `size`, `scope_hash`, `created_at`) and `content_review_spot_checks` (+ `first_wrong_at`; a foreign key to its sample, none to the Problem).
 
 ## Spec Change Log
+
+- 2026-09-28 — Note (orchestrator, user-approved): frontend Vitest could not be run to completion locally (worker processes failed to start under severe memory pressure from unrelated concurrent sessions on the shared machine — verified via `free -h` showing <150MB free and `require('jsdom')` itself hanging; not a code issue). Backend (597 tests), `ruff check`, and `npm run build` all passed. `npm run lint` passed. Marked done on the user's explicit instruction, accepting the frontend-test-run gap. Owner should run `cd frontend && npm run test -- --run` once machine memory is free, before relying on this story's frontend behaviour.
 
 - 2026-09-27 — Trigger: review. Amended (orchestrator decision, gate semantics): `key_accuracy` measures EXTRACTION accuracy — a `wrong` verdict on a sample item counts as wrong permanently (fixing the Problem does not remove it); a `correct` verdict counts only while the Problem's hash is unchanged. Approval validity additionally requires `checks_passed`, an unchanged estimate to the cent, and a sample whose recorded scope_hash equals the current scope. Samples exclude Problems with any `fallback` Part and are drawn with size `gate_min_sample + 5`. `build_jobs.run_kind` (pilot|full) defines the pilot scope. `build full` exits 3 on GATE_NOT_APPROVED. KEEP: all matrix rows.
 
@@ -198,6 +217,31 @@ asserting the pre-patch behavior (a real gap: `uv run pytest` failed before this
 Verification after this pass: `cd backend && uv run pytest -q && uv run ruff check .` -- 572
 passed, all checks passed. `cd frontend && npm run gen:api && npm run build && npm run test --
 run --pool=threads && npm run lint` -- 67 passed, build and lint clean.
+
+### 2026-09-28 — Test pass (row 16 and the untested patches)
+
+- **Backend tests added in `backend/tests/test_gate.py`:**
+  - first-wrong rule (a Sai then a fix and a Đúng still counts wrong);
+  - a Đúng on an edited Problem is not counted;
+  - approval invalidated by a later Sai, by an edit that makes a Đúng stale, and by an estimate change of ≥ 1 cent (a sub-cent change keeps it);
+  - re-approving with the pre-scope sample returns SAMPLE_OUTDATED and the report says to draw again;
+  - Problems with any fallback Part are never drawn (NOTHING_TO_SAMPLE when none is eligible);
+  - draw size = min + 5, or all eligible, and `enough_problems`;
+  - `run_kind` `full` is outside the scope and the cost, and failed and cut-off pilot pages are in the cost;
+  - approve bodies with NaN, ±Infinity, a negative estimate or an unknown field get 422 and store nothing;
+  - set_verdict NOT_IN_SAMPLE, PROBLEM_RETIRED and INVALID_EFFECTIVE;
+  - `build full` exits 3;
+  - `build gate` prints the FAIL marks and the "chạy thử thêm trang" guidance;
+  - the latest sample and approval are chosen by id even when the timestamps are equal or reversed.
+- **Frontend tests added:**
+  - SpotCheckTab: a STALE verdict refetches the Problem and the spot-check; the spot_difference and connect_dots overlays.
+  - GateCard: ESTIMATE_CHANGED refetches and shows the new amount; the tick resets when the estimate changes; the sample-outdated and not-enough-Problems notes.
+  - ProblemEditor: the `?from=spot-check` back link.
+- **Bugs found and fixed:** GateCard (rows 6 and 13 had not landed in the UI).
+  - The "Tôi chấp nhận…" tick survived a refetch that changed `est_cost`. The tick is now bound to the estimate it was given for.
+  - The card never showed the sample-outdated or "chạy thử thêm trang" guidance. Both are now shown as notes.
+  - No backend code change was needed.
+- **Pending-page wording:** `build_jobs.status` allows only done or failed, so a "pending" pilot page is one whose extract call was cut off. Its cost is recorded and it has only its `render` job, so it is counted through that job.
 
 ## Verification
 

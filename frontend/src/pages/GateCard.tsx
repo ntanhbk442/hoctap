@@ -5,6 +5,11 @@ import { ApiError, approveGate, revokeGate, type GateReport } from '../api/clien
 import { errorMessage } from '../api/errors'
 import { queryKeys, useGate } from '../api/queries'
 
+// The same texts as `builder.gate.MSG_SAMPLE_OUTDATED` / `MSG_NOT_ENOUGH_PROBLEMS`.
+const MSG_SAMPLE_OUTDATED =
+  'Mẫu kiểm tra được rút trước khi có trang chạy thử mới — cần rút mẫu mới.'
+const MSG_NOT_ENOUGH_PROBLEMS = 'Chưa đủ bài để đánh giá — hãy chạy thử thêm trang.'
+
 function pct(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${(value * 100).toFixed(1)}%`
 }
@@ -48,6 +53,12 @@ function Report({ report }: { report: GateReport }) {
           · <Link to="/parent/review?tab=spot-check">Kiểm tra ngẫu nhiên</Link>
         </Check>
       </ul>
+      {acc.sample_outdated && <p role="note">{MSG_SAMPLE_OUTDATED}</p>}
+      {!acc.enough_problems && (
+        <p role="note">
+          {MSG_NOT_ENOUGH_PROBLEMS} ({acc.eligible_problems}/{acc.min_sample} bài kiểm tra được)
+        </p>
+      )}
       <p>
         Chi phí chạy thử: {usd(cost.pilot_cost)} cho {cost.pilot_pages} trang
         {cost.est_cost !== null && (
@@ -72,10 +83,12 @@ function Report({ report }: { report: GateReport }) {
 export default function GateCard() {
   const queryClient = useQueryClient()
   const gate = useGate()
-  const [accepted, setAccepted] = useState(false)
+  // The estimate the checkbox was ticked for: a different estimate (after any refetch)
+  // unticks it, so a changed cost must be accepted again.
+  const [acceptedFor, setAcceptedFor] = useState<number | null>(null)
   const onReport = (data: GateReport) => {
     queryClient.setQueryData(queryKeys.gate, data)
-    setAccepted(false)
+    setAcceptedFor(null)
   }
   const approve = useMutation({
     mutationFn: approveGate,
@@ -83,7 +96,7 @@ export default function GateCard() {
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {
         // The estimate or the checks changed: show the current report again.
-        setAccepted(false)
+        setAcceptedFor(null)
         void queryClient.invalidateQueries({ queryKey: queryKeys.gate })
       }
     },
@@ -107,6 +120,7 @@ export default function GateCard() {
     )
   }
   const est = report.cost.est_cost
+  const accepted = est !== null && acceptedFor === est
   const busy = approve.isPending || revoke.isPending
   const error = approve.error ?? revoke.error
 
@@ -138,7 +152,7 @@ export default function GateCard() {
                 type="checkbox"
                 checked={accepted}
                 disabled={!report.checks_passed}
-                onChange={(e) => setAccepted(e.target.checked)}
+                onChange={(e) => setAcceptedFor(e.target.checked ? est : null)}
               />
               Tôi chấp nhận chi phí ước tính {usd(est)}
             </label>

@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { gateReport } from '../test/gateFixtures'
 import { mockApi, renderAt } from '../test/render'
@@ -141,5 +141,82 @@ describe('GateCard', () => {
     expect(await screen.findByText(/Lần duyệt trước không còn hiệu lực/)).toHaveTextContent(
       'có trang mới',
     )
+  })
+
+  it('refetches after ESTIMATE_CHANGED and shows the new amount', async () => {
+    const replies = {
+      [`GET ${GATE}`]: { status: 200, body: gateReport() },
+      [`POST ${GATE}/approve`]: {
+        status: 409,
+        body: { error: { code: 'ESTIMATE_CHANGED', message: 'Chi phí ước tính đã thay đổi thành $430.00.' } },
+      },
+    }
+    const fetchMock = mockApi(replies)
+    renderAt('/parent', <GateCard />)
+    fireEvent.click(await screen.findByLabelText('Tôi chấp nhận chi phí ước tính $424.80'))
+    replies[`GET ${GATE}`] = { status: 200, body: gateReport({ cost: { est_cost: 430 } }) }
+    fireEvent.click(screen.getByRole('button', { name: 'Duyệt chạy toàn bộ' }))
+    const box = await screen.findByLabelText('Tôi chấp nhận chi phí ước tính $430.00')
+    expect(box).not.toBeChecked()
+    expect(screen.getByText('$430.00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Duyệt chạy toàn bộ' })).toBeDisabled()
+    const gets = fetchMock.mock.calls.filter(([u, init]) => u === GATE && (init?.method ?? 'GET') === 'GET')
+    expect(gets).toHaveLength(2)
+  })
+
+  it('unticks the checkbox when the estimate changes on a refetch', async () => {
+    const replies = { [`GET ${GATE}`]: { status: 200, body: gateReport() } }
+    mockApi(replies)
+    const { client } = renderAt('/parent', <GateCard />)
+    fireEvent.click(await screen.findByLabelText('Tôi chấp nhận chi phí ước tính $424.80'))
+    expect(screen.getByRole('button', { name: 'Duyệt chạy toàn bộ' })).toBeEnabled()
+    replies[`GET ${GATE}`] = { status: 200, body: gateReport({ cost: { est_cost: 426.13 } }) }
+    await act(() => client.invalidateQueries())
+    const box = await screen.findByLabelText('Tôi chấp nhận chi phí ước tính $426.13')
+    expect(box).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Duyệt chạy toàn bộ' })).toBeDisabled()
+    // The same estimate again keeps a new tick.
+    fireEvent.click(box)
+    await act(() => client.invalidateQueries())
+    await waitFor(() => expect(screen.getByLabelText('Tôi chấp nhận chi phí ước tính $426.13')).toBeChecked())
+  })
+
+  it('keeps approve disabled with the reason when the sample is outdated', async () => {
+    mockApi({
+      [`GET ${GATE}`]: {
+        status: 200,
+        body: gateReport({
+          checks_passed: false,
+          accuracy: { passed: false, sample_outdated: true },
+        }),
+      },
+    })
+    renderAt('/parent', <GateCard />)
+    expect(await screen.findByText(/cần rút mẫu mới/)).toBeInTheDocument()
+    const box = screen.getByLabelText('Tôi chấp nhận chi phí ước tính $424.80')
+    expect(box).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Duyệt chạy toàn bộ' })).toBeDisabled()
+  })
+
+  it('asks to pilot more pages when there are too few Problems to evaluate', async () => {
+    mockApi({
+      [`GET ${GATE}`]: {
+        status: 200,
+        body: gateReport({
+          checks_passed: false,
+          accuracy: {
+            passed: false,
+            enough_sample: false,
+            enough_problems: false,
+            eligible_problems: 12,
+            correct: 12,
+            sample_size: 12,
+          },
+        }),
+      },
+    })
+    renderAt('/parent', <GateCard />)
+    expect(await screen.findByText(/hãy chạy thử thêm trang/)).toHaveTextContent('(12/30 bài kiểm tra được)')
+    expect(screen.queryByText(/cần rút mẫu mới/)).not.toBeInTheDocument()
   })
 })

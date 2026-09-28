@@ -141,6 +141,120 @@ describe('SpotCheckTab', () => {
     expect(document.querySelector('.answer-region-selected')).toHaveTextContent('r2')
   })
 
+  it('refetches the problem and the spot-check after a 409 STALE verdict', async () => {
+    const fetchMock = mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: detail() },
+      [`PUT ${REVIEW}/spot-check/s1/items/${PROBLEM_ID}`]: {
+        status: 409,
+        body: { error: { code: 'STALE', message: 'Nội dung đã thay đổi từ khi mở. Hãy xem lại.' } },
+      },
+    })
+    const gets = (url: string) =>
+      fetchMock.mock.calls.filter(([u, init]) => u === url && (init?.method ?? 'GET') === 'GET').length
+    renderAt('/parent/review', <SpotCheckTab />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Đúng' })).toBeEnabled())
+    expect(gets(`${REVIEW}/spot-check`)).toBe(1)
+    expect(gets(`${REVIEW}/problems/${PROBLEM_ID}`)).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Đúng' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Nội dung đã thay đổi từ khi mở.')
+    await waitFor(() => expect(gets(`${REVIEW}/spot-check`)).toBe(2))
+    await waitFor(() => expect(gets(`${REVIEW}/problems/${PROBLEM_ID}`)).toBe(2))
+  })
+
+  it('renders the differences on the right image for a spot_difference answer', async () => {
+    const base = doc()
+    const crops = ['_problem', 'tranh-trai', 'tranh-phai'].map(
+      (k) => `/assets-data/crops/toan1-2020-q1/${PROBLEM_ID}/${k}.jpg`,
+    )
+    const diffDetail = detail({
+      effective: {
+        ...base,
+        images: [
+          { image_key: 'tranh-trai', page: 12, bbox: [0.05, 0.3, 0.48, 0.7] },
+          { image_key: 'tranh-phai', page: 12, bbox: [0.52, 0.3, 0.95, 0.7] },
+        ],
+        parts: [
+          {
+            part_key: 'p1',
+            type: 'spot_difference',
+            prompt: '',
+            image_keys: [],
+            image_left: 'tranh-trai',
+            image_right: 'tranh-phai',
+            count: 2,
+            answer: {
+              regions: [
+                { region_key: 'd1', bbox: [0.1, 0.1, 0.3, 0.3] },
+                { region_key: 'd2', bbox: [0.5, 0.4, 0.7, 0.6] },
+              ],
+            },
+            hint: 'h',
+            solution: { steps: ['x'], final: 'y' },
+          },
+        ],
+      },
+      crop_urls: crops,
+    })
+    mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: diffDetail },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    const left = await screen.findByRole('img', { name: 'Ảnh gốc của phần p1' })
+    const right = screen.getByRole('img', { name: 'Ảnh có điểm khác biệt của phần p1' })
+    expect(left).toHaveAttribute('src', crops[1])
+    expect(right).toHaveAttribute('src', crops[2])
+    expect(left.parentElement?.querySelectorAll('.answer-region')).toHaveLength(0)
+    const boxes = right.parentElement?.querySelectorAll('.answer-region-selected') ?? []
+    expect(Array.from(boxes).map((b) => b.textContent)).toEqual(['d1', 'd2'])
+    expect((boxes[1] as HTMLElement).style.left).toBe('50%')
+  })
+
+  it('renders numbered dots and their path for a connect_dots answer', async () => {
+    const base = doc()
+    const crop = `/assets-data/crops/toan1-2020-q1/${PROBLEM_ID}/con-ca.jpg`
+    const dotsDetail = detail({
+      effective: {
+        ...base,
+        images: [{ image_key: 'con-ca', page: 12, bbox: [0.15, 0.3, 0.85, 0.7] }],
+        parts: [
+          {
+            part_key: 'p1',
+            type: 'connect_dots',
+            prompt: '',
+            image_keys: [],
+            image_key: 'con-ca',
+            dots: [
+              { n: 1, x: 0.1, y: 0.5 },
+              { n: 2, x: 0.3, y: 0.2 },
+              { n: 3, x: 0.6, y: 0.25 },
+            ],
+            answer: { sequence: [1, 2, 3] },
+            hint: 'h',
+            solution: { steps: ['x'], final: 'y' },
+          },
+        ],
+      },
+      crop_urls: [`/assets-data/crops/toan1-2020-q1/${PROBLEM_ID}/_problem.jpg`, crop],
+    })
+    mockApi({
+      [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },
+      [`GET ${REVIEW}/problems/${PROBLEM_ID}`]: { status: 200, body: dotsDetail },
+    })
+    renderAt('/parent/review', <SpotCheckTab />)
+    const img = await screen.findByRole('img', { name: 'Các điểm nối của phần p1' })
+    expect(img).toHaveAttribute('src', crop)
+    const dots = Array.from(document.querySelectorAll<HTMLElement>('.answer-dot'))
+    expect(dots.map((d) => d.textContent)).toEqual(['1', '2', '3'])
+    expect(dots[1].style.left).toBe('30%')
+    expect(dots[1].style.top).toBe('20%')
+    expect(document.querySelector('.answer-dot-lines polyline')).toHaveAttribute(
+      'points',
+      '10,50 30,20 60,25',
+    )
+  })
+
   it('asks before drawing a new sample over an existing one', async () => {
     const fetchMock = mockApi({
       [`GET ${REVIEW}/spot-check`]: { status: 200, body: spotCheck([spotItem()]) },

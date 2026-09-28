@@ -58,8 +58,19 @@ SETUP = {
 TYPES = ("number_input", "compare", "order", "match", "grid_fill")
 
 
+def load_fixture(problem_type: str) -> dict[str, Any]:
+    return json.loads((FIXTURES / f"{problem_type}.json").read_text(encoding="utf-8"))
+
+
 def make_doc(n: int, problem_type: str, page: int) -> dict[str, Any]:
-    doc = json.loads((FIXTURES / f"{problem_type}.json").read_text(encoding="utf-8"))
+    """`mixed`: a number_input Problem whose last Part is a `fallback` Part."""
+    if problem_type == "mixed":
+        doc = load_fixture("number_input")
+        fallback = load_fixture("fallback")
+        doc["images"] = fallback["images"]
+        doc["parts"].append({**fallback["parts"][0], "part_key": "c"})
+    else:
+        doc = load_fixture(problem_type)
     label = f"bai-{n}"
     doc.update(
         problem_id=f"{BOOK}.{UNIT}.{LESSON}.{label}",
@@ -88,11 +99,14 @@ class World:
                 [BookRow(BOOK, "2020", 1, 1, "Toán 1 – Quyển 1", "x.pdf", total_pages, 1, "f")],
             )
 
-    def pages(self, *pages: int) -> None:
-        """Marks pages as extracted (done extract jobs)."""
+    def pages(
+        self, *pages: int, kind: str = "pilot", status: str = "done", stage: str = "extract"
+    ) -> None:
+        """Marks pages as extracted (done pilot extract jobs by default)."""
         with self.engine.begin() as conn:
             for page in pages:
-                jobs_store.record(conn, jobs_store.page_ref(BOOK, page), "extract", "h", "done")
+                ref = jobs_store.page_ref(BOOK, page)
+                jobs_store.record(conn, ref, stage, "h", status, run_kind=kind)
 
     def cost(self, page: int, usd: float, *, unknown: bool = False, stage: str = "extract") -> None:
         with self.engine.begin() as conn:
@@ -613,3 +627,302 @@ def test_acceptance_pilot_spot_check_approve_full(
         assert "GATE_NOT_APPROVED" in capsys.readouterr().err
     finally:
         engine.dispose()
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+def spot(client: TestClient) -> dict[str, Any]:
+    resp = client.get(f"{REVIEW}/spot-check")
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def item_of(sample: dict[str, Any], problem_id: str) -> dict[str, Any]:
+    return next(i for i in sample["items"] if i["problem_id"] == problem_id)
+
+
+def edit_hint(client: TestClient, problem_id: str, hint: str = "Con đếm tiếp nhé.") -> None:
+    edit = {"part_key": "a", "field": "hint", "value": hint}
+    resp = client.put(f"{REVIEW}/problems/{problem_id}/overrides", json={"edits": [edit]})
+    assert resp.status_code == 200, resp.text
+
+
+def gate_rows(client: TestClient) -> int:
+    return len(rows_of(client, "SELECT id FROM build_gate"))
+
+
+def test_wrong_verdict_stays_wrong_after_the_fix(client: TestClient, world: World) -> None:
+    world.pages(5)
+    world.problems({"number_input": 25, "compare": 15})
+    sample = draw(client)
+    target = next(i for i in sample["items"] if i["problem_type"] == "number_input")
+    pid = target["problem_id"]
+    assert mark(client, sample, pid, "wrong", "đáp án sai").status_code == 200
+    edit_hint(client, pid)  # the Problem is fixed: its hash changes
+    now = spot(client)
+    item = item_of(now, pid)
+    assert item["content_hash"] != target["content_hash"]
+    assert item["counted"] == "wrong" and item["stale"] is False
+    resp = mark(client, now, pid, "correct")
+    assert resp.status_code == 200, resp.text
+    after = item_of(resp.json(), pid)
+    assert after["verdict"] == "correct" and after["first_wrong_at"] is not None
+    assert after["counted"] == "wrong"
+    assert (resp.json()["correct"], resp.json()["wrong"]) == (0, 1)
+    acc = gate_report(client)["accuracy"]
+    assert (acc["correct"], acc["wrong"], acc["value"]) == (0, 1, 0.0)
+
+
+def test_correct_verdict_on_an_edited_problem_is_not_counted(
+    client: TestClient, world: World
+) -> None:
+    world.pages(5)
+    ids = world.problems({"number_input": 3})
+    sample = draw(client)
+    assert mark(client, sample, ids[0], "correct").status_code == 200
+    assert gate_report(client)["accuracy"]["correct"] == 1
+    edit_hint(client, ids[0])
+    item = item_of(spot(client), ids[0])
+    assert item["verdict"] == "correct" and item["stale"] is True and item["counted"] is None
+    acc = gate_report(client)["accuracy"]
+    assert (acc["correct"], acc["wrong"], acc["stale"], acc["value"]) == (0, 0, 1, None)
+
+
+def test_approval_invalid_after_a_later_wrong_verdict(
+    client: TestClient, engine: Engine, world: World
+) -> None:
+    report = passing_pilot(client, world)
+    assert approve(client, report["cost"]["est_cost"]).status_code == 200
+    now = spot(client)
+    assert mark(client, now, now["items"][0]["problem_id"], "wrong").status_code == 200
+    after = gate_report(client)
+    assert after["checks_passed"] is False and after["approved"] is False
+    assert "Các tiêu chí đánh giá không còn đạt." in after["approval"]["invalid_reasons"]
+    settings = client.app.state.settings  # type: ignore[attr-defined]
+    with pytest.raises(gate.GateNotApproved):
+        gate.require_approval(engine, settings)
+
+
+def test_approval_invalid_after_an_edit_makes_a_verdict_stale(
+    client: TestClient, world: World
+) -> None:
+    world.pages(5)
+    world.cost(5, 0.2)
+    world.problems({"number_input": 25, "compare": 15})
+    sample = draw(client)
+    for item in sample["items"][:30]:  # exactly gate_min_sample counted verdicts
+        assert mark(client, sample, item["problem_id"], "correct").status_code == 200
+    report = gate_report(client)
+    assert report["checks_passed"] is True
+    assert approve(client, report["cost"]["est_cost"]).status_code == 200
+    target = next(i for i in sample["items"][:30] if i["problem_type"] == "number_input")
+    edit_hint(client, target["problem_id"])  # 29 counted < 30
+    after = gate_report(client)
+    assert after["accuracy"]["stale"] == 1 and after["accuracy"]["enough_sample"] is False
+    assert after["approved"] is False and after["approval"]["valid"] is False
+
+
+def test_approval_invalid_after_the_estimate_changes_by_a_cent(
+    client: TestClient, world: World
+) -> None:
+    report = passing_pilot(client, world)
+    assert approve(client, report["cost"]["est_cost"]).status_code == 200
+    world.cost(1, 0.00001)  # 424.8013…: the same to the cent
+    assert gate_report(client)["approved"] is True
+    world.cost(1, 0.01)  # 426.13
+    after = gate_report(client)
+    assert after["cost"]["est_cost"] == 426.13
+    assert after["approved"] is False
+    assert any("Chi phí ước tính đã thay đổi" in r for r in after["approval"]["invalid_reasons"])
+
+
+def test_reapprove_with_the_pre_scope_sample_is_refused(client: TestClient, world: World) -> None:
+    report = passing_pilot(client, world)
+    assert approve(client, report["cost"]["est_cost"]).status_code == 200
+    world.pages(17)
+    world.cost(17, 0.2)
+    after = gate_report(client)
+    assert after["accuracy"]["sample_outdated"] is True and after["accuracy"]["passed"] is False
+    assert gate.MSG_SAMPLE_OUTDATED in after["approval"]["invalid_reasons"]
+    resp = approve(client, after["cost"]["est_cost"])
+    assert resp.status_code == 409 and code(resp) == "SAMPLE_OUTDATED"
+    assert gate_rows(client) == 1
+    # A new sample over the new scope can be approved again.
+    mark_all(client, draw(client))
+    fresh = gate_report(client)
+    assert fresh["accuracy"]["sample_outdated"] is False
+    assert approve(client, fresh["cost"]["est_cost"]).status_code == 200
+    assert gate_report(client)["approved"] is True
+
+
+def test_problems_with_a_fallback_part_are_never_drawn(client: TestClient, world: World) -> None:
+    world.pages(5)
+    ids = world.problems({"number_input": 10, "fallback": 5, "mixed": 5})
+    plain, with_fallback = set(ids[:10]), set(ids[10:])
+    for _ in range(3):
+        sample = draw(client)
+        assert {i["problem_id"] for i in sample["items"]} == plain
+    report = gate_report(client)
+    assert report["fallback"]["with_fallback"] == len(with_fallback) == 10
+    assert report["accuracy"]["eligible_problems"] == 10
+
+
+def test_nothing_to_draw_when_every_problem_has_a_fallback_part(
+    client: TestClient, world: World
+) -> None:
+    world.pages(5)
+    world.problems({"fallback": 2, "mixed": 2})
+    resp = client.post(f"{REVIEW}/spot-check/draw")
+    assert resp.status_code == 409 and code(resp) == "NOTHING_TO_SAMPLE"
+
+
+@pytest.mark.parametrize(
+    ("eligible", "size", "enough"),
+    [(40, 35, True), (35, 35, True), (32, 32, True), (30, 30, True), (20, 20, False)],
+)
+def test_draw_size(
+    client: TestClient, world: World, eligible: int, size: int, enough: bool
+) -> None:
+    world.pages(5)
+    world.problems({"number_input": eligible - eligible // 3, "compare": eligible // 3})
+    assert draw(client)["size"] == size
+    acc = gate_report(client)["accuracy"]
+    assert acc["eligible_problems"] == eligible and acc["enough_problems"] is enough
+
+
+def test_full_run_jobs_are_outside_pilot_scope_and_cost(client: TestClient, world: World) -> None:
+    world.pages(1, 2)
+    world.pages(3, 4, kind="full")
+    world.pages(5, status="failed")
+    # Pending: rendered, but the extract call was cut off (its cost recorded, no job yet).
+    world.pages(6, stage="render")
+    for page in (1, 2, 3, 4, 5, 6, 99):
+        world.cost(page, 0.1)
+    world.cost(5, 0.05, stage="verify")
+    world.problems({"number_input": 2}, page=1)
+    world.problems({"number_input": 3}, page=3)  # extracted by the full run
+    report = gate_report(client)
+    assert report["pilot_pages"] == 2 and report["pilot_problems"] == 2
+    assert report["books"] == [{"book_id": BOOK, "pilot_pages": 2}]
+    cost = report["cost"]
+    # Pages 1, 2 and the failed/pending pilot pages 5, 6; not 3, 4 (full) nor 99 (no job).
+    assert cost["pilot_cost"] == pytest.approx(0.45)
+    assert cost["est_cost"] == round(0.45 / 2 * (2140 - 2), 2)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"accept_cost": true, "est_cost_seen": NaN}',
+        '{"accept_cost": true, "est_cost_seen": Infinity}',
+        '{"accept_cost": true, "est_cost_seen": -Infinity}',
+        '{"accept_cost": true, "est_cost_seen": -424.8}',
+        '{"accept_cost": true, "est_cost_seen": 424.8, "force": true}',
+    ],
+)
+def test_approve_rejects_bad_input(client: TestClient, world: World, body: str) -> None:
+    passing_pilot(client, world)
+    resp = client.post(
+        f"{GATE}/approve", content=body, headers={"Content-Type": "application/json"}
+    )
+    assert resp.status_code == 422 and code(resp) == "VALIDATION_ERROR"
+    assert gate_rows(client) == 0
+    assert gate_report(client)["approved"] is False
+
+
+def test_verdict_not_in_sample(client: TestClient, world: World) -> None:
+    world.pages(5)
+    ids = world.problems({"number_input": 25, "compare": 15})
+    sample = draw(client)
+    outside = next(p for p in ids if p not in {i["problem_id"] for i in sample["items"]})
+    resp = client.put(
+        f"{REVIEW}/spot-check/{sample['sample_id']}/items/{outside}",
+        json={"verdict": "correct", "note": "", "content_hash": "x"},
+    )
+    assert resp.status_code == 404 and code(resp) == "NOT_IN_SAMPLE"
+
+
+def test_verdict_on_a_retired_problem(client: TestClient, engine: Engine, world: World) -> None:
+    world.pages(5)
+    ids = world.problems({"number_input": 3})
+    sample = draw(client)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE content_catalog_problems SET retired_at = 'x' WHERE problem_id = :p"),
+            {"p": ids[0]},
+        )
+    resp = mark(client, sample, ids[0], "correct")
+    assert resp.status_code == 409 and code(resp) == "PROBLEM_RETIRED"
+    assert item_of(spot(client), ids[0])["retired"] is True
+
+
+def test_verdict_on_an_invalid_effective_doc(client: TestClient, world: World) -> None:
+    world.pages(5)
+    ids = world.problems({"number_input": 3})
+    edit = {"part_key": "a", "field": "answer", "value": [{"key": "s1", "value": "6"}]}
+    resp = client.put(f"{REVIEW}/problems/{ids[0]}/overrides", json={"edits": [edit]})
+    assert resp.status_code == 200, resp.text
+    sample = draw(client)
+    # Re-extracted with another slot key: the answer override no longer fits.
+    part = world.docs[0]["parts"][0]
+    part.update(template="3 + 2 = [[s2]]", slots=[{"slot_key": "s2"}])
+    part["answer"] = [{"key": "s2", "value": "5"}]
+    world.problems({})
+    assert item_of(spot(client), ids[0])["content_hash"] is None
+    resp = mark(client, sample, ids[0], "correct")
+    assert resp.status_code == 409 and code(resp) == "INVALID_EFFECTIVE"
+
+
+def test_latest_sample_and_approval_by_id(client: TestClient, engine: Engine, world: World) -> None:
+    """Two rows with equal (or even reversed) timestamps: the later id is the latest."""
+    passing_pilot(client, world)
+    settings = client.app.state.settings  # type: ignore[attr-defined]
+    early, late = utc_now().replace(year=2026, month=1), utc_now().replace(year=2026, month=6)
+    with engine.begin() as conn:
+        a = gate.draw_sample(conn, settings, seed=1, now=late)
+        b = gate.draw_sample(conn, settings, seed=2, now=early)
+        c = gate.draw_sample(conn, settings, seed=3, now=early)
+        assert a < b < c
+        assert spotcheck.latest_sample(conn).sample_id == c
+        for item in spotcheck.spot_check_out(conn).items:
+            assert item.content_hash is not None
+            spotcheck.set_verdict(conn, c, item.problem_id, "correct", item.content_hash)
+        est = gate.report(conn, settings).cost.est_cost
+        assert est is not None
+        gate.approve(conn, settings, True, est, now=late)
+        gate.approve(conn, settings, True, est, now=early)
+        gate.approve(conn, settings, True, est, now=early)
+        ids = [r[0] for r in conn.execute(text("SELECT id FROM build_gate ORDER BY id")).all()]
+        assert gate.report(conn, settings).approval.id == ids[-1]  # type: ignore[union-attr]
+        gate.revoke(conn, settings)
+        revoked = conn.execute(text("SELECT id FROM build_gate WHERE revoked_at IS NOT NULL")).all()
+        assert [r[0] for r in revoked] == [ids[-1]]
+        assert gate.report(conn, settings).approval is None
+
+
+def test_full_exits_3_without_approval(env: Path, capsys: pytest.CaptureFixture[str]) -> None:  # noqa: F811
+    assert cli.EXIT_GATE_NOT_APPROVED == 3
+    assert full() == 3
+    assert "GATE_NOT_APPROVED" in capsys.readouterr().err
+
+
+def test_gate_cli_prints_fail_marks_and_guidance(
+    env: Path,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = load_settings()
+    engine = create_db_engine(settings.db_path)
+    try:
+        world = World(engine)
+        world.pages(5)
+        world.problems({"number_input": 13, "fallback": 7})
+    finally:
+        engine.dispose()
+    assert cli.main(["build", "gate"]) == 0
+    out = capsys.readouterr().out
+    assert "[KHÔNG ĐẠT / FAIL] fallback_share 35.0% (7/20" in out
+    assert "[KHÔNG ĐẠT / FAIL] key_accuracy" in out
+    assert gate.MSG_NOT_ENOUGH_PROBLEMS in out and "(13 < 30)" in out
+    assert "Chưa rút mẫu kiểm tra" in out
+    assert full() == 3
