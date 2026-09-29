@@ -1,0 +1,201 @@
+import { fireEvent, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DashboardOut } from "../api/client";
+import { mockApi, renderAt } from "../test/render";
+import Dashboard from "./Dashboard";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const PROFILES = [
+  { id: "p1", name: "Bin", avatar: "cat", grade: 1, auto_play: true },
+  { id: "p2", name: "Na", avatar: "cat", grade: 1, auto_play: true },
+];
+
+const DATES = [
+  "2026-09-28",
+  "2026-09-29",
+  "2026-09-30",
+  "2026-10-01",
+  "2026-10-02",
+  "2026-10-03",
+  "2026-10-04",
+];
+
+function dashboard(over: Partial<DashboardOut> = {}): DashboardOut {
+  return {
+    profile_id: "p1",
+    name: "Bin",
+    grade: 1,
+    week_start: "2026-09-28",
+    week_end: "2026-10-04",
+    stars: 12,
+    streak: 3,
+    badges: [
+      { badge_key: "week1", earned: true, earned_at: "x" },
+      { badge_key: "streak7", earned: false, earned_at: null },
+      { badge_key: "stars100", earned: false, earned_at: null },
+    ],
+    retry_due_count: 2,
+    retry_open_count: 4,
+    days: DATES.map((date, i) => ({
+      date,
+      future: i > 2,
+      sessions: i === 1 ? 2 : 0,
+      minutes: i === 1 ? 9 : 0,
+      first_try_correct: i === 1 ? 3 : 0,
+      problems: i === 1 ? 4 : 0,
+      self_check: 0,
+      accuracy: i === 1 ? 0.75 : null,
+    })),
+    week: {
+      sessions: 2,
+      minutes: 9,
+      first_try_correct: 3,
+      problems: 4,
+      self_check: 0,
+      accuracy: 0.75,
+    },
+    books: [
+      {
+        book_id: "b",
+        title_vi: "Toán 1",
+        attempted: 3,
+        total: 10,
+        units: [
+          {
+            unit_key: "u",
+            label: "TUẦN 5",
+            title: "",
+            attempted: 3,
+            total: 10,
+          },
+        ],
+      },
+    ],
+    weak_concepts: [
+      {
+        concept_id: "g1.x",
+        name_vi: "Cộng trong phạm vi 10",
+        attempts: 5,
+        first_try_correct: 1,
+        accuracy: 0.2,
+      },
+    ],
+    recent_mistakes: [
+      {
+        problem_id: "pr",
+        display_label: "Bài 2",
+        completed_at: "x",
+        parts: [{ part_key: "a", child_answer: "9", correct_answer: "5" }],
+      },
+    ],
+    ...over,
+  };
+}
+
+const session = {
+  "GET /api/v1/parent/session": { status: 200, body: { authenticated: true } },
+};
+
+describe("Dashboard", () => {
+  it("renders every section from the API data", async () => {
+    mockApi({
+      ...session,
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": { status: 200, body: dashboard() },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(await screen.findByText("Sao: 12")).toBeInTheDocument();
+    expect(screen.getByText("Chuỗi ngày: 3")).toBeInTheDocument();
+    expect(screen.getByText(/Tuần đầu tiên/)).toBeInTheDocument();
+    expect(screen.getByTestId("week-totals")).toHaveTextContent(
+      "2 lượt học · 9 phút · đúng ngay lần đầu 75%",
+    );
+    expect(
+      within(screen.getByTestId("day-2026-09-29")).getByText(
+        "2 lượt · 9 phút · 75%",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("day-2026-10-02")).getByText("–"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Toán 1").closest("li")).toHaveTextContent("3/10");
+    expect(screen.getByText(/Cộng trong phạm vi 10/)).toHaveTextContent("20%");
+    expect(screen.getByText(/Bé trả lời: 9 · Đáp án: 5/)).toBeInTheDocument();
+  });
+
+  it("shows friendly empty states for a new child", async () => {
+    mockApi({
+      ...session,
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": {
+        status: 200,
+        body: dashboard({
+          stars: 0,
+          streak: 0,
+          badges: [],
+          days: dashboard().days.map((d) => ({
+            ...d,
+            sessions: 0,
+            minutes: 0,
+            accuracy: null,
+          })),
+          week: {
+            sessions: 0,
+            minutes: 0,
+            first_try_correct: 0,
+            problems: 0,
+            self_check: 0,
+            accuracy: null,
+          },
+          books: [],
+          weak_concepts: [],
+          recent_mistakes: [],
+        }),
+      },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(
+      await screen.findByText("Bin chưa làm bài nào tuần này."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Chưa có bài sai nào.")).toBeInTheDocument();
+    expect(screen.getByText(/Chưa đủ dữ liệu/)).toBeInTheDocument();
+  });
+
+  it("switches child and shows only that child", async () => {
+    mockApi({
+      ...session,
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": { status: 200, body: dashboard() },
+      "GET /api/v1/parent/dashboard/p2": {
+        status: 200,
+        body: dashboard({ profile_id: "p2", name: "Na", stars: 99 }),
+      },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(await screen.findByText("Sao: 12")).toBeInTheDocument();
+    fireEvent.change(await screen.findByRole("combobox"), {
+      target: { value: "p2" },
+    });
+    expect(await screen.findByText("Sao: 99")).toBeInTheDocument();
+    expect(screen.queryByText("Sao: 12")).not.toBeInTheDocument();
+  });
+
+  it("redirects to login when the session expired", async () => {
+    mockApi({
+      "GET /api/v1/parent/session": {
+        status: 401,
+        body: { error: { code: "UNAUTHORIZED", message: "Cần nhập mã PIN." } },
+      },
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": {
+        status: 401,
+        body: { error: { code: "UNAUTHORIZED", message: "Cần nhập mã PIN." } },
+      },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(await screen.findByText("login screen")).toBeInTheDocument();
+  });
+});

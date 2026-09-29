@@ -15,6 +15,7 @@ export function renderAt(path: string, element: ReactElement, pattern: string = 
     { path: '/parent', element: <p>parent screen</p> },
     { path: '/parent/login', element: <p>login screen</p> },
     { path: '/parent/review', element: <p>review screen</p> },
+    { path: '/parent/dashboard', element: <p>dashboard screen</p> },
     { path: '/parent/settings', element: <p>settings screen</p> },
     { path: '/', element: <p>home screen</p> },
     { path: '/library', element: <p>library screen</p> },

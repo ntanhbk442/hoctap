@@ -123,6 +123,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parent/dashboard/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard */
+        get: operations["get_parent_dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parent/review/queue": {
         parameters: {
             query?: never;
@@ -1240,6 +1257,92 @@ export interface components {
             /** Slots */
             slots: components["schemas"]["LabeledSlot"][];
         };
+        /** DashboardBadge */
+        DashboardBadge: {
+            /** Badge Key */
+            badge_key: string;
+            /** Earned */
+            earned: boolean;
+            /** Earned At */
+            earned_at: string | null;
+        };
+        /** DashboardBook */
+        DashboardBook: {
+            /** Book Id */
+            book_id: string;
+            /** Title Vi */
+            title_vi: string;
+            /** Attempted */
+            attempted: number;
+            /** Total */
+            total: number;
+            /** Units */
+            units: components["schemas"]["DashboardUnit"][];
+        };
+        /** DashboardOut */
+        DashboardOut: {
+            /** Profile Id */
+            profile_id: string;
+            /** Name */
+            name: string;
+            /** Grade */
+            grade: number;
+            /** Week Start */
+            week_start: string;
+            /** Week End */
+            week_end: string;
+            /** Stars */
+            stars: number;
+            /** Streak */
+            streak: number;
+            /** Badges */
+            badges: components["schemas"]["DashboardBadge"][];
+            /** Retry Due Count */
+            retry_due_count: number;
+            /** Retry Open Count */
+            retry_open_count: number;
+            /** Days */
+            days: components["schemas"]["DayOut"][];
+            week: components["schemas"]["WeekOut"];
+            /** Books */
+            books: components["schemas"]["DashboardBook"][];
+            /** Weak Concepts */
+            weak_concepts: components["schemas"]["WeakConceptOut"][];
+            /** Recent Mistakes */
+            recent_mistakes: components["schemas"]["MistakeOut"][];
+        };
+        /** DashboardUnit */
+        DashboardUnit: {
+            /** Unit Key */
+            unit_key: string;
+            /** Label */
+            label: string;
+            /** Title */
+            title: string;
+            /** Attempted */
+            attempted: number;
+            /** Total */
+            total: number;
+        };
+        /** DayOut */
+        DayOut: {
+            /** Date */
+            date: string;
+            /** Future */
+            future: boolean;
+            /** Sessions */
+            sessions: number;
+            /** Minutes */
+            minutes: number;
+            /** First Try Correct */
+            first_try_correct: number;
+            /** Problems */
+            problems: number;
+            /** Self Check */
+            self_check: number;
+            /** Accuracy */
+            accuracy: number | null;
+        };
         /** Dot */
         Dot: {
             /**
@@ -1924,6 +2027,26 @@ export interface components {
             proposal_key: string;
             /** Concept Id */
             concept_id: string;
+        };
+        /** MistakeOut */
+        MistakeOut: {
+            /** Problem Id */
+            problem_id: string;
+            /** Display Label */
+            display_label: string;
+            /** Completed At */
+            completed_at: string;
+            /** Parts */
+            parts: components["schemas"]["MistakePartOut"][];
+        };
+        /** MistakePartOut */
+        MistakePartOut: {
+            /** Part Key */
+            part_key: string;
+            /** Child Answer */
+            child_answer: string;
+            /** Correct Answer */
+            correct_answer: string;
         };
         /** MultipleChoicePart */
         MultipleChoicePart: {
@@ -2909,6 +3032,34 @@ export interface components {
              */
             content_hash: string;
         };
+        /** WeakConceptOut */
+        WeakConceptOut: {
+            /** Concept Id */
+            concept_id: string;
+            /** Name Vi */
+            name_vi: string;
+            /** Attempts */
+            attempts: number;
+            /** First Try Correct */
+            first_try_correct: number;
+            /** Accuracy */
+            accuracy: number;
+        };
+        /** WeekOut */
+        WeekOut: {
+            /** Sessions */
+            sessions: number;
+            /** Minutes */
+            minutes: number;
+            /** First Try Correct */
+            first_try_correct: number;
+            /** Problems */
+            problems: number;
+            /** Self Check */
+            self_check: number;
+            /** Accuracy */
+            accuracy: number | null;
+        };
         /** ApproveIn */
         hoctap__builder__gate__ApproveIn: {
             /**
@@ -3301,6 +3452,46 @@ export interface operations {
             };
             /** @description Too many wrong PINs */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_parent_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

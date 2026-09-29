@@ -42,6 +42,9 @@ export default function ParentHome() {
           <nav>
             <ul>
               <li>
+                <Link to="/parent/dashboard">Tiến độ của bé</Link>
+              </li>
+              <li>
                 <Link to="/parent/settings">Cài đặt</Link>
               </li>
               <li>

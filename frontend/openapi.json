@@ -411,6 +411,58 @@
         }
       }
     },
+    "/api/v1/parent/dashboard/{profile_id}": {
+      "get": {
+        "tags": [
+          "parent"
+        ],
+        "summary": "Get Dashboard",
+        "operationId": "get_parent_dashboard",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PROFILE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parent/review/queue": {
       "get": {
         "tags": [
@@ -4444,6 +4496,257 @@
         ],
         "title": "CountImageView"
       },
+      "DashboardBadge": {
+        "properties": {
+          "badge_key": {
+            "type": "string",
+            "title": "Badge Key"
+          },
+          "earned": {
+            "type": "boolean",
+            "title": "Earned"
+          },
+          "earned_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earned At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "badge_key",
+          "earned",
+          "earned_at"
+        ],
+        "title": "DashboardBadge"
+      },
+      "DashboardBook": {
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "title_vi": {
+            "type": "string",
+            "title": "Title Vi"
+          },
+          "attempted": {
+            "type": "integer",
+            "title": "Attempted"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardUnit"
+            },
+            "type": "array",
+            "title": "Units"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id",
+          "title_vi",
+          "attempted",
+          "total",
+          "units"
+        ],
+        "title": "DashboardBook"
+      },
+      "DashboardOut": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "grade": {
+            "type": "integer",
+            "title": "Grade"
+          },
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "week_end": {
+            "type": "string",
+            "title": "Week End"
+          },
+          "stars": {
+            "type": "integer",
+            "title": "Stars"
+          },
+          "streak": {
+            "type": "integer",
+            "title": "Streak"
+          },
+          "badges": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardBadge"
+            },
+            "type": "array",
+            "title": "Badges"
+          },
+          "retry_due_count": {
+            "type": "integer",
+            "title": "Retry Due Count"
+          },
+          "retry_open_count": {
+            "type": "integer",
+            "title": "Retry Open Count"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayOut"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "week": {
+            "$ref": "#/components/schemas/WeekOut"
+          },
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardBook"
+            },
+            "type": "array",
+            "title": "Books"
+          },
+          "weak_concepts": {
+            "items": {
+              "$ref": "#/components/schemas/WeakConceptOut"
+            },
+            "type": "array",
+            "title": "Weak Concepts"
+          },
+          "recent_mistakes": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeOut"
+            },
+            "type": "array",
+            "title": "Recent Mistakes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "name",
+          "grade",
+          "week_start",
+          "week_end",
+          "stars",
+          "streak",
+          "badges",
+          "retry_due_count",
+          "retry_open_count",
+          "days",
+          "week",
+          "books",
+          "weak_concepts",
+          "recent_mistakes"
+        ],
+        "title": "DashboardOut"
+      },
+      "DashboardUnit": {
+        "properties": {
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "attempted": {
+            "type": "integer",
+            "title": "Attempted"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_key",
+          "label",
+          "title",
+          "attempted",
+          "total"
+        ],
+        "title": "DashboardUnit"
+      },
+      "DayOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "future": {
+            "type": "boolean",
+            "title": "Future"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "minutes": {
+            "type": "integer",
+            "title": "Minutes"
+          },
+          "first_try_correct": {
+            "type": "integer",
+            "title": "First Try Correct"
+          },
+          "problems": {
+            "type": "integer",
+            "title": "Problems"
+          },
+          "self_check": {
+            "type": "integer",
+            "title": "Self Check"
+          },
+          "accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "future",
+          "sessions",
+          "minutes",
+          "first_try_correct",
+          "problems",
+          "self_check",
+          "accuracy"
+        ],
+        "title": "DayOut"
+      },
       "Dot": {
         "properties": {
           "n": {
@@ -6098,6 +6401,60 @@
           "concept_id"
         ],
         "title": "MergeIn"
+      },
+      "MistakeOut": {
+        "properties": {
+          "problem_id": {
+            "type": "string",
+            "title": "Problem Id"
+          },
+          "display_label": {
+            "type": "string",
+            "title": "Display Label"
+          },
+          "completed_at": {
+            "type": "string",
+            "title": "Completed At"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/MistakePartOut"
+            },
+            "type": "array",
+            "title": "Parts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "problem_id",
+          "display_label",
+          "completed_at",
+          "parts"
+        ],
+        "title": "MistakeOut"
+      },
+      "MistakePartOut": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "title": "Part Key"
+          },
+          "child_answer": {
+            "type": "string",
+            "title": "Child Answer"
+          },
+          "correct_answer": {
+            "type": "string",
+            "title": "Correct Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "part_key",
+          "child_answer",
+          "correct_answer"
+        ],
+        "title": "MistakePartOut"
       },
       "MultipleChoicePart": {
         "properties": {
@@ -8574,6 +8931,84 @@
           "content_hash"
         ],
         "title": "VerdictIn"
+      },
+      "WeakConceptOut": {
+        "properties": {
+          "concept_id": {
+            "type": "string",
+            "title": "Concept Id"
+          },
+          "name_vi": {
+            "type": "string",
+            "title": "Name Vi"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "first_try_correct": {
+            "type": "integer",
+            "title": "First Try Correct"
+          },
+          "accuracy": {
+            "type": "number",
+            "title": "Accuracy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_id",
+          "name_vi",
+          "attempts",
+          "first_try_correct",
+          "accuracy"
+        ],
+        "title": "WeakConceptOut"
+      },
+      "WeekOut": {
+        "properties": {
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "minutes": {
+            "type": "integer",
+            "title": "Minutes"
+          },
+          "first_try_correct": {
+            "type": "integer",
+            "title": "First Try Correct"
+          },
+          "problems": {
+            "type": "integer",
+            "title": "Problems"
+          },
+          "self_check": {
+            "type": "integer",
+            "title": "Self Check"
+          },
+          "accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sessions",
+          "minutes",
+          "first_try_correct",
+          "problems",
+          "self_check",
+          "accuracy"
+        ],
+        "title": "WeekOut"
       },
       "hoctap__builder__gate__ApproveIn": {
         "properties": {

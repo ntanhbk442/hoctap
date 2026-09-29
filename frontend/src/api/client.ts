@@ -49,6 +49,7 @@ export type SummaryOut = Schemas['SummaryOut']
 export type QuizResultOut = Schemas['QuizResultOut']
 export type BadgeOut = Schemas['BadgeOut']
 export type BadgeKey = BadgeOut['badge_key']
+export type DashboardOut = Schemas['DashboardOut']
 
 export const API_BASE = '/api/v1'
 
@@ -198,6 +199,12 @@ export function changeParentPin(body: ChangePinRequest): Promise<void> {
  * "Huy hiệu của em" screen's full state. */
 export function getProfileBadges(profileId: string, signal?: AbortSignal): Promise<BadgeOut[]> {
   return apiGet<BadgeOut[]>(`/profiles/${enc(profileId)}/badges`, { signal })
+}
+
+// --- Progress dashboard (Story 4.2) ----------------------------------------------------
+
+export function getParentDashboard(profileId: string, signal?: AbortSignal): Promise<DashboardOut> {
+  return apiGet<DashboardOut>(`/parent/dashboard/${enc(profileId)}`, { signal })
 }
 
 // --- Child Library (Sách, Story 2.3) ------------------------------------------------

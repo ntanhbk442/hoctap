@@ -3,6 +3,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router'
 import { authRedirect } from './api/errors'
 import { useOutboxAutoFlush } from './offline/useOutboxAutoFlush.ts'
 import Badges from './pages/Badges.tsx'
+import Dashboard from './pages/Dashboard.tsx'
 import ExtractionPage from './pages/ExtractionPage.tsx'
 import Home from './pages/Home.tsx'
 import LessonDetail from './pages/LessonDetail.tsx'
@@ -25,6 +26,7 @@ const routes = [
   { path: '/sessions/:sessionId', element: <SessionPlayer /> },
   { path: '/parent/login', element: <ParentLogin /> },
   { path: '/parent', element: <ParentHome /> },
+  { path: '/parent/dashboard', element: <Dashboard /> },
   { path: '/parent/settings', element: <Settings /> },
   { path: '/parent/review', element: <ReviewPage /> },
   { path: '/parent/review/problems/:problemId', element: <ProblemEditor /> },

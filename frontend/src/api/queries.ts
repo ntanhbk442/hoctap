@@ -12,6 +12,7 @@ import {
   getLibraryBooks,
   getLibraryHome,
   getLibraryLesson,
+  getParentDashboard,
   getParentSession,
   getProfileBadges,
   getProfiles,
@@ -60,6 +61,7 @@ export const queryKeys = {
     ['sessions', sessionId, 'bundle', profileId, chunk] as const,
   sessionSummary: (sessionId: string, profileId: string) =>
     ['sessions', sessionId, 'summary', profileId] as const,
+  parentDashboard: (profileId: string) => ['parent', 'dashboard', profileId] as const,
   profileBadges: (profileId: string) => ['profiles', profileId, 'badges'] as const,
 }
 
@@ -222,6 +224,14 @@ export function useLibraryHome(profileId: string) {
 
 /** All 3 fixed badges with `earned`/`earned_at` (Story 3.2: `GET /profiles/{id}/badges`)
  * -- the "Huy hiệu của em" screen's full state. */
+export function useParentDashboard(profileId: string) {
+  return useQuery({
+    queryKey: queryKeys.parentDashboard(profileId),
+    queryFn: ({ signal }) => getParentDashboard(profileId, signal),
+    enabled: profileId !== '',
+  })
+}
+
 export function useProfileBadges(profileId: string) {
   return useQuery({
     queryKey: queryKeys.profileBadges(profileId),
