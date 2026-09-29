@@ -5363,6 +5363,16 @@
                 "type": "null"
               }
             ]
+          },
+          "total_stars": {
+            "type": "integer",
+            "title": "Total Stars",
+            "default": 0
+          },
+          "streak": {
+            "type": "integer",
+            "title": "Streak",
+            "default": 0
           }
         },
         "type": "object",
@@ -7928,6 +7938,10 @@
           "streak": {
             "type": "integer",
             "title": "Streak"
+          },
+          "stars_earned": {
+            "type": "integer",
+            "title": "Stars Earned"
           }
         },
         "type": "object",
@@ -7936,7 +7950,8 @@
           "first_try_correct",
           "total",
           "wrong_problem_ids",
-          "streak"
+          "streak",
+          "stars_earned"
         ],
         "title": "SummaryOut"
       },

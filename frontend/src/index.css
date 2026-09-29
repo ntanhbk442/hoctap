@@ -21,6 +21,15 @@ body {
   color: #59636e;
 }
 
+/* Story 3.1: a persistent Star total + Streak line above the Home cards -- a plain
+ * number is enough per Story 2.10's own deferred-work.md note, no calendar UI or flame
+ * animation asset. */
+.home-stars-streak {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
 /* Home cards (Story 2.3): a 2-column grid; "Học tiếp" spans both via home-card-wide. */
 .home-cards {
   display: grid;

@@ -186,6 +186,7 @@ class SummaryOut(BaseModel):
     total: int
     wrong_problem_ids: list[str]
     streak: int
+    stars_earned: int
 
 
 @router.get(
@@ -210,6 +211,7 @@ def get_summary(
         total=summary.total,
         wrong_problem_ids=summary.wrong_problem_ids,
         streak=summary.streak,
+        stars_earned=summary.stars_earned,
     )
 
 

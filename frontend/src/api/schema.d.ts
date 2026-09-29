@@ -1700,6 +1700,16 @@ export interface components {
             grade: number;
             lesson?: components["schemas"]["HomeLessonOut"] | null;
             continue_session?: components["schemas"]["ContinueSessionOut"] | null;
+            /**
+             * Total Stars
+             * @default 0
+             */
+            total_stars: number;
+            /**
+             * Streak
+             * @default 0
+             */
+            streak: number;
         };
         /** LibraryLesson */
         LibraryLesson: {
@@ -2718,6 +2728,8 @@ export interface components {
             wrong_problem_ids: string[];
             /** Streak */
             streak: number;
+            /** Stars Earned */
+            stars_earned: number;
         };
         /** TreeNode */
         TreeNode: {

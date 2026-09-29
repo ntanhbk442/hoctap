@@ -131,6 +131,7 @@ describe('SessionPlayer', () => {
           total: 1,
           wrong_problem_ids: [],
           streak: 1,
+          stars_earned: 3,
         },
       },
     })
@@ -144,6 +145,10 @@ describe('SessionPlayer', () => {
       await screen.findByText('Em đã hoàn thành bài! Em được nhiều ngôi sao lắm.', {}, { timeout: 3000 }),
     ).toBeInTheDocument()
     expect(screen.getByText('1/1')).toBeInTheDocument()
+    // Story 3.1: `stars_earned` is shown on the summary screen (a different, wider
+    // metric than the `first_try_correct` count above -- see `SessionSummary`'s own
+    // docstring).
+    expect(screen.getByTestId('stars-earned')).toHaveTextContent('3')
     // Zero wrong Problems -- "Luyện lại bài sai" must not be shown.
     expect(screen.queryByRole('button', { name: 'Luyện lại bài sai' })).not.toBeInTheDocument()
     expect(screen.getAllByText('Về Sách').length).toBeGreaterThan(0)

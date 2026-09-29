@@ -464,6 +464,8 @@ def test_home_nothing_visible_yet_is_a_friendly_null_not_a_crash(client: TestCli
         "grade": 1,
         "lesson": None,
         "continue_session": None,
+        "total_stars": 0,
+        "streak": 0,
     }
 
 

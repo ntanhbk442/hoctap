@@ -25,6 +25,7 @@ from hoctap.ids import new_id, to_iso
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
 from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
+from hoctap.learning.scoring import maybe_award_stars
 from hoctap.learning.summary import SessionSummary, compute_summary
 from hoctap.parent.models import parent_profiles
 
@@ -751,6 +752,16 @@ def post_event(
                     received_at=received_at,
                 )
             )
+            # Story 3.1, AD-6: a Star is materialised in the SAME transaction as
+            # whichever event resolves the Problem for this Session -- `attempt` and
+            # `self_marked` are the only two kinds that can ever make
+            # `compute_problem_stars()` go from "not yet determinable" to a real 3/1/0
+            # (see `learning.scoring`'s own docstring). Runs AFTER the insert above so it
+            # sees this event's own just-stored payload.
+            if event.kind in ("attempt", "self_marked") and event.problem_id is not None:
+                maybe_award_stars(
+                    conn, received_at, session_id, profile_id, event.problem_id, mode
+                )
     except IntegrityError:
         existing = conn.execute(
             select(progress_events).where(progress_events.c.id == event.id)

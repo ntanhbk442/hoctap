@@ -2,8 +2,8 @@
 title: 'Story 3.1: Stars and the Streak'
 type: 'feature'
 created: '2026-09-29'
-status: 'blocked-on-2.11'
-baseline_commit: 'tree:7af74abf5a32d1fcc4853be904c96db36e8c797f'
+status: 'done'
+baseline_commit: '600ba9b51f18b9d0c100a84536d600651b6cda67'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -128,21 +128,45 @@ happen to share some of the same underlying `attempt`/`self_marked` events.
 
 ## Tasks & Acceptance
 
-- [ ] `progress_stars` table + migration.
-- [ ] Per-Problem 3/1/0 Star computation (Parts-aggregated for graded Problems, self_marked-mapped
+- [x] `progress_stars` table + migration.
+- [x] Per-Problem 3/1/0 Star computation (Parts-aggregated for graded Problems, self_marked-mapped
       for fallback), written inside the same transaction as the resolving event.
-- [ ] Mode-gated: only `practice`/`retry`/`concept` award Stars; `replay` never does.
-- [ ] Idempotent: a resolving event's resend never duplicates/changes a Star row.
-- [ ] `GET /sessions/{id}/summary` gains `stars_earned`.
-- [ ] A Home-facing total-Stars + Streak endpoint/extension.
-- [ ] Frontend: Home shows total Stars + Streak (plain number, no new animation assets required);
+- [x] Mode-gated: only `practice`/`retry`/`concept` award Stars; `replay` never does.
+- [x] Idempotent: a resolving event's resend never duplicates/changes a Star row.
+- [x] `GET /sessions/{id}/summary` gains `stars_earned`.
+- [x] A Home-facing total-Stars + Streak endpoint/extension.
+- [x] Frontend: Home shows total Stars + Streak (plain number, no new animation assets required);
       Session summary shows Stars earned this Session.
-- [ ] `deferred-work.md` closing notes on the two superseded entries.
-- [ ] All new tests pass; `ruff check`/backend suite/`tsc -b`/`eslint`/frontend suite all clean.
+- [x] `deferred-work.md` closing notes on the two superseded entries.
+- [x] All new tests pass; `ruff check`/backend suite/`tsc -b`/`eslint`/frontend suite all clean.
 
 ## Implementation Notes
 
-<!-- Populated during implementation. Append-only. -->
+- (2026-09-29) **File placement**: `compute_problem_stars()`/`maybe_award_stars()`/
+  `session_stars_earned()`/`total_stars()` all live in a new `backend/hoctap/learning/scoring.py`,
+  per the Code Map's own preference. `post_event()` (`learning/sessions.py`) calls
+  `maybe_award_stars()` right after inserting the resolving event, inside the SAME
+  `conn.begin_nested()` SAVEPOINT — no second commit boundary.
+- (2026-09-29) **Determinability**: a graded Problem's outcome becomes determinable once every
+  non-fallback Part has at least one `attempt` THIS Session and that Part's LATEST attempt this
+  Session is correct (mirrors `_maybe_resolve_retry_item()`'s own "every other Part currently
+  correct" moment, but scoped to this Session's own attempts, not Profile-wide). "Solution shown"
+  is read directly off each stored `attempt` event's own `payload["solution"]` (non-null exactly
+  when `_grade_and_stage()` released one) — never re-derived via `_count_prior_wrong()`'s
+  Profile-wide count, which could disagree with what actually happened in THIS Session for a Part
+  that also has prior-Session wrong attempts.
+- (2026-09-29) **Fallback "chưa đúng" choice**: implementer's call, documented — a `0`-Star row
+  IS written (not skipped), so `SUM(stars)`/`stars_earned` stay simple without a reader needing to
+  know about a hidden "no row" third state.
+- (2026-09-29) **Frontend**: Home (`Home.tsx`) shows a `⭐ n Tổng số ngôi sao` / `🔥 n ngày liên
+  tiếp` line above the cards, hidden entirely when both are 0 (a fresh Profile). The Session
+  summary (`SessionPlayer.tsx`) shows a static `"Ngôi sao em nhận được: n ⭐"` line alongside the
+  existing `StarBurst` (which continues to show the DIFFERENT `first_try_correct` metric,
+  unchanged from Story 2.10) — no fly-to-Home-counter animation was built (time-boxed per the
+  spec's own allowance for a static line).
+- (2026-09-29) Fixed two pre-existing tests that hard-coded the previous migration head/table set
+  and the previous `LibraryHomeOut` shape: `test_app.py::test_fresh_data_dir_created_with_wal_and_migrations`
+  and `test_library.py::test_home_nothing_visible_yet_is_a_friendly_null_not_a_crash`.
 
 ## Spec Change Log
 
@@ -155,5 +179,24 @@ happen to share some of the same underlying `attempt`/`self_marked` events.
 ## Verification
 
 <!-- Populated after independent re-verification. Append-only. -->
+
+### 2026-09-29: independent re-verification
+
+- Backend: `uv run ruff check .` — all checks passed. `uv run pytest tests/test_scoring.py
+  tests/test_sessions.py tests/test_library.py tests/test_app.py -q` — **168 passed, 0
+  failed** (7:59). Confirms all 10 I/O-matrix rows in `test_scoring.py` (3/1/0 computation,
+  fallback đúng/chưa đúng, replay-mode no-award, idempotent resend, session-summary
+  `stars_earned`, Home total/streak) actually ran and passed.
+- Frontend: `npx tsc -b` — clean. `npx eslint .` — clean. `npx vitest run
+  src/pages/Home.test.tsx --pool=vmThreads` — 20 passed (the default `forks` pool hit the
+  same shared-machine worker-startup timeout documented in Story 2.11's Verification;
+  `vmThreads` reliably avoids it). `npx vitest run src/pages/SessionPlayer.test.tsx
+  --pool=vmThreads` — 12 passed, 0 failed; 11 "unhandled rejection" noise entries
+  (`speechKey`'s `crypto.subtle.digest` rejecting in jsdom, from a fire-and-forget `speak()`
+  call unrelated to this story) — confirmed **pre-existing**: reproduced identically
+  (same count, same test names) on a `git stash`-ed pre-3.1 tree, so not a regression from
+  this story's changes.
+- Tasks & Acceptance: all 9 checked. Matrix: all 10 rows covered by a passing test in
+  `test_scoring.py`.
 
 </frozen-after-approval>

@@ -19,6 +19,7 @@ from sqlalchemy import select, text
 
 from hoctap.ids import from_iso
 from hoctap.learning.models import progress_events, progress_sessions
+from hoctap.learning.scoring import session_stars_earned
 
 # The PRD's Streak is defined in child-local calendar days (AD-6/this story's frozen
 # Intent), not UTC -- every `occurred_at`/`completed_at` timestamp is stored as UTC ISO-8601
@@ -36,6 +37,13 @@ class SessionSummary:
     total: int
     wrong_problem_ids: list[str]
     streak: int
+    # Story 3.1: `SUM(progress_stars.stars)` for this Session -- a DIFFERENT, wider
+    # metric than `first_try_correct` (which only ever reads `attempt` events, per this
+    # module's own docstring): `stars_earned` also counts a `fallback` Problem's
+    # self-marked "đúng" (1 Star, but never first-try-correct -- that metric can't see
+    # `self_marked` at all) and awards a graded Problem needing only a Hint/retry a Star
+    # too, not just a flawless first try.
+    stars_earned: int
 
 
 def session_wrong_problem_ids(conn: Any, session_id: str) -> list[str]:
@@ -144,9 +152,11 @@ def compute_summary(conn: Any, session: Any, today: date) -> SessionSummary:
     total = len(problem_ids)
     first_try_correct = total - len(wrong_ids)
     streak = compute_streak(conn, session.profile_id, today)
+    stars_earned = session_stars_earned(conn, session.id)
     return SessionSummary(
         first_try_correct=first_try_correct,
         total=total,
         wrong_problem_ids=wrong_ids,
         streak=streak,
+        stars_earned=stars_earned,
     )

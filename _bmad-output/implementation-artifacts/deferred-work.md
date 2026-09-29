@@ -107,6 +107,12 @@
     building a heuristic now.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-5-grading-and-staged-help.md`
   summary: Stars, Streak, and badge computation/tables.
+  resolution: |
+    Superseded (2026-09-29, Story 3.1): Streak was built by Story 2.10
+    (`compute_streak()`); Stars are now materialised by this story (`progress_stars`,
+    `learning.scoring.compute_problem_stars()`/`maybe_award_stars()`, surfaced by
+    `GET /sessions/{id}/summary`'s `stars_earned` and `GET /library/home/{id}`'s
+    `total_stars`). Badge computation/tables remain deferred to Story 3.2.
   evidence: |
     Frozen intent explicitly defers these; AD-6 mentions `learning` eventually deriving
     them, but no story before 2.10 "Session summary" consumes them, and epics.md's own
@@ -172,6 +178,17 @@
     A real Star display/count (Session summary, Home, a badge) that reads the
     `self_marked` events with `payload["correct"] is True` this story's events make
     derivable.
+  resolution: |
+    Superseded (2026-09-29, Story 3.1): this story formally supersedes both this entry's
+    "Stars are derived reactively, no storage" posture and Story 2.10's echo of it (its
+    own `learning.sessions.post_event()`/`learning.summary` docstrings, which described a
+    Star as "DERIVED, not stored" -- now stale prose, not code Story 3.1 had to touch).
+    Stars are now MATERIALISED, in the same transaction as the resolving event (AD-6's
+    literal rule), in a new `progress_stars` table -- see
+    `learning.scoring.compute_problem_stars()`/`maybe_award_stars()`. A real
+    Star-reading endpoint now exists: `GET /sessions/{id}/summary`'s `stars_earned` and
+    `GET /library/home/{id}`'s `total_stars`, both consumed by the frontend (Home,
+    Session summary). No badge reads Stars yet -- that's still Story 3.2.
   evidence: |
     Frozen intent explicitly defers this to Story 2.10 "Session summary" -- this story only
     ensures the event log carries enough information (one `self_marked` event per

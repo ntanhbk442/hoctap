@@ -17,6 +17,14 @@
   (`resolved_at` set) once every Part of that Problem has since been answered correctly.
   Profile-wide (not Session-scoped), matching staged help's own scope (AD-6). Not
   append-only: `resolved_at` is the one field ever updated after insert.
+- `progress_stars` (Story 3.1, AD-6): one row per Problem-per-Session, written ONCE
+  inside the SAME transaction as whichever event resolves the Problem's outcome for that
+  Session (see `learning.scoring.maybe_award_stars()`), never a second commit boundary.
+  `stars` is 0/1/3 only -- a `CHECK` constraint, not an arbitrary int (see
+  `learning.scoring`'s own docstring for what each value means). A unique
+  (`session_id`, `problem_id`) index makes a resolving event's resend idempotent (checked
+  before insert, same "already stored, no-op" posture as every other Story 2.5+
+  mutation). Only `hoctap.learning` writes it.
 """
 
 from __future__ import annotations
@@ -71,6 +79,18 @@ progress_retry_items = Table(
     Column("resolved_at", Text, nullable=True),
 )
 
+progress_stars = Table(
+    "progress_stars",
+    metadata,
+    Column("id", Text, primary_key=True),  # UUIDv7
+    Column("session_id", Text, ForeignKey("progress_sessions.id"), nullable=False),
+    Column("profile_id", Text, nullable=False),
+    Column("problem_id", Text, nullable=False),
+    Column("stars", Integer, nullable=False),
+    Column("awarded_at", Text, nullable=False),
+    CheckConstraint("stars IN (0, 1, 3)", name="ck_progress_stars_stars"),
+)
+
 Index("ix_progress_sessions_profile_id", progress_sessions.c.profile_id)
 Index("ix_progress_events_session_id", progress_events.c.session_id)
 Index(
@@ -83,3 +103,10 @@ Index(
     progress_retry_items.c.profile_id,
     progress_retry_items.c.problem_id,
 )
+Index(
+    "ux_progress_stars_session_problem",
+    progress_stars.c.session_id,
+    progress_stars.c.problem_id,
+    unique=True,
+)
+Index("ix_progress_stars_profile_id", progress_stars.c.profile_id)

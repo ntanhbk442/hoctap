@@ -243,6 +243,13 @@ function SessionSummaryScreen({ summary, onReplay, replayPending }: SessionSumma
       <p>
         {data.first_try_correct}/{data.total}
       </p>
+      {/* Story 3.1: `stars_earned` (this Session's own `progress_stars` SUM) is a
+       * DIFFERENT, wider metric than the `StarBurst` above (first-try-correct count) --
+       * see `learning.summary.SessionSummary`'s own docstring. A plain "n" satisfies the
+       * AC's literal wording without a second burst animation. */}
+      <p data-testid="stars-earned">
+        {phrase('stars_earned')}: {data.stars_earned} ⭐
+      </p>
       {data.streak > 0 && (
         <p>
           {data.streak} {phrase('streak_days')}

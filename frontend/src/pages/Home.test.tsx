@@ -37,6 +37,10 @@ const HOME_WITH_CONTINUE = {
     continue_session: { session_id: 'session-9' },
   },
 }
+const HOME_WITH_STARS_STREAK = {
+  status: 200,
+  body: { profile_id: 'p1', grade: 1, lesson: null, total_stars: 12, streak: 3 },
+}
 
 beforeEach(() => {
   sessionStorage.clear()
@@ -267,6 +271,29 @@ describe('Home', () => {
     renderAt('/', <Home />)
     await screen.findByTestId('home-empty')
     expect(screen.queryByRole('button', { name: 'Tiếp tục' })).not.toBeInTheDocument()
+  })
+
+  it('shows the total Stars and Streak (Story 3.1) when either is non-zero', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_WITH_STARS_STREAK,
+    })
+    renderAt('/', <Home />)
+    const banner = await screen.findByTestId('home-stars-streak')
+    expect(banner).toHaveTextContent('12')
+    expect(banner).toHaveTextContent('3')
+  })
+
+  it('shows no Star/Streak banner when both are zero', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_EMPTY,
+    })
+    renderAt('/', <Home />)
+    await screen.findByTestId('home-empty')
+    expect(screen.queryByTestId('home-stars-streak')).not.toBeInTheDocument()
   })
 
   it('links to the Parent Area', async () => {

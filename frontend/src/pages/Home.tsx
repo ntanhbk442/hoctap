@@ -120,6 +120,19 @@ function HomeContent({ profile }: { profile: Profile }) {
   return (
     <main className="home">
       <h1>Học Tập</h1>
+      {home.data && (home.data.total_stars > 0 || home.data.streak > 0) && (
+        <p className="home-stars-streak" data-testid="home-stars-streak">
+          <span>
+            ⭐ {home.data.total_stars} {phrase('total_stars')}
+          </span>
+          {home.data.streak > 0 && (
+            <span>
+              {' '}
+              · 🔥 {home.data.streak} {phrase('current_streak')}
+            </span>
+          )}
+        </p>
+      )}
       <div className="home-cards">
         <div className="home-card-slot">
           {home.isPending ? (
