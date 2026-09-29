@@ -64,7 +64,7 @@ afterEach(() => {
 })
 
 describe('SessionPlayer', () => {
-  it('shows the current chunk label and the Problems, without their Answer Key', async () => {
+  it('shows the current chunk label and the current Problem, without its Answer Key', async () => {
     mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
     expect(await screen.findByText('Phần 1/1')).toBeInTheDocument()
@@ -73,24 +73,12 @@ describe('SessionPlayer', () => {
     expect(screen.queryByText(/answer/i)).not.toBeInTheDocument()
   })
 
-  it('shows a friendly message, not a bare empty list, when every Problem in the chunk was skipped', async () => {
+  it('shows a friendly message, not a crash, when every Problem in the chunk was skipped', async () => {
     mockApi({
       'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle({ problems: [] }) },
     })
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
     expect(await screen.findByText('Phần này chưa có bài tập nào để hiển thị.')).toBeInTheDocument()
-    expect(screen.queryByRole('list')).not.toBeInTheDocument()
-  })
-
-  it('marks an attempted Problem as "Đã làm"', async () => {
-    mockApi({
-      'GET /api/v1/sessions/session-1/bundle': {
-        status: 200,
-        body: bundle({ problems: [{ ...bundle().problems[0], attempted: true }] }),
-      },
-    })
-    renderAt(ROUTE, <SessionPlayer />, PATTERN)
-    expect(await screen.findByTestId('attempted-mark')).toHaveTextContent('Đã làm')
   })
 
   it('shows a loading state while the bundle is being fetched', () => {
@@ -126,29 +114,87 @@ describe('SessionPlayer', () => {
     expect(screen.queryByRole('button', { name: 'Thử lại' })).not.toBeInTheDocument()
   })
 
-  it('Phần sau/trước switch chunks for a multi-chunk Session', async () => {
-    const chunk1 = bundle({ chunk: 1, chunk_count: 2, chunk_label: 'Phần 1/2' })
-    const chunk2 = bundle({
-      chunk: 2,
-      chunk_count: 2,
-      chunk_label: 'Phần 2/2',
-      problems: [
-        { ...bundle().problems[0], problem: { ...PROBLEM, display_label: 'Bài 2' } },
-      ],
+  it('reaches a "done" state, with a link back to the Library, after the only Problem in a single-chunk Session', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
     })
-    const fetchMock = vi.fn(async (url: string) => {
-      const chunkParam = new URL(url, 'http://x').searchParams.get('chunk')
-      const body = chunkParam === '2' ? chunk2 : chunk1
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    })
-    vi.stubGlobal('fetch', fetchMock)
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
-    expect(await screen.findByText('Phần 1/2')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Phần sau' }))
-    expect(await screen.findByText('Phần 2/2')).toBeInTheDocument()
-    expect(screen.getByText('Bài 2')).toBeInTheDocument()
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    const slot = screen.getByRole('button', { name: /Ô s1/ })
+    fireEvent.click(slot)
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(
+      await screen.findByText('Em đã hoàn thành bài! Em được nhiều ngôi sao lắm.', {}, { timeout: 3000 }),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Về Sách').length).toBeGreaterThan(0)
+  })
+
+  it('advances from Problem 1 to Problem 2 within one chunk (finding #7)', async () => {
+    const problem2 = {
+      ...PROBLEM,
+      problem_id: 'toan1-2020-q1.tuan-5.tiet-2.bai-2',
+      problem_label: 'bai-2',
+      display_label: 'Bài 2',
+    }
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({
+          problems: [
+            {
+              problem: PROBLEM,
+              crop_urls: ['/assets-data/crops/toan1-2020-q1/x/_problem.jpg'],
+              page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
+              audio: {},
+              attempted: false,
+            },
+            {
+              problem: problem2,
+              crop_urls: ['/assets-data/crops/toan1-2020-q1/y/_problem.jpg'],
+              page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
+              audio: {},
+              attempted: false,
+            },
+          ],
+        }),
+      },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByText('Bài 2', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.queryByText('Bài 1')).not.toBeInTheDocument()
+  })
+
+  it('offers "Phần tiếp theo" instead of the Library link when a further chunk exists', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ chunk: 1, chunk_count: 2, chunk_label: 'Phần 1/2' }),
+      },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(
+      await screen.findByRole('button', { name: 'Phần tiếp theo ➜' }, { timeout: 3000 }),
+    ).toBeInTheDocument()
   })
 })

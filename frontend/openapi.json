@@ -2112,7 +2112,7 @@
             }
           },
           "422": {
-            "description": "Invalid event id, kind, or problem_id",
+            "description": "Invalid event id, kind, problem_id, or (attempt) part_key",
             "content": {
               "application/json": {
                 "schema": {
@@ -4324,6 +4324,52 @@
           "received_at": {
             "type": "string",
             "title": "Received At"
+          },
+          "correct": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correct"
+          },
+          "wrong_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wrong Keys"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "solution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Solution"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

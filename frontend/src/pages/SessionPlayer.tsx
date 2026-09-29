@@ -3,21 +3,35 @@ import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/errors'
 import { useSessionBundle } from '../api/queries'
+import { phrase } from '../audio/phrases'
 import { getCurrentProfileId } from '../profile'
+import ProblemPlayer from './ProblemPlayer'
 
 /**
- * The read-only bundle-rendering placeholder Story 2.4 needs (not a real Problem player --
- * that is a later Epic 2 widget story, see `deferred-work.md`): a Session's current chunk
- * ("Phần i/n"), each Problem numbered, with an "đã làm" mark for `attempted` Problems, and
- * simple Prev/Next chunk navigation when the Session has more than one chunk.
+ * The real, one-Problem-at-a-time player (Story 2.6): fetches a Session's current chunk
+ * ("Phần i/n"), owns which Problem of it is current, and delegates everything below that
+ * (widget-per-type switcher, ✔ Kiểm tra, the Attempt submit/feedback sequence) to
+ * `ProblemPlayer`. Story 2.4's read-only bundle listing is gone -- Bin now actually answers
+ * each Problem instead of only seeing a list of them.
  */
 export default function SessionPlayer() {
   const { sessionId = '' } = useParams()
   const [chunk, setChunk] = useState(1)
+  const [problemIndex, setProblemIndex] = useState(0)
+  const [stars, setStars] = useState(0)
   const profileId = getCurrentProfileId() ?? ''
   const bundle = useSessionBundle(sessionId, profileId, chunk)
   const sessionGone =
     bundle.isError && bundle.error instanceof ApiError && bundle.error.code === 'SESSION_NOT_FOUND'
+
+  const problems = bundle.data?.problems ?? []
+  const chunkDone = bundle.data !== undefined && problemIndex >= problems.length
+  const hasNextChunk = bundle.data !== undefined && bundle.data.chunk < bundle.data.chunk_count
+
+  function goToNextChunk() {
+    setChunk((c) => c + 1)
+    setProblemIndex(0)
+  }
 
   return (
     <main className="home">
@@ -45,36 +59,28 @@ export default function SessionPlayer() {
       {bundle.data && (
         <>
           <p className="session-chunk-label">{bundle.data.chunk_label}</p>
-          {bundle.data.problems.length === 0 ? (
+
+          {problems.length === 0 ? (
             <p className="home-empty">Phần này chưa có bài tập nào để hiển thị.</p>
-          ) : (
-            <ol className="lesson-problem-list">
-              {bundle.data.problems.map((p, i) => (
-                <li key={p.problem.problem_id} className="lesson-problem-row">
-                  <span className="lesson-problem-label">
-                    {p.problem.display_label || `Bài ${i + 1}`}
-                  </span>
-                  {p.problem.instruction && (
-                    <span className="lesson-problem-instruction">{p.problem.instruction}</span>
-                  )}
-                  {p.attempted && <span data-testid="attempted-mark">Đã làm</span>}
-                </li>
-              ))}
-            </ol>
-          )}
-          {bundle.data.chunk_count > 1 && (
-            <div className="session-chunk-nav">
-              <button type="button" disabled={chunk <= 1} onClick={() => setChunk((c) => c - 1)}>
-                Phần trước
-              </button>
-              <button
-                type="button"
-                disabled={chunk >= bundle.data.chunk_count}
-                onClick={() => setChunk((c) => c + 1)}
-              >
-                Phần sau
-              </button>
+          ) : chunkDone ? (
+            <div className="session-done">
+              <p>{phrase('session_summary')}</p>
+              {hasNextChunk && (
+                <button type="button" onClick={goToNextChunk}>
+                  Phần tiếp theo ➜
+                </button>
+              )}
             </div>
+          ) : (
+            <ProblemPlayer
+              key={problems[problemIndex].problem.problem_id}
+              sessionId={sessionId}
+              profileId={profileId}
+              bundleProblem={problems[problemIndex]}
+              stars={stars}
+              onStarEarned={() => setStars((s) => s + 1)}
+              onDone={() => setProblemIndex((i) => i + 1)}
+            />
           )}
         </>
       )}

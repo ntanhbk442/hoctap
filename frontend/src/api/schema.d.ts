@@ -1279,6 +1279,13 @@ export interface components {
             occurred_at: string;
             /** Received At */
             received_at: string;
+            /** Correct */
+            correct?: boolean | null;
+            /** Wrong Keys */
+            wrong_keys?: string[] | null;
+            /** Hint */
+            hint?: string | null;
+            solution?: components["schemas"]["Solution"] | null;
         };
         /** FailedPage */
         FailedPage: {
@@ -4364,7 +4371,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Invalid event id, kind, or problem_id */
+            /** @description Invalid event id, kind, problem_id, or (attempt) part_key */
             422: {
                 headers: {
                     [name: string]: unknown;

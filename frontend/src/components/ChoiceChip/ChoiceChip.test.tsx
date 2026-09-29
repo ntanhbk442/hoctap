@@ -1,8 +1,17 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useMotion } from '../../hooks/useMotion'
 import ChoiceChip from './ChoiceChip'
 
+vi.mock('../../hooks/useMotion')
+
+const mockMotion = vi.mocked(useMotion)
+
 describe('ChoiceChip', () => {
+  beforeEach(() => {
+    mockMotion.mockReturnValue({ reduced: false })
+  })
+
   it('shows a text child and calls onClick', () => {
     const onClick = vi.fn()
     render(<ChoiceChip onClick={onClick}>&lt;</ChoiceChip>)
@@ -34,5 +43,32 @@ describe('ChoiceChip', () => {
     const button = screen.getByRole('button')
     expect(Number.parseInt(button.style.minWidth, 10)).toBeGreaterThanOrEqual(64)
     expect(Number.parseInt(button.style.minHeight, 10)).toBeGreaterThanOrEqual(64)
+  })
+
+  it('has no graded variant class by default', () => {
+    render(<ChoiceChip>=</ChoiceChip>)
+    const button = screen.getByRole('button')
+    expect(button).not.toHaveClass('choice-chip-correct')
+    expect(button).not.toHaveClass('choice-chip-wrong')
+  })
+
+  it('applies the correct-variant class', () => {
+    render(<ChoiceChip variant="correct">=</ChoiceChip>)
+    expect(screen.getByRole('button')).toHaveClass('choice-chip-correct')
+  })
+
+  it('applies the wrong-variant class and shakes (motion allowed)', () => {
+    render(<ChoiceChip variant="wrong">=</ChoiceChip>)
+    const button = screen.getByRole('button')
+    expect(button).toHaveClass('choice-chip-wrong')
+    expect(button).toHaveClass('choice-chip-shake')
+  })
+
+  it('does not shake a wrong variant when reduced motion is preferred', () => {
+    mockMotion.mockReturnValue({ reduced: true })
+    render(<ChoiceChip variant="wrong">=</ChoiceChip>)
+    const button = screen.getByRole('button')
+    expect(button).toHaveClass('choice-chip-wrong')
+    expect(button).not.toHaveClass('choice-chip-shake')
   })
 })

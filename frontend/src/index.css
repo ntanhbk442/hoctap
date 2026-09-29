@@ -127,6 +127,13 @@ body {
   color: #59636e;
 }
 
+.session-done {
+  margin: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 /* Parent Area: plain, readable styling only (design tokens arrive in Epic 2). */
 .parent {
   max-width: 32rem;

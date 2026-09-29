@@ -1,0 +1,111 @@
+.widget-number-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-instruction-family);
+  font-size: var(--font-instruction-size);
+  font-weight: var(--font-instruction-weight);
+  color: var(--color-ink-primary);
+}
+
+.widget-compare {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.widget-compare-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  font-family: var(--font-answer-family);
+  font-size: var(--font-answer-size);
+  font-weight: var(--font-answer-weight);
+}
+
+.widget-compare-chips {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.widget-multiple-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.widget-number-tree {
+  display: flex;
+  justify-content: center;
+}
+
+.widget-number-tree-level {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+}
+
+.widget-number-tree-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.widget-number-tree-given {
+  font-family: var(--font-answer-family);
+  font-size: var(--font-answer-size);
+  font-weight: var(--font-answer-weight);
+}
+
+.widget-count-image {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.widget-count-image-canvas {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.widget-count-image-canvas img {
+  max-width: 100%;
+  display: block;
+  border-radius: var(--radius-md);
+}
+
+.widget-count-image-dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+.widget-count-image-slots {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.widget-count-image-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.widget-unsupported {
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--color-ink-secondary);
+  font-family: var(--font-body-family);
+  font-size: var(--font-body-size);
+}

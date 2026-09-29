@@ -23,3 +23,36 @@
   max-height: 100%;
   border-radius: var(--radius-sm);
 }
+
+.choice-chip-correct {
+  background: var(--color-success-soft);
+  border-color: var(--color-success);
+}
+
+.choice-chip-wrong {
+  background: var(--color-retry-soft);
+  border-color: var(--color-retry);
+}
+
+.choice-chip-shake {
+  animation: choice-chip-shake 0.4s ease-in-out;
+}
+
+@keyframes choice-chip-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .choice-chip-shake {
+    animation: none;
+  }
+}
