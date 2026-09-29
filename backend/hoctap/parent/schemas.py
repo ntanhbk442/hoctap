@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 AVATARS: tuple[str, ...] = ("cat", "dog", "rabbit", "bear", "fox", "panda")
 Avatar = Literal["cat", "dog", "rabbit", "bear", "fox", "panda"]
@@ -50,6 +50,37 @@ class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pin: Pin
+
+
+class ProfilePatch(BaseModel):
+    """Partial Profile update; only the given fields change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    avatar: Avatar | None = None
+    grade: int | None = Field(default=None, ge=1, le=5)
+    auto_play: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, value: str | None) -> str | None:
+        return None if value is None else ProfileIn._clean_name(value)
+
+    @model_validator(mode="after")
+    def _not_null(self) -> ProfilePatch:
+        for field in ("name", "avatar", "grade", "auto_play"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+
+class ChangePinRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_pin: Pin
+    new_pin: Pin
+    new_pin_confirm: Pin
 
 
 class Profile(BaseModel):

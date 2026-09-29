@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockApi, renderAt } from '../test/render'
 import Home from './Home'
@@ -378,14 +378,44 @@ describe('Home', () => {
     expect(screen.queryByTestId('home-stars-streak')).not.toBeInTheDocument()
   })
 
-  it('links to the Parent Area', async () => {
-    mockApi({
-      'GET /api/v1/setup/status': SETUP_OK,
-      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
-      'GET /api/v1/library/home/p1': HOME_EMPTY,
+  describe('parent lock', () => {
+    async function renderHome() {
+      mockApi({
+        'GET /api/v1/setup/status': SETUP_OK,
+        'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+        'GET /api/v1/library/home/p1': HOME_EMPTY,
+      })
+      renderAt('/', <Home />)
+      return screen.findByRole('button', { name: /Khu vực phụ huynh/ })
+    }
+
+    it('opens the PIN gate only after a 2 second hold', async () => {
+      const lock = await renderHome()
+      vi.useFakeTimers()
+      try {
+        fireEvent.pointerDown(lock)
+        act(() => void vi.advanceTimersByTime(1900))
+        expect(screen.queryByText('login screen')).not.toBeInTheDocument()
+        act(() => void vi.advanceTimersByTime(200))
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(await screen.findByText('login screen')).toBeInTheDocument()
     })
-    renderAt('/', <Home />)
-    fireEvent.click(await screen.findByRole('link', { name: 'Khu vực phụ huynh' }))
-    expect(await screen.findByText('login screen')).toBeInTheDocument()
+
+    it('does nothing on a short tap or a click', async () => {
+      const lock = await renderHome()
+      vi.useFakeTimers()
+      try {
+        fireEvent.pointerDown(lock)
+        act(() => void vi.advanceTimersByTime(1000))
+        fireEvent.pointerUp(lock)
+        fireEvent.click(lock)
+        act(() => void vi.advanceTimersByTime(3000))
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(screen.queryByText('login screen')).not.toBeInTheDocument()
+    })
   })
 })

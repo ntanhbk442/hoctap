@@ -703,6 +703,46 @@ def _speak_flags(command: argparse.ArgumentParser) -> None:
     )
 
 
+def _reset_pin(_args: argparse.Namespace) -> int:
+    """Forgotten PIN: sets a new one on the host, no old PIN and no running server needed."""
+    import getpass
+
+    from pydantic import TypeAdapter, ValidationError
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from hoctap.api.errors import AppError
+    from hoctap.db.engine import create_db_engine, run_migrations
+    from hoctap.ids import utc_now
+    from hoctap.parent import service
+    from hoctap.parent.schemas import Pin
+
+    settings = load_settings()
+    pin = getpass.getpass("Mã PIN mới (4 chữ số) / New PIN (4 digits): ")
+    try:
+        TypeAdapter(Pin).validate_python(pin)
+    except ValidationError:
+        print("Mã PIN phải gồm đúng 4 chữ số / The PIN must be exactly 4 digits.", file=sys.stderr)
+        return 2
+    if getpass.getpass("Nhập lại mã PIN / Repeat the PIN: ") != pin:
+        print("Hai mã PIN không khớp / The PINs do not match.", file=sys.stderr)
+        return 2
+    try:
+        engine = create_db_engine(settings.db_path)
+        try:
+            run_migrations(engine)
+            service.reset_pin(engine, pin, utc_now())
+        finally:
+            engine.dispose()
+    except AppError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    except (SQLAlchemyError, OSError) as exc:
+        print(f"Lỗi / Error at {settings.db_path}: {exc}", file=sys.stderr)
+        return 1
+    print("Đã đặt lại mã PIN; mọi phiên phụ huynh đang mở đã bị đăng xuất / PIN reset.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hoctap", description="Học Tập server")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -724,10 +764,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_windows = sub.add_parser(
         "install-windows",
-        help="add a Windows Firewall rule for the TLS port (prints it and does nothing "
-        "elsewhere)",
+        help="add a Windows Firewall rule for the TLS port (prints it and does nothing elsewhere)",
     )
     install_windows.set_defaults(func=_install_windows_cmd)
+
+    reset_pin = sub.add_parser(
+        "reset-pin", help="forgotten PIN: set a new one on this machine (prompts for it)"
+    )
+    reset_pin.set_defaults(func=_reset_pin)
 
     export = sub.add_parser("export-openapi", help="write the OpenAPI schema for gen:api")
     export.add_argument("--out", default=str(DEFAULT_OPENAPI_OUT), help="output file")

@@ -1,5 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  changeParentPin,
+  createProfile,
+  deleteProfile,
   type EventIn,
   getCatalogueBooks,
   getConcepts,
@@ -23,6 +26,10 @@ import {
   type ProblemFilter,
   startSession,
   type StartSessionRefIn,
+  updateProfile,
+  type ProfileIn,
+  type ProfilePatch,
+  type ChangePinRequest,
 } from './client'
 import { defaultOutboxStore, postEventsOrQueue } from '../offline/outbox'
 
@@ -145,6 +152,35 @@ export function useProfiles() {
     queryKey: queryKeys.profiles,
     queryFn: ({ signal }) => getProfiles(signal),
   })
+}
+
+/** Story 4.1: guarded Profile writes; each refreshes the shared Profile list. */
+export function useCreateProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: ProfileIn) => createProfile(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.profiles }),
+  })
+}
+
+export function useUpdateProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ProfilePatch }) => updateProfile(id, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.profiles }),
+  })
+}
+
+export function useDeleteProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteProfile(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.profiles }),
+  })
+}
+
+export function useChangePin() {
+  return useMutation({ mutationFn: (body: ChangePinRequest) => changeParentPin(body) })
 }
 
 /** Books/Units/Lessons of one Grade, each Lesson's visible-Problem count (Story 2.3's

@@ -9,6 +9,9 @@ export type SetupStatus = Schemas['SetupStatus']
 export type SetupRequest = Schemas['SetupRequest']
 export type Profile = Schemas['Profile']
 export type Avatar = Profile['avatar']
+export type ProfileIn = Schemas['ProfileIn']
+export type ProfilePatch = Schemas['ProfilePatch']
+export type ChangePinRequest = Schemas['ChangePinRequest']
 export type LoginRequest = Schemas['LoginRequest']
 export type SessionStatus = Schemas['SessionStatus']
 export type ProblemSummary = Schemas['ProblemSummary']
@@ -135,6 +138,10 @@ export function apiPut<T>(path: string, body: unknown, init?: RequestInit): Prom
   return sendJson<T>('PUT', path, body, init)
 }
 
+export function apiPatch<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  return sendJson<T>('PATCH', path, body, init)
+}
+
 export function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>(path, { ...init, method: 'DELETE' })
 }
@@ -165,6 +172,24 @@ export function getParentSession(signal?: AbortSignal): Promise<SessionStatus> {
 
 export function getProfiles(signal?: AbortSignal): Promise<Profile[]> {
   return apiGet<Profile[]>('/profiles', { signal })
+}
+
+// --- Profiles and settings (Story 4.1) -------------------------------------------------
+
+export function createProfile(body: ProfileIn): Promise<Profile> {
+  return apiPost<Profile>('/profiles', body)
+}
+
+export function updateProfile(id: string, body: ProfilePatch): Promise<Profile> {
+  return apiPatch<Profile>(`/profiles/${encodeURIComponent(id)}`, body)
+}
+
+export function deleteProfile(id: string): Promise<void> {
+  return apiDelete<void>(`/profiles/${encodeURIComponent(id)}`)
+}
+
+export function changeParentPin(body: ChangePinRequest): Promise<void> {
+  return apiPost<void>('/parent/pin', body)
 }
 
 // --- Badges (Story 3.2) ----------------------------------------------------------------

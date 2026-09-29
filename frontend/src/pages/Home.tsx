@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router'
+import { Navigate, useNavigate } from 'react-router'
 import type { Profile } from '../api/client'
 import { errorMessage } from '../api/errors'
 import { useLibraryHome, useProfiles, useSetupStatus, useStartSession } from '../api/queries'
@@ -10,6 +10,7 @@ import HomeCard from '../components/HomeCard/HomeCard'
 import SpeakerButton from '../components/SpeakerButton/SpeakerButton'
 import { getCurrentProfileId, setCurrentProfileId } from '../profile'
 import ProfilePicker from './ProfilePicker'
+import ParentLock from './ParentLock'
 
 /**
  * The child-facing Home (Story 2.3): a Profile picker (skipped when there is only one
@@ -240,7 +241,7 @@ function HomeContent({ profile }: { profile: Profile }) {
         )}
       </div>
       <p className="parent-link">
-        <Link to="/parent/login">Khu vực phụ huynh</Link>
+        <ParentLock onOpen={() => navigate('/parent/login')} />
       </p>
     </main>
   )

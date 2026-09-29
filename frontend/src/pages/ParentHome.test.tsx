@@ -19,6 +19,7 @@ describe('ParentHome', () => {
     expect(screen.getByRole('heading', { name: 'Khu vực phụ huynh' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Chạy thử & đánh giá' })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Duyệt chạy toàn bộ' })).toBeDisabled()
+    expect(await screen.findByRole('link', { name: 'Cài đặt' })).toHaveAttribute('href', '/parent/settings')
     fireEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }))
     expect(await screen.findByText('login screen')).toBeInTheDocument()
   })

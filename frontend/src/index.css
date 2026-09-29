@@ -615,3 +615,44 @@ body {
   padding: 0.5rem;
   background: #f6f8fa;
 }
+
+/* Story 4.1: the 🔒 on Home and the Settings screen */
+.parent-lock {
+  font-size: 1.25rem;
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  opacity: 0.6;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.settings-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-list > li {
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings-section {
+  margin-bottom: 2rem;
+}

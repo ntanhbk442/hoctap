@@ -9,10 +9,16 @@ numerator without content.library needing to know progress_events exists.
 
 from __future__ import annotations
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, delete, select
 
 from hoctap.content import effective
-from hoctap.learning.models import progress_events
+from hoctap.learning.models import (
+    progress_badges,
+    progress_events,
+    progress_retry_items,
+    progress_sessions,
+    progress_stars,
+)
 
 
 def attempted_problem_ids(conn: Connection, profile_id: str) -> set[str]:
@@ -47,3 +53,11 @@ def attempted_lesson_counts(
             key = (state.unit_key, state.lesson_key)
             counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+def delete_profile_progress(conn: Connection, profile_id: str) -> None:
+    """Removes every `progress_*` row of `profile_id` (Story 4.1). Runs inside the caller's
+    transaction; events and stars go before sessions (FK order). No FK cascades exist."""
+    for table in (progress_events, progress_stars, progress_retry_items, progress_badges):
+        conn.execute(delete(table).where(table.c.profile_id == profile_id))
+    conn.execute(delete(progress_sessions).where(progress_sessions.c.profile_id == profile_id))

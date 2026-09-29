@@ -42,6 +42,9 @@ export default function ParentHome() {
           <nav>
             <ul>
               <li>
+                <Link to="/parent/settings">Cài đặt</Link>
+              </li>
+              <li>
                 <Link to="/parent/review">Duyệt nội dung</Link>
               </li>
               <li>
