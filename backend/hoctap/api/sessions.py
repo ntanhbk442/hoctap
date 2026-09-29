@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError
 
 from hoctap.api.deps import get_engine, get_now
 from hoctap.api.errors import AppError, ErrorResponse
+from hoctap.content import library as content_library
 from hoctap.content.schema import Solution
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
@@ -131,9 +132,13 @@ def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> Sessi
     else:
         ref = ReplayRef(source_session_id=body.ref.source_session_id)
     with engine.begin() as conn:
-        return _session_out(
-            service.start_session(conn, now, body.profile_id, ref, mode=mode)
-        )
+        # Story 3.4: the mode of a quiz-sheet Lesson is decided here, never by the client
+        # (`StartSessionIn.mode` has no `quiz` value), mirroring `retry` above.
+        if isinstance(ref, LessonRef) and content_library.lesson_is_quiz_sheet(
+            conn, ref.book_id, ref.unit_key, ref.lesson_key
+        ):
+            mode = "quiz"
+        return _session_out(service.start_session(conn, now, body.profile_id, ref, mode=mode))
 
 
 class BundleProblemOut(BaseModel):
@@ -146,6 +151,8 @@ class BundleProblemOut(BaseModel):
 
 class BundleOut(BaseModel):
     session_id: str
+    # Story 3.4: the Session's server-decided mode (the player switches to quiz play).
+    mode: str
     chunk: int
     chunk_count: int
     chunk_label: str
@@ -155,6 +162,7 @@ class BundleOut(BaseModel):
 def _bundle_out(b: service.BundleOut) -> BundleOut:
     return BundleOut(
         session_id=b.session_id,
+        mode=b.mode,
         chunk=b.chunk,
         chunk_count=b.chunk_count,
         chunk_label=b.chunk_label,
@@ -241,6 +249,22 @@ class PostEventsIn(BaseModel):
     events: list[EventIn] = Field(min_length=1)
 
 
+class QuizPartSolution(BaseModel):
+    part_key: str
+    solution: Solution
+
+
+class QuizResultOut(BaseModel):
+    """One Problem's verdict in a `quiz_submitted` response: ✔ (`correct`) or ↻, its Stars
+    (3 or 0), and, for ↻ only, the Solutions of the Parts that were not right."""
+
+    problem_id: str
+    display_label: str
+    correct: bool
+    stars: int
+    solutions: list[QuizPartSolution]
+
+
 class EventOut(BaseModel):
     id: str
     session_id: str
@@ -253,6 +277,10 @@ class EventOut(BaseModel):
     wrong_keys: list[str] | None = None
     hint: str | None = None
     solution: Solution | None = None
+    # Story 3.4: only on `quiz_submitted` -- every Problem's verdict, and whether this
+    # submission awarded Stars at all (`False` for a retake of an already-submitted Lesson).
+    quiz_results: list[QuizResultOut] | None = None
+    quiz_stars_awarded: bool | None = None
 
 
 def _event_out(e: service.EventOut) -> EventOut:
@@ -267,6 +295,10 @@ def _event_out(e: service.EventOut) -> EventOut:
         wrong_keys=e.wrong_keys,
         hint=e.hint,
         solution=e.solution,
+        quiz_results=None
+        if e.quiz_results is None
+        else [QuizResultOut.model_validate(r) for r in e.quiz_results],
+        quiz_stars_awarded=e.quiz_stars_awarded,
     )
 
 

@@ -1,7 +1,7 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import type { SummaryOut } from '../api/client'
+import type { EventOut, QuizResultOut, SummaryOut } from '../api/client'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/errors'
 import {
@@ -15,6 +15,8 @@ import { phrase } from '../audio/phrases'
 import { speak } from '../audio/speech'
 import Badge from '../components/Badge/Badge'
 import { badgeName } from '../components/Badge/badgeCopy'
+import ProgressDots, { type DotState } from '../components/ProgressDots/ProgressDots'
+import SolutionPanel from '../components/SolutionPanel/SolutionPanel'
 import StarBurst from '../components/StarBurst/StarBurst'
 import { newEventId } from '../ids'
 import { cacheBundleAssets } from '../offline/assetCache'
@@ -44,6 +46,12 @@ export default function SessionPlayer() {
   const [problemIndex, setProblemIndex] = useState(0)
   const [stars, setStars] = useState(0)
   const [completedPosted, setCompletedPosted] = useState(false)
+  // Story 3.4: the server's `quiz_submitted` response (every Problem's ✔/↻ + Solutions).
+  // The client never grades; this is the only source of a quiz's results.
+  const [quizSubmitted, setQuizSubmitted] = useState<EventOut | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  // Story 3.4: a resumed quiz (Home "Tiếp tục") starts at its first unanswered Problem.
+  const [resumed, setResumed] = useState(false)
   // Story 2.11: true once ANY event (an attempt/self_marked/fallback_revealed/
   // session_completed, from anywhere below) got queued to the offline outbox instead of
   // reaching the server -- replaces the whole Session view with `OfflineScreen` (no local
@@ -69,6 +77,14 @@ export default function SessionPlayer() {
     bundle.isError && bundle.error instanceof ApiError && bundle.error.code === 'SESSION_NOT_FOUND'
 
   const problems = bundle.data?.problems ?? []
+  const isQuiz = bundle.data?.mode === 'quiz'
+  if (bundle.data && !resumed) {
+    setResumed(true)
+    if (bundle.data.mode === 'quiz') {
+      const first = bundle.data.problems.findIndex((p) => !p.attempted)
+      setProblemIndex(first === -1 ? bundle.data.problems.length : first)
+    }
+  }
   const chunkDone = bundle.data !== undefined && problemIndex >= problems.length
   const hasNextChunk = bundle.data !== undefined && bundle.data.chunk < bundle.data.chunk_count
   const trueEnd = chunkDone && !hasNextChunk
@@ -87,8 +103,26 @@ export default function SessionPlayer() {
   useEffect(() => {
     if (!trueEnd || completedPosted || postingCompletedRef.current) return
     postingCompletedRef.current = true
-    postEvent
-      .mutateAsync({
+    const post = async () => {
+      if (isQuiz) {
+        // Story 3.4: `quiz_submitted` (server grading) comes right before
+        // `session_completed`. A resend after an offline retry just returns the stored
+        // result, so re-running this from the top is safe.
+        const [submitted] = await postEvent.mutateAsync({
+          profileId,
+          events: [
+            {
+              id: newEventId(),
+              kind: 'quiz_submitted',
+              problem_id: null,
+              payload: {},
+              occurred_at: new Date().toISOString(),
+            },
+          ],
+        })
+        setQuizSubmitted(submitted)
+      }
+      await postEvent.mutateAsync({
         profileId,
         events: [
           {
@@ -100,14 +134,16 @@ export default function SessionPlayer() {
           },
         ],
       })
-      .then(() => setCompletedPosted(true))
-      .catch((err: unknown) => {
-        postingCompletedRef.current = false
-        // Story 2.11: queued to the offline outbox rather than a real error -- show the
-        // offline screen; the retry below (or the app-wide `online` auto-flush) re-arms
-        // this same effect via `retryTick` once the queue has actually drained.
-        if (err instanceof QueuedOfflineError) setOffline(true)
-      })
+      setCompletedPosted(true)
+    }
+    post().catch((err: unknown) => {
+      postingCompletedRef.current = false
+      // Story 2.11: queued to the offline outbox rather than a real error -- show the
+      // offline screen; the retry below (or the app-wide `online` auto-flush) re-arms
+      // this same effect via `retryTick` once the queue has actually drained.
+      if (err instanceof QueuedOfflineError) setOffline(true)
+      else if (isQuiz) setSubmitError(errorMessage(err))
+    })
     // `postEvent` is a fresh `useMutation()` object identity on every render -- only
     // `trueEnd`/`completedPosted`/`retryTick` should ever re-arm this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,7 +169,11 @@ export default function SessionPlayer() {
 
   function handleReplay() {
     startReplay.mutate(
-      { profileId, ref: { kind: 'replay', source_session_id: sessionId }, mode: 'replay' },
+      {
+        profileId,
+        ref: { kind: 'replay', source_session_id: sessionId },
+        mode: 'replay',
+      },
       { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
     )
   }
@@ -171,12 +211,36 @@ export default function SessionPlayer() {
             <OfflineScreen onRetry={() => void handleRetryOnline()} retrying={retrying} />
           ) : problems.length === 0 ? (
             <p className="home-empty">Phần này chưa có bài tập nào để hiển thị.</p>
+          ) : trueEnd && isQuiz && !quizSubmitted ? (
+            <div className="session-done">
+              {submitError ? (
+                <>
+                  <p role="alert" className="form-error">
+                    {submitError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubmitError(null)
+                      setRetryTick((t) => t + 1)
+                    }}
+                  >
+                    Thử lại
+                  </button>
+                </>
+              ) : (
+                <p>Đang tải…</p>
+              )}
+            </div>
           ) : trueEnd ? (
-            <SessionSummaryScreen
-              summary={summary}
-              onReplay={handleReplay}
-              replayPending={startReplay.isPending}
-            />
+            <>
+              {isQuiz && quizSubmitted && <QuizResultsScreen submitted={quizSubmitted} />}
+              <SessionSummaryScreen
+                summary={summary}
+                onReplay={handleReplay}
+                replayPending={startReplay.isPending}
+              />
+            </>
           ) : chunkDone ? (
             <div className="session-done">
               {hasNextChunk && (
@@ -186,17 +250,27 @@ export default function SessionPlayer() {
               )}
             </div>
           ) : (
-            <ProblemPlayer
-              key={problems[problemIndex].problem.problem_id}
-              sessionId={sessionId}
-              profileId={profileId}
-              bundleProblem={problems[problemIndex]}
-              stars={stars}
-              onStarEarned={() => setStars((s) => s + 1)}
-              onDone={() => setProblemIndex((i) => i + 1)}
-              autoPlay={autoPlay}
-              onOffline={() => setOffline(true)}
-            />
+            <>
+              {isQuiz && (
+                <ProgressDots
+                  dots={problems.map((_, i): DotState =>
+                    i < problemIndex ? 'done' : i === problemIndex ? 'current' : 'todo',
+                  )}
+                />
+              )}
+              <ProblemPlayer
+                key={problems[problemIndex].problem.problem_id}
+                sessionId={sessionId}
+                profileId={profileId}
+                bundleProblem={problems[problemIndex]}
+                stars={stars}
+                onStarEarned={() => setStars((s) => s + 1)}
+                onDone={() => setProblemIndex((i) => i + 1)}
+                autoPlay={autoPlay}
+                onOffline={() => setOffline(true)}
+                quiz={isQuiz}
+              />
+            </>
           )}
         </>
       )}
@@ -284,6 +358,45 @@ function SessionSummaryScreen({ summary, onReplay, replayPending }: SessionSumma
           {phrase('practice_wrong_again')}
         </button>
       )}
+    </div>
+  )
+}
+
+/** Story 3.4: the quiz results, straight from the server's `quiz_submitted` response --
+ * every Problem marked ✔ (right) or ↻ (to practise again, with its Solution). Never red, never
+ * ✗ or "Sai!". The Stars line comes from the Session summary below. */
+function QuizResultsScreen({ submitted }: { submitted: EventOut }) {
+  const results: QuizResultOut[] = submitted.quiz_results ?? []
+  return (
+    <div className="session-done" data-testid="quiz-results">
+      <h2>{phrase('quiz_results_title')}</h2>
+      <ol className="quiz-results">
+        {results.map((r) => (
+          <li
+            key={r.problem_id}
+            className={r.correct ? 'quiz-result-right' : 'quiz-result-retry'}
+            data-testid={`quiz-result-${r.correct ? 'right' : 'retry'}`}
+          >
+            <span
+              className="quiz-result-mark"
+              role="img"
+              aria-label={r.correct ? phrase('quiz_result_right') : phrase('quiz_result_retry')}
+            >
+              {r.correct ? '✔' : '↻'}
+            </span>
+            <span>{r.display_label}</span>
+            {!r.correct &&
+              r.solutions.map((s) => (
+                <SolutionPanel
+                  key={s.part_key}
+                  steps={s.solution.steps}
+                  revealedCount={s.solution.steps.length}
+                />
+              ))}
+          </li>
+        ))}
+      </ol>
+      {submitted.quiz_stars_awarded === false && <p>{phrase('quiz_retake_no_stars')}</p>}
     </div>
   )
 }

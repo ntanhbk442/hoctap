@@ -89,4 +89,61 @@ describe('LessonDetail', () => {
     expect(await screen.findByText('Bài 1')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalled()
   })
+
+  it('offers a start button for a quiz-sheet Lesson that opens the new Session (Story 3.4)', async () => {
+    sessionStorage.setItem('hoctap.currentProfileId', 'p1')
+    const books = [
+      {
+        book_id: 'toan1-2020-q1',
+        edition: '2020',
+        grade: 1,
+        volume: 1,
+        title_vi: 'Toán 1',
+        units: [
+          {
+            unit_key: 'tuan-5',
+            label: 'TUẦN 5',
+            title: '',
+            position: 500,
+            lessons: [
+              {
+                lesson_key: 'tiet-2',
+                label: 'Phiếu',
+                title: '',
+                position: 501,
+                problem_count: 1,
+                attempted: 0,
+                is_quiz_sheet: true,
+              },
+            ],
+          },
+        ],
+      },
+    ]
+    const fetchMock = mockApi({
+      'GET /api/v1/library/lessons/toan1-2020-q1/tuan-5/tiet-2': { status: 200, body: PROBLEMS },
+      'GET /api/v1/profiles': {
+        status: 200,
+        body: [{ id: 'p1', name: 'Bin', avatar: 'cat', grade: 1 }],
+      },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: books },
+      'POST /api/v1/sessions': { status: 201, body: { id: 'session-9', mode: 'quiz' } },
+    })
+    renderAt(ROUTE, <LessonDetail />, PATTERN)
+    expect(await screen.findByTestId('quiz-indicator')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Bắt đầu kiểm tra' }))
+    expect(await screen.findByText('session player screen')).toBeInTheDocument()
+    const post = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === 'POST')
+    const sent = JSON.parse((post![1] as RequestInit).body as string)
+    expect(sent.mode).toBeUndefined()
+  })
+
+  it('has no start button for an ordinary Lesson', async () => {
+    mockApi({
+      'GET /api/v1/library/lessons/toan1-2020-q1/tuan-5/tiet-2': { status: 200, body: PROBLEMS },
+    })
+    renderAt(ROUTE, <LessonDetail />, PATTERN)
+    await screen.findByText('Bài 1')
+    expect(screen.queryByRole('button', { name: 'Bắt đầu kiểm tra' })).not.toBeInTheDocument()
+  })
 })

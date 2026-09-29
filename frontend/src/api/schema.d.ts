@@ -849,6 +849,8 @@ export interface components {
         BundleOut: {
             /** Session Id */
             session_id: string;
+            /** Mode */
+            mode: string;
             /** Chunk */
             chunk: number;
             /** Chunk Count */
@@ -1345,6 +1347,10 @@ export interface components {
             /** Hint */
             hint?: string | null;
             solution?: components["schemas"]["Solution"] | null;
+            /** Quiz Results */
+            quiz_results?: components["schemas"]["QuizResultOut"][] | null;
+            /** Quiz Stars Awarded */
+            quiz_stars_awarded?: boolean | null;
         };
         /** FailedPage */
         FailedPage: {
@@ -1769,6 +1775,11 @@ export interface components {
              * @default 0
              */
             attempted: number;
+            /**
+             * Is Quiz Sheet
+             * @default false
+             */
+            is_quiz_sheet: boolean;
         };
         /** LibraryUnit */
         LibraryUnit: {
@@ -2340,6 +2351,29 @@ export interface components {
             status: "proposed" | "accepted" | "merged";
             /** Target Concept Id */
             target_concept_id: string | null;
+        };
+        /** QuizPartSolution */
+        QuizPartSolution: {
+            /** Part Key */
+            part_key: string;
+            solution: components["schemas"]["Solution"];
+        };
+        /**
+         * QuizResultOut
+         * @description One Problem's verdict in a `quiz_submitted` response: ✔ (`correct`) or ↻, its Stars
+         *     (3 or 0), and, for ↻ only, the Solutions of the Parts that were not right.
+         */
+        QuizResultOut: {
+            /** Problem Id */
+            problem_id: string;
+            /** Display Label */
+            display_label: string;
+            /** Correct */
+            correct: boolean;
+            /** Stars */
+            stars: number;
+            /** Solutions */
+            solutions: components["schemas"]["QuizPartSolution"][];
         };
         /** Region */
         Region: {

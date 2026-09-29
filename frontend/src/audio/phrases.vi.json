@@ -33,5 +33,12 @@
   "self_mark_correct": "Em làm đúng",
   "self_mark_incorrect": "Em chưa đúng",
   "self_mark_neutral_ack": "Không sao! Bài này sẽ quay lại để em luyện thêm nhé.",
-  "offline_not_connected": "Máy tính bảng chưa kết nối mạng…"
+  "offline_not_connected": "Máy tính bảng chưa kết nối mạng…",
+  "quiz_saved": "Đã lưu",
+  "quiz_indicator": "Kiểm tra",
+  "quiz_start": "Bắt đầu kiểm tra",
+  "quiz_results_title": "Kết quả bài kiểm tra",
+  "quiz_result_right": "Em làm đúng rồi",
+  "quiz_result_retry": "Mình cùng xem lại bài này nhé",
+  "quiz_retake_no_stars": "Bài này em đã nộp rồi, nên lần này không có thêm ngôi sao nhé."
 }

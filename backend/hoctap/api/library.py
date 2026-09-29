@@ -39,6 +39,8 @@ class LibraryLesson(BaseModel):
     # Story 2.4: the real "attempted at least once" numerator (see `learning.progress`),
     # honest -- not "correct" (no grader exists yet). 0 when `profile_id` isn't given.
     attempted: int = 0
+    # Story 3.4: the weekly "Phiếu tự luyện cuối tuần" -- always starts as a `quiz` Session.
+    is_quiz_sheet: bool = False
 
 
 class LibraryUnit(BaseModel):
@@ -78,6 +80,7 @@ def _book_out(book: library.BookGroup, attempted: dict[tuple[str, str], int]) ->
                         title=lc.title,
                         position=lc.position,
                         problem_count=lc.problem_count,
+                        is_quiz_sheet=lc.is_quiz_sheet,
                         attempted=attempted.get((u.unit_key, lc.lesson_key), 0),
                     )
                     for lc in u.lessons

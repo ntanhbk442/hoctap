@@ -25,9 +25,10 @@ that attempt) -- never re-derived by re-running `_count_prior_wrong()`'s Profile
 count, which would disagree with what actually happened in THIS Session for a Part that
 had prior wrong attempts in an earlier Session.
 
-Only `practice`/`retry`/`concept`-mode Sessions award Stars (`STAR_AWARDING_MODES`) --
-`quiz` is Story 3.4's job (it scores per AD-6 too, but reading/writing quiz Stars is not
-this story's Boundaries), and `replay` never awards, matching Story 2.10's existing
+Only `practice`/`retry`/`concept`-mode Sessions award Stars per event
+(`STAR_AWARDING_MODES`) -- `quiz` (Story 3.4) is graded all at once at `quiz_submitted` by
+`compute_quiz_stars()`/`award_quiz_stars()` below (3 or 0, no 1-Star tier), and `replay`
+never awards, matching Story 2.10's existing
 mode-gate pattern (`_grade_and_stage()`'s own `mode != "replay"` Retry-Queue gate).
 `compute_problem_stars()` itself stays mode-agnostic (a pure "what WOULD the Stars be"
 query) -- the mode gate is applied only by `maybe_award_stars()`, the one caller that
@@ -44,7 +45,7 @@ from sqlalchemy import func, select, text
 from hoctap.content.effective import ProblemNotFound, load_one
 from hoctap.content.schema import FallbackPart
 from hoctap.ids import new_id
-from hoctap.learning.models import progress_events, progress_stars
+from hoctap.learning.models import progress_events, progress_sessions, progress_stars
 
 STAR_AWARDING_MODES = frozenset({"practice", "retry", "concept"})
 
@@ -93,9 +94,7 @@ def _fallback_stars(conn: Any, session_id: str, problem_id: str) -> int | None:
     return 1 if latest else 0
 
 
-def _graded_stars(
-    conn: Any, session_id: str, problem_id: str, parts: list[Any]
-) -> int | None:
+def _graded_stars(conn: Any, session_id: str, problem_id: str, parts: list[Any]) -> int | None:
     graded_keys = [p.part_key for p in parts if not isinstance(p, FallbackPart)]
     if not graded_keys:
         return None
@@ -177,6 +176,105 @@ def maybe_award_stars(
             awarded_at=now_iso,
         )
     )
+
+
+def quiz_part_verdicts(
+    conn: Any, session_id: str, problem_id: str, graded_keys: list[str]
+) -> dict[str, bool]:
+    """Story 3.4: each graded Part's verdict in a quiz Session -- its FIRST stored `attempt`
+    (rowid order) for this Session. A Part with no attempt is unanswered, i.e. wrong."""
+    rows = conn.execute(
+        select(progress_events.c.payload_json)
+        .where(
+            progress_events.c.session_id == session_id,
+            progress_events.c.problem_id == problem_id,
+            progress_events.c.kind == "attempt",
+        )
+        .order_by(text("progress_events.rowid ASC"))
+    )
+    first: dict[str, bool] = {}
+    for row in rows:
+        payload = json.loads(row.payload_json)
+        key = payload.get("part_key")
+        if key in graded_keys and key not in first:
+            first[key] = payload.get("correct") is True
+    return {key: first.get(key, False) for key in graded_keys}
+
+
+def compute_quiz_stars(conn: Any, session_id: str, problem_id: str) -> int:
+    """Story 3.4: 3 when every graded Part was right (first attempt), otherwise 0. A
+    `fallback` Problem (self-check only, never graded in a quiz) and a Problem the content
+    layer can no longer resolve are always 0."""
+    try:
+        state = load_one(conn, problem_id)
+    except ProblemNotFound:
+        return 0
+    if state.doc is None:
+        return 0
+    parts = list(state.doc.parts)
+    if any(isinstance(p, FallbackPart) for p in parts):
+        return 0
+    graded_keys = [p.part_key for p in parts]
+    if not graded_keys:
+        return 0
+    verdicts = quiz_part_verdicts(conn, session_id, problem_id, graded_keys)
+    return 3 if all(verdicts.values()) else 0
+
+
+def quiz_stars_eligible(conn: Any, session_id: str) -> bool:
+    """Story 3.4 retake rule: Stars are awarded only when no OTHER Session of the same
+    Profile and Lesson (same `ref_key`) already has a stored `quiz_submitted` event."""
+    session = conn.execute(
+        select(progress_sessions.c.profile_id, progress_sessions.c.ref_key).where(
+            progress_sessions.c.id == session_id
+        )
+    ).one()
+    earlier = conn.execute(
+        select(progress_events.c.id)
+        .join(progress_sessions, progress_sessions.c.id == progress_events.c.session_id)
+        .where(
+            progress_sessions.c.profile_id == session.profile_id,
+            progress_sessions.c.ref_key == session.ref_key,
+            progress_sessions.c.id != session_id,
+            progress_events.c.kind == "quiz_submitted",
+        )
+        .limit(1)
+    ).first()
+    return earlier is None
+
+
+def award_quiz_stars(
+    conn: Any, now_iso: str, session_id: str, profile_id: str, problem_ids: list[str]
+) -> tuple[dict[str, int], bool]:
+    """Story 3.4: writes one `progress_stars` row (3 or 0) per Problem, once per (Session,
+    Problem), unless this is a retake (`quiz_stars_eligible()`), which writes none.
+    Returns the Stars per Problem (all 0 for a retake) and whether Stars were awarded."""
+    eligible = quiz_stars_eligible(conn, session_id)
+    out: dict[str, int] = {}
+    for problem_id in problem_ids:
+        stars = compute_quiz_stars(conn, session_id, problem_id)
+        if not eligible:
+            out[problem_id] = 0
+            continue
+        out[problem_id] = stars
+        existing = conn.execute(
+            select(progress_stars.c.id).where(
+                progress_stars.c.session_id == session_id,
+                progress_stars.c.problem_id == problem_id,
+            )
+        ).first()
+        if existing is None:
+            conn.execute(
+                progress_stars.insert().values(
+                    id=new_id(),
+                    session_id=session_id,
+                    profile_id=profile_id,
+                    problem_id=problem_id,
+                    stars=stars,
+                    awarded_at=now_iso,
+                )
+            )
+    return out, eligible
 
 
 def session_stars_earned(conn: Any, session_id: str) -> int:

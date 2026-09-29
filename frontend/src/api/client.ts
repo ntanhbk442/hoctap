@@ -43,6 +43,7 @@ export type BundleProblemOut = Schemas['BundleProblemOut']
 export type EventIn = Schemas['EventIn']
 export type EventOut = Schemas['EventOut']
 export type SummaryOut = Schemas['SummaryOut']
+export type QuizResultOut = Schemas['QuizResultOut']
 export type BadgeOut = Schemas['BadgeOut']
 export type BadgeKey = BadgeOut['badge_key']
 

@@ -26,6 +26,7 @@ class LessonCount:
     title: str
     position: int
     problem_count: int  # visible to the child; always the honest count (Story 2.4 tracks progress)
+    is_quiz_sheet: bool = False  # Story 3.4: the weekly "Phiếu tự luyện cuối tuần"
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,7 @@ def grade_books(conn: Connection, grade: int) -> list[BookGroup]:
                     title=row.title,
                     position=row.position,
                     problem_count=counts.get((row.unit_key, row.lesson_key), 0),
+                    is_quiz_sheet=bool(row.is_quiz_sheet),
                 )
             )
         units = [
@@ -147,3 +149,16 @@ def lesson_problems(
     return effective.visible_to_child(
         conn, book_id=book_id, unit_key=unit_key, lesson_key=lesson_key
     )
+
+
+def lesson_is_quiz_sheet(conn: Connection, book_id: str, unit_key: str, lesson_key: str) -> bool:
+    """Story 3.4: whether one Lesson is a quiz sheet (`content_catalog_lessons.is_quiz_sheet`).
+    An unknown Lesson is simply not a quiz sheet."""
+    value = conn.execute(
+        select(content_catalog_lessons.c.is_quiz_sheet).where(
+            content_catalog_lessons.c.book_id == book_id,
+            content_catalog_lessons.c.unit_key == unit_key,
+            content_catalog_lessons.c.lesson_key == lesson_key,
+        )
+    ).scalar_one_or_none()
+    return bool(value)

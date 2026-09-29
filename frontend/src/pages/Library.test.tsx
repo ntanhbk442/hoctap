@@ -140,4 +140,26 @@ describe('Library', () => {
     renderAt('/library', <Library />)
     expect(await screen.findByText('home screen')).toBeInTheDocument()
   })
+
+  it('marks a quiz-sheet Lesson with the 📝 "Kiểm tra" indicator (Story 3.4)', async () => {
+    const quiz = structuredClone(BOOKS)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(quiz[0].units[0].lessons[0] as any).is_quiz_sheet = true
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: quiz },
+    })
+    renderAt('/library', <Library />)
+    expect(await screen.findByTestId('quiz-indicator')).toHaveTextContent('Kiểm tra')
+  })
+
+  it('shows no quiz indicator on an ordinary Lesson', async () => {
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: BOOKS },
+    })
+    renderAt('/library', <Library />)
+    await screen.findByText('0/3 ✓')
+    expect(screen.queryByTestId('quiz-indicator')).not.toBeInTheDocument()
+  })
 })

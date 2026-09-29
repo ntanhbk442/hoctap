@@ -422,3 +422,82 @@ describe('SessionPlayer', () => {
     await vi.waitFor(() => expect(screen.getByTestId('offline-screen')).toBeInTheDocument())
   })
 })
+
+describe('SessionPlayer quiz mode (Story 3.4)', () => {
+  const QUIZ_EVENT = {
+    id: 'e1',
+    session_id: 'session-1',
+    kind: 'attempt',
+    problem_id: PROBLEM.problem_id,
+    occurred_at: 'x',
+    received_at: 'x',
+    quiz_stars_awarded: true,
+    quiz_results: [
+      {
+        problem_id: PROBLEM.problem_id,
+        display_label: 'Bài 1',
+        correct: false,
+        stars: 0,
+        solutions: [{ part_key: 'a', solution: { steps: ['3 + 2 = 5'] } }],
+      },
+    ],
+  }
+
+  function mockQuiz() {
+    return mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ mode: 'quiz' }),
+      },
+      'POST /api/v1/sessions/session-1/events': { status: 201, body: [QUIZ_EVENT] },
+      'GET /api/v1/sessions/session-1/summary': {
+        status: 200,
+        body: {
+          session_id: 'session-1',
+          first_try_correct: 0,
+          total: 1,
+          wrong_problem_ids: [PROBLEM.problem_id],
+          streak: 1,
+          stars_earned: 0,
+          new_badges: [],
+        },
+      },
+    })
+  }
+
+  it('shows only "Đã lưu" after a check, then the server results with the Solution for a ↻', async () => {
+    const fetchMock = mockQuiz()
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(screen.getAllByRole('list', { name: 'Tiến độ' }).length).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByText('Đã lưu')).toBeInTheDocument()
+    expect(screen.queryByText(/Đúng rồi|Chưa đúng|Sai/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /gợi ý|💡/i })).not.toBeInTheDocument()
+
+    expect(await screen.findByTestId('quiz-results', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByTestId('quiz-result-retry')).toHaveTextContent('↻')
+    expect(screen.getByText('3 + 2 = 5')).toBeInTheDocument()
+    const kinds = fetchMock.mock.calls
+      .filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+      .flatMap(([, init]) => JSON.parse((init as RequestInit).body as string).events)
+      .map((e: { kind: string }) => e.kind)
+    expect(kinds).toEqual(['attempt', 'quiz_submitted', 'session_completed'])
+  })
+
+  it('resumes at the first unanswered Problem, and submits when all are answered', async () => {
+    const answered = { ...bundle().problems[0], attempted: true }
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ mode: 'quiz', problems: [answered] }),
+      },
+      'POST /api/v1/sessions/session-1/events': { status: 201, body: [QUIZ_EVENT] },
+      'GET /api/v1/sessions/session-1/summary': { status: 404 },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByTestId('quiz-results', {}, { timeout: 3000 })).toBeInTheDocument()
+  })
+})

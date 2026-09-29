@@ -241,8 +241,17 @@ def test_lesson_count_no_profile_never_shows_a_nonzero_numerator(
     Pub(engine, BOOK_2020, "2020", 1)(make_doc(BOOK_2020, "bai-1"))
     resp = client.get(f"{API}/grades/1/books")
     lesson = resp.json()[0]["units"][0]["lessons"][0]
-    assert set(lesson) == {"lesson_key", "label", "title", "position", "problem_count", "attempted"}
+    assert set(lesson) == {
+        "lesson_key",
+        "label",
+        "title",
+        "position",
+        "problem_count",
+        "attempted",
+        "is_quiz_sheet",
+    }
     assert lesson["attempted"] == 0
+    assert lesson["is_quiz_sheet"] is False
 
 
 def test_grade_books_unknown_profile_id_404(client: TestClient, engine: Engine) -> None:

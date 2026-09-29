@@ -1,6 +1,7 @@
 import { Link, Navigate, useNavigate } from 'react-router'
 import { errorMessage } from '../api/errors'
 import { useLibraryBooks, useProfiles } from '../api/queries'
+import { phrase } from '../audio/phrases'
 import { getCurrentProfileId } from '../profile'
 
 /**
@@ -15,7 +16,9 @@ export default function Library() {
   const profileId = getCurrentProfileId()
   const list = profiles.data ?? []
   const current = list.find((p) => p.id === profileId) ?? (list.length === 1 ? list[0] : undefined)
-  const books = useLibraryBooks(current?.grade ?? 0, current?.id, { enabled: current !== undefined })
+  const books = useLibraryBooks(current?.grade ?? 0, current?.id, {
+    enabled: current !== undefined,
+  })
 
   if (profiles.isPending) {
     return (
@@ -85,7 +88,15 @@ export default function Library() {
                         navigate(`/library/${book.book_id}/${unit.unit_key}/${lesson.lesson_key}`)
                       }
                     >
-                      <span>{lesson.label || lesson.title || lesson.lesson_key}</span>
+                      <span>
+                        {lesson.label || lesson.title || lesson.lesson_key}
+                        {lesson.is_quiz_sheet && (
+                          <span className="library-quiz-indicator" data-testid="quiz-indicator">
+                            {' '}
+                            📝 {phrase('quiz_indicator')}
+                          </span>
+                        )}
+                      </span>
                       <span className="library-lesson-progress">
                         {lesson.attempted}/{lesson.problem_count} ✓
                       </span>

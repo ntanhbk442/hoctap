@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from hoctap.api.errors import AppError
@@ -27,7 +27,12 @@ from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_sessions
 from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
 from hoctap.learning.retry import add_retry_item, maybe_resolve_retry_item
-from hoctap.learning.scoring import maybe_award_stars
+from hoctap.learning.scoring import (
+    award_quiz_stars,
+    compute_quiz_stars,
+    maybe_award_stars,
+    quiz_part_verdicts,
+)
 from hoctap.learning.summary import SessionSummary, compute_summary
 from hoctap.parent.models import parent_profiles
 
@@ -43,6 +48,11 @@ EVENT_KINDS = frozenset(
         "session_started",
         "session_completed",
     }
+)
+
+# Story 3.4: events that hand out help; none of them exist in quiz play.
+QUIZ_BLOCKED_KINDS = frozenset(
+    {"hint_requested", "solution_shown", "fallback_revealed", "self_marked"}
 )
 
 # Voice id used to resolve a Problem's speech refs to URLs (matches `content.speech`'s
@@ -163,9 +173,7 @@ def _load_session(conn: Any, session_id: str) -> Any:
     return row
 
 
-def get_session_summary(
-    conn: Any, session_id: str, profile_id: str, today: date
-) -> SessionSummary:
+def get_session_summary(conn: Any, session_id: str, profile_id: str, today: date) -> SessionSummary:
     """`GET /sessions/{id}/summary` (Story 2.10): 403/404 the same way every other
     Session-scoped read does, then 422 if `completed_at` is still unset -- the summary
     (first-try accuracy, wrong-Problem ids, Streak) is only meaningful for a Session that
@@ -197,6 +205,7 @@ class BundleOut:
     chunk: int
     chunk_count: int
     chunk_label: str
+    mode: str = "practice"
     problems: list[BundleProblem] = field(default_factory=list)
 
 
@@ -226,15 +235,16 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
 
     attempted_ids: set[str] = set()
     if slice_ids:
-        rows = conn.execute(
-            select(progress_events.c.problem_id)
-            .where(
-                progress_events.c.profile_id == session.profile_id,
-                progress_events.c.kind == "attempt",
-                progress_events.c.problem_id.in_(slice_ids),
-            )
-            .distinct()
-        )
+        conditions = [
+            progress_events.c.profile_id == session.profile_id,
+            progress_events.c.kind == "attempt",
+            progress_events.c.problem_id.in_(slice_ids),
+        ]
+        if session.mode == "quiz":
+            # Story 3.4: a quiz resumes from its own answers; an earlier Session's attempts
+            # at the same Problems must not make a retake look already answered.
+            conditions.append(progress_events.c.session_id == session_id)
+        rows = conn.execute(select(progress_events.c.problem_id).where(*conditions).distinct())
         attempted_ids = {r.problem_id for r in rows}
 
     problems: list[BundleProblem] = []
@@ -264,6 +274,7 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
         chunk=chunk,
         chunk_count=chunk_count,
         chunk_label=f"Phần {chunk}/{chunk_count}",
+        mode=session.mode,
         problems=problems,
     )
 
@@ -292,19 +303,30 @@ class EventOut:
     wrong_keys: list[str] | None = None
     hint: str | None = None
     solution: dict[str, Any] | None = None
+    # Story 3.4: only on `quiz_submitted`, read back from its stored payload.
+    quiz_results: list[dict[str, Any]] | None = None
+    quiz_stars_awarded: bool | None = None
 
 
 def _row_to_event_out(row: Any) -> EventOut:
     correct = wrong_keys = hint = solution = None
+    quiz_results = quiz_stars_awarded = None
+    if row.kind == "quiz_submitted":
+        stored = json.loads(row.payload_json)
+        quiz_results = stored.get("results")
+        quiz_stars_awarded = stored.get("stars_awarded")
     # `fallback_revealed` (Story 2.8) reuses the same "solution" response field an
     # `attempt` uses -- see `_fallback_solution()`'s docstring for why the child_view
     # bundle can never carry it instead.
     if row.kind in ("attempt", "fallback_revealed"):
         payload = json.loads(row.payload_json)
-        correct = payload.get("correct")
-        wrong_keys = payload.get("wrong_keys")
-        hint = payload.get("hint")
-        solution = payload.get("solution")
+        # Story 3.4: a quiz `attempt` keeps its verdict in the stored payload (for grading
+        # at `quiz_submitted`) but exposes none of it.
+        if not payload.get("quiz"):
+            correct = payload.get("correct")
+            wrong_keys = payload.get("wrong_keys")
+            hint = payload.get("hint")
+            solution = payload.get("solution")
     return EventOut(
         id=row.id,
         session_id=row.session_id,
@@ -316,6 +338,8 @@ def _row_to_event_out(row: Any) -> EventOut:
         wrong_keys=wrong_keys,
         hint=hint,
         solution=solution,
+        quiz_results=quiz_results,
+        quiz_stars_awarded=quiz_stars_awarded,
     )
 
 
@@ -327,6 +351,10 @@ def _validate_event_against_session(session_row: Any, event: EventIn) -> None:
     up afterward."""
     if event.kind not in EVENT_KINDS:
         raise AppError(422, "INVALID_EVENT_KIND", "Loại sự kiện không hợp lệ.")
+    if session_row.mode == "quiz" and event.kind in QUIZ_BLOCKED_KINDS:
+        raise AppError(422, "NOT_ALLOWED_IN_QUIZ", "Bài kiểm tra không có gợi ý hay đáp án.")
+    if event.kind == "quiz_submitted" and session_row.mode != "quiz":
+        raise AppError(422, "NOT_A_QUIZ_SESSION", "Lượt học này không phải bài kiểm tra.")
     if event.problem_id is not None:
         problem_ids = json.loads(session_row.problem_ids_json)
         if event.problem_id not in problem_ids:
@@ -362,9 +390,7 @@ def _find_part(parts: list[Part], part_key: Any) -> Part:
         for part in parts:
             if part.part_key == part_key and not isinstance(part, FallbackPart):
                 return part
-    raise AppError(
-        422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm."
-    )
+    raise AppError(422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm.")
 
 
 def _count_prior_wrong(conn: Any, profile_id: str, problem_id: str, part_key: str) -> int:
@@ -499,6 +525,13 @@ def _grade_and_stage(
     payload = dict(payload)
     payload["correct"] = result.correct
     payload["wrong_keys"] = result.wrong_keys
+    if mode == "quiz":
+        # Story 3.4: stored for grading at `quiz_submitted`, never released: no Hint, no
+        # Solution, no Retry Queue row per attempt (that happens once, at submit).
+        payload["hint"] = None
+        payload["solution"] = None
+        payload["quiz"] = True
+        return payload
     hint: str | None = None
     solution: dict[str, Any] | None = None
     if not result.correct:
@@ -514,6 +547,78 @@ def _grade_and_stage(
     payload["hint"] = hint
     payload["solution"] = solution
     return payload
+
+
+def _quiz_submitted(conn: Any, session_id: str) -> bool:
+    return (
+        conn.execute(
+            select(progress_events.c.id)
+            .where(
+                progress_events.c.session_id == session_id,
+                progress_events.c.kind == "quiz_submitted",
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def _grade_quiz(
+    conn: Any, received_at: str, session_id: str, profile_id: str, problem_ids: list[str]
+) -> dict[str, Any]:
+    """Story 3.4: grades a whole quiz Session at `quiz_submitted`, inside `post_event()`'s
+    SAVEPOINT. Returns the payload stored on the event (and replayed on any resend)."""
+    verdicts: dict[str, dict[str, Any]] = {}
+    for problem_id in problem_ids:
+        try:
+            state = load_one(conn, problem_id)
+        except ProblemNotFound:
+            continue  # same skip as `get_bundle()`: the child never saw it
+        doc = state.doc
+        if doc is None:
+            continue
+        parts = list(doc.parts)
+        fallback = any(isinstance(p, FallbackPart) for p in parts)
+        correct = compute_quiz_stars(conn, session_id, problem_id) == 3
+        solutions: list[dict[str, Any]] = []
+        if not correct:
+            if fallback:
+                wrong_keys = [p.part_key for p in parts]
+            else:
+                by_part = quiz_part_verdicts(
+                    conn, session_id, problem_id, [p.part_key for p in parts]
+                )
+                wrong_keys = [k for k, ok in by_part.items() if not ok]
+            solutions = [
+                {"part_key": p.part_key, "solution": p.solution.model_dump(mode="json")}
+                for p in parts
+                if p.part_key in wrong_keys
+            ]
+        verdicts[problem_id] = {
+            "problem_id": problem_id,
+            "display_label": child_view(doc).display_label,
+            "correct": correct,
+            "fallback": fallback,
+            "solutions": solutions,
+        }
+
+    stars, awarded = award_quiz_stars(conn, received_at, session_id, profile_id, list(verdicts))
+    results: list[dict[str, Any]] = []
+    for problem_id, v in verdicts.items():
+        if v["correct"]:
+            maybe_resolve_retry_item(conn, received_at, profile_id, problem_id)
+        elif not v["fallback"]:
+            add_retry_item(conn, profile_id, problem_id, received_at)
+        results.append(
+            {
+                "problem_id": problem_id,
+                "display_label": v["display_label"],
+                "correct": v["correct"],
+                "stars": stars[problem_id],
+                "solutions": v["solutions"],
+            }
+        )
+    return {"results": results, "stars_awarded": awarded}
 
 
 def post_event(
@@ -587,6 +692,21 @@ def post_event(
             )
         return _row_to_event_out(already_stored)
 
+    if event.kind == "quiz_submitted":
+        # Story 3.4: grading runs once per Session -- a second submit (new id) returns the
+        # stored result, with no new Stars or Retry Queue rows.
+        first_submit = conn.execute(
+            select(progress_events)
+            .where(
+                progress_events.c.session_id == session_id,
+                progress_events.c.kind == "quiz_submitted",
+            )
+            .order_by(text("progress_events.rowid ASC"))
+            .limit(1)
+        ).one_or_none()
+        if first_submit is not None:
+            return _row_to_event_out(first_submit)
+
     received_at = to_iso(now)
     try:
         with conn.begin_nested():
@@ -606,7 +726,21 @@ def post_event(
                 payload["solution"] = _fallback_solution(
                     conn, event.problem_id, payload.get("part_key")
                 )
+            elif event.kind == "quiz_submitted":
+                payload = _grade_quiz(
+                    conn,
+                    received_at,
+                    session_id,
+                    profile_id,
+                    json.loads(session.problem_ids_json),
+                )
             elif event.kind == "session_completed":
+                if mode == "quiz" and not _quiz_submitted(conn, session_id):
+                    raise AppError(
+                        422,
+                        "QUIZ_NOT_SUBMITTED",
+                        "Bài kiểm tra chưa được nộp.",
+                    )
                 # Review Triage Log #1 (2026-09-29, high): the `already_stored` check
                 # above only catches a literal RESEND of the same event id. A second,
                 # DISTINCT `session_completed` event (different UUIDv7 -- two open tabs,
@@ -645,9 +779,7 @@ def post_event(
             # (see `learning.scoring`'s own docstring). Runs AFTER the insert above so it
             # sees this event's own just-stored payload.
             if event.kind in ("attempt", "self_marked") and event.problem_id is not None:
-                maybe_award_stars(
-                    conn, received_at, session_id, profile_id, event.problem_id, mode
-                )
+                maybe_award_stars(conn, received_at, session_id, profile_id, event.problem_id, mode)
             # Story 3.3: Retry Queue exit is checked after the Star row exists (the
             # non-fallback path counts `progress_stars`), in the same SAVEPOINT. Never
             # gated on mode inside `post_event`; `replay` Sessions simply produce no

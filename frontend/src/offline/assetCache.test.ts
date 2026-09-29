@@ -10,6 +10,7 @@ import { cacheBundleAssets } from './assetCache'
 function bundle(): BundleOut {
   return {
     session_id: 'session-1',
+    mode: 'practice',
     chunk: 1,
     chunk_count: 1,
     chunk_label: 'Phần 1/1',

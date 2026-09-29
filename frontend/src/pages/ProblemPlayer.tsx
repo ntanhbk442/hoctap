@@ -45,10 +45,20 @@ const WRONG_FEEDBACK_DELAY_MS = 400
 // How long the correct-feedback banner/StarBurst show before auto-advancing (implementer's
 // call, Boundaries & Constraints -- no fixed spec value for this one).
 const CORRECT_ADVANCE_DELAY_MS = 1200
+// Story 3.4: how long a quiz answer's "Đã lưu" shows before advancing.
+const QUIZ_SAVED_ADVANCE_DELAY_MS = 700
 
-const PRAISE_KEYS = ['praise_1', 'praise_2', 'praise_3', 'praise_4', 'praise_5', 'praise_6'] as const
+const PRAISE_KEYS = [
+  'praise_1',
+  'praise_2',
+  'praise_3',
+  'praise_4',
+  'praise_5',
+  'praise_6',
+] as const
 
-type Phase = 'answering' | 'submitting' | 'correct' | 'wrong-shake' | 'wrong-hint' | 'wrong-solution'
+type Phase =
+  'answering' | 'submitting' | 'correct' | 'wrong-shake' | 'wrong-hint' | 'wrong-solution' | 'saved'
 
 // `grid_fill` joins these three: it's the same tap-a-slot-then-`NumberPad` shape as
 // `number_input`/`number_tree`, just laid out as a grid (Story 2.7).
@@ -89,6 +99,9 @@ export interface ProblemPlayerProps {
    * (defaults to a no-op) so existing tests that don't exercise the offline path are
    * unaffected. */
   onOffline?: () => void
+  /** Story 3.4: quiz play -- no Hint, banner, StarBurst or verdict; a check only shows
+   * "Đã lưu" and advances. Server-decided (the Session's `mode`), never a client choice. */
+  quiz?: boolean
 }
 
 /** One Problem's worth of the real player (Story 2.6): owns only which Part of the Problem
@@ -109,6 +122,7 @@ export default function ProblemPlayer({
   onDone,
   autoPlay = true,
   onOffline = () => {},
+  quiz = false,
 }: ProblemPlayerProps) {
   const problem = bundleProblem.problem
   const [partIndex, setPartIndex] = useState(0)
@@ -143,6 +157,19 @@ export default function ProblemPlayer({
   // án" -> self-mark flow is fundamentally not the shared ✔ Kiểm tra/Attempt shape every
   // other Part type here uses, so it gets its own dedicated player rather than another
   // branch bolted onto `PartPlayer`'s already-large state machine.
+  if (part.type === 'fallback' && quiz) {
+    // Story 3.4: a quiz has no self-check ("Xem đáp án" is a help event) -- the child just
+    // looks at the Problem and moves on; it is graded ↻ with its Solution at submit.
+    return (
+      <QuizFallbackPlayer
+        key={part.part_key}
+        problem={problem}
+        bundleProblem={bundleProblem}
+        part={part}
+        onAdvance={advance}
+      />
+    )
+  }
   if (part.type === 'fallback') {
     return (
       <FallbackPartPlayer
@@ -172,6 +199,7 @@ export default function ProblemPlayer({
       onStarEarned={onStarEarned}
       onAdvance={advance}
       onOffline={onOffline}
+      quiz={quiz}
     />
   )
 }
@@ -201,7 +229,9 @@ function InstructionLine({ instruction }: { instruction: string }) {
   useEffect(() => subscribePlayer(setPlayerState), [])
 
   const playing =
-    instructionKey !== null && playerState.key === instructionKey && playerState.status === 'playing'
+    instructionKey !== null &&
+    playerState.key === instructionKey &&
+    playerState.status === 'playing'
   const missing = instructionKey !== null && isMissing(instructionKey)
 
   return (
@@ -227,6 +257,7 @@ interface PartPlayerProps {
   onStarEarned: () => void
   onAdvance: () => void
   onOffline: () => void
+  quiz: boolean
 }
 
 function PartPlayer({
@@ -239,6 +270,7 @@ function PartPlayer({
   onStarEarned,
   onAdvance,
   onOffline,
+  quiz,
 }: PartPlayerProps) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string[]>([])
@@ -269,7 +301,11 @@ function PartPlayer({
   const postEvent = usePostEvent(sessionId)
   const supported = SUPPORTED_TYPES.has(part.type)
   const disabled =
-    phase === 'submitting' || phase === 'wrong-shake' || phase === 'wrong-solution' || phase === 'correct'
+    phase === 'submitting' ||
+    phase === 'wrong-shake' ||
+    phase === 'wrong-solution' ||
+    phase === 'correct' ||
+    phase === 'saved'
 
   function imageUrl(imageKey: string): string | undefined {
     const pages = new Set(problem.source_pages.map((p) => p.page))
@@ -305,13 +341,19 @@ function PartPlayer({
   function handleDigit(digit: string) {
     if (disabled || activeSlot == null) return
     retryIfSettled()
-    setValues((prev) => ({ ...prev, [activeSlot]: (prev[activeSlot] ?? '') + digit }))
+    setValues((prev) => ({
+      ...prev,
+      [activeSlot]: (prev[activeSlot] ?? '') + digit,
+    }))
   }
 
   function handleBackspace() {
     if (disabled || activeSlot == null) return
     retryIfSettled()
-    setValues((prev) => ({ ...prev, [activeSlot]: (prev[activeSlot] ?? '').slice(0, -1) }))
+    setValues((prev) => ({
+      ...prev,
+      [activeSlot]: (prev[activeSlot] ?? '').slice(0, -1),
+    }))
   }
 
   function handleToggleOption(key: string) {
@@ -475,6 +517,12 @@ function PartPlayer({
           },
         ],
       })
+      if (quiz) {
+        // Story 3.4: the response carries no verdict; nothing is graded until submit.
+        setPhase('saved')
+        window.setTimeout(onAdvance, QUIZ_SAVED_ADVANCE_DELAY_MS)
+        return
+      }
       setAttemptResult(result)
       if (result.correct) {
         setPhase('correct')
@@ -586,9 +634,11 @@ function PartPlayer({
 
   return (
     <section className="problem-player" aria-label={problem.display_label || undefined}>
-      <div className="problem-player-header">
-        <StarBurst count={stars} justEarned={justEarned} />
-      </div>
+      {!quiz && (
+        <div className="problem-player-header">
+          <StarBurst count={stars} justEarned={justEarned} />
+        </div>
+      )}
       <div className="problem-player-work">
         {problem.display_label && <h2 className="problem-player-label">{problem.display_label}</h2>}
         <InstructionLine instruction={problem.instruction} />
@@ -603,18 +653,36 @@ function PartPlayer({
         {phase === 'wrong-solution' && attemptResult?.solution && (
           <>
             <SolutionPanel steps={attemptResult.solution.steps} revealedCount={solutionRevealed} />
-            <button type="button" className="problem-player-solution-next" onClick={handleSolutionAdvance}>
-              {solutionRevealed < attemptResult.solution.steps.length ? 'Xem tiếp ➜' : `${phrase('next')} ➜`}
+            <button
+              type="button"
+              className="problem-player-solution-next"
+              onClick={handleSolutionAdvance}
+            >
+              {solutionRevealed < attemptResult.solution.steps.length
+                ? 'Xem tiếp ➜'
+                : `${phrase('next')} ➜`}
             </button>
           </>
         )}
       </div>
-      <FeedbackBanner
-        variant={phase === 'correct' ? 'correct' : 'retry'}
-        visible={phase === 'correct' || phase === 'wrong-shake' || phase === 'wrong-hint'}
-      >
-        {phase === 'correct' ? phrase(praiseKey) : phase === 'wrong-hint' ? phrase('retry_first') : ''}
-      </FeedbackBanner>
+      {quiz ? (
+        phase === 'saved' && (
+          <p role="status" className="problem-player-saved">
+            {phrase('quiz_saved')}
+          </p>
+        )
+      ) : (
+        <FeedbackBanner
+          variant={phase === 'correct' ? 'correct' : 'retry'}
+          visible={phase === 'correct' || phase === 'wrong-shake' || phase === 'wrong-hint'}
+        >
+          {phase === 'correct'
+            ? phrase(praiseKey)
+            : phase === 'wrong-hint'
+              ? phrase('retry_first')
+              : ''}
+        </FeedbackBanner>
+      )}
       {!supported ? (
         // An unsupported Part type has no widget to grade -- the only way forward is to
         // skip it (Boundaries & Constraints: reachable, never stranded).
@@ -635,7 +703,11 @@ function PartPlayer({
               />
             )}
             {showCheck && (
-              <button type="button" disabled={disabled || !isComplete()} onClick={() => void handleCheck()}>
+              <button
+                type="button"
+                disabled={disabled || !isComplete()}
+                onClick={() => void handleCheck()}
+              >
                 {phrase('check_answer')}
               </button>
             )}
@@ -804,7 +876,11 @@ function FallbackPartPlayer({
           <>
             <SolutionPanel steps={solutionSteps} revealedCount={solutionRevealed} />
             {phase === 'revealing' && (
-              <button type="button" className="problem-player-solution-next" onClick={handleSolutionAdvance}>
+              <button
+                type="button"
+                className="problem-player-solution-next"
+                onClick={handleSolutionAdvance}
+              >
                 {solutionRevealed < solutionSteps.length ? 'Xem tiếp ➜' : `${phrase('next')} ➜`}
               </button>
             )}
@@ -815,7 +891,11 @@ function FallbackPartPlayer({
         variant={phase === 'correct' ? 'correct' : 'neutral'}
         visible={phase === 'correct' || phase === 'neutral'}
       >
-        {phase === 'correct' ? phrase(praiseKey) : phase === 'neutral' ? phrase('self_mark_neutral_ack') : ''}
+        {phase === 'correct'
+          ? phrase(praiseKey)
+          : phase === 'neutral'
+            ? phrase('self_mark_neutral_ack')
+            : ''}
       </FeedbackBanner>
       <div className="problem-player-actions">
         {phase === 'crop' && (
@@ -833,6 +913,39 @@ function FallbackPartPlayer({
             </button>
           </>
         )}
+      </div>
+    </section>
+  )
+}
+
+interface QuizFallbackPlayerProps {
+  problem: ChildProblemView
+  bundleProblem: BundleProblemOut
+  part: FallbackChildPart
+  onAdvance: () => void
+}
+
+/** Story 3.4: a `fallback` Part in quiz play -- shown, never self-checked. */
+function QuizFallbackPlayer({ problem, bundleProblem, part, onAdvance }: QuizFallbackPlayerProps) {
+  function imageUrl(imageKey: string): string | undefined {
+    const pages = new Set(problem.source_pages.map((p) => p.page))
+    const prefixCount = pages.size > 1 ? 1 + pages.size : 1
+    const tail = bundleProblem.crop_urls.slice(prefixCount)
+    const index = problem.images.findIndex((i) => i.image_key === imageKey)
+    return index === -1 ? undefined : tail[index]
+  }
+  return (
+    <section className="problem-player" aria-label={problem.display_label || undefined}>
+      <div className="problem-player-work">
+        {problem.display_label && <h2 className="problem-player-label">{problem.display_label}</h2>}
+        <InstructionLine instruction={problem.instruction} />
+        {part.prompt && <p className="problem-player-part-prompt">{part.prompt}</p>}
+        <FallbackWidget part={part} imageUrl={imageUrl} />
+      </div>
+      <div className="problem-player-actions">
+        <button type="button" onClick={onAdvance}>
+          {phrase('next')} ➜
+        </button>
       </div>
     </section>
   )
