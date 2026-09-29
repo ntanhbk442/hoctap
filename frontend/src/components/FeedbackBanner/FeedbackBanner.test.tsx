@@ -30,6 +30,19 @@ describe('FeedbackBanner', () => {
     expect(screen.getByRole('status')).toHaveClass('feedback-banner-retry')
   })
 
+  it('shows the neutral variant with its message (Story 2.8 self-marked "chưa đúng" -- must not look like the retry/wrong-answer penalty)', () => {
+    mockMotion.mockReturnValue({ reduced: false })
+    render(
+      <FeedbackBanner variant="neutral" visible>
+        Đã thêm vào danh sách ôn lại.
+      </FeedbackBanner>,
+    )
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveClass('feedback-banner-neutral')
+    expect(banner).not.toHaveClass('feedback-banner-retry')
+    expect(banner).toHaveTextContent('Đã thêm vào danh sách ôn lại.')
+  })
+
   it('toggles the visible/hidden transition classes', () => {
     mockMotion.mockReturnValue({ reduced: false })
     const { rerender } = render(

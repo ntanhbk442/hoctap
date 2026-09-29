@@ -1234,6 +1234,322 @@ def test_hint_requested_then_wrong_attempt_on_same_part_still_stages_normally(
     assert out["solution"] is None  # still the FIRST wrong attempt on this Part
 
 
+# --- Fallback self-check (Story 2.8) --------------------------------------------------
+
+
+def _fallback_event(kind: str, problem_id: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(uuid.uuid7()),
+        "kind": kind,
+        "problem_id": problem_id,
+        "payload": payload,
+        "occurred_at": "2026-09-29T10:00:00+00:00",
+    }
+
+
+def test_fallback_revealed_first_tap_stored_inert(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """`fallback_revealed` is stored with no MUTATING side effect (no Retry Queue row),
+    exactly like `hint_requested` -- but its response DOES carry the fallback Part's own
+    `solution`, since `child_view()`/the bundle never carries it (Spec Change Log)."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("fallback_revealed", doc["problem_id"], {"part_key": "p1"})
+    resp = _post(client, session["id"], profile_id, event)
+    assert resp.status_code == 201, resp.text
+    out = resp.json()[0]
+    assert out["correct"] is None
+    assert out["solution"] == {
+        "steps": ["Đi theo lối không bị chặn."],
+        "final": "Chú thỏ đi theo lối bên phải về nhà.",
+    }
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events).where(progress_events.c.id == event["id"])
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].kind == "fallback_revealed"
+    with engine.connect() as conn:
+        retry_rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.problem_id == doc["problem_id"]
+            )
+        ).all()
+    assert retry_rows == []
+
+
+def test_self_marked_dung_stored_no_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """`self_marked` with `correct: true` is stored (a Star is derivable by a future
+    reader counting it) but adds nothing to the Retry Queue."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {"correct": True})
+    resp = _post(client, session["id"], profile_id, event)
+    assert resp.status_code == 201, resp.text
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events).where(progress_events.c.id == event["id"])
+        ).all()
+    assert len(rows) == 1
+    stored_payload = json.loads(rows[0].payload_json)
+    assert stored_payload["correct"] is True
+    with engine.connect() as conn:
+        retry_rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.problem_id == doc["problem_id"]
+            )
+        ).all()
+    assert retry_rows == []
+
+
+def test_self_marked_chua_dung_adds_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {"correct": False})
+    resp = _post(client, session["id"], profile_id, event)
+    assert resp.status_code == 201, resp.text
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is None
+
+
+def test_self_marked_chua_dung_twice_two_sessions_dedup_one_open_row(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Two Sessions, both `self_marked(correct: false)` on the same Problem -- the Retry
+    Queue still has exactly one open row (`_add_retry_item()`'s existing skip-if-exists)."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session_a = _start(client, profile_id)
+    session_b = _start(client, profile_id)
+    event_a = _fallback_event("self_marked", doc["problem_id"], {"correct": False})
+    event_b = _fallback_event("self_marked", doc["problem_id"], {"correct": False})
+    _post(client, session_a["id"], profile_id, event_a)
+    _post(client, session_b["id"], profile_id, event_b)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is None
+
+
+def test_self_marked_missing_correct_field_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {})
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "SELF_MARKED_INVALID_PAYLOAD")
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.id).where(progress_events.c.id == event["id"])
+        ).all()
+    assert rows == []
+
+
+def test_self_marked_malformed_correct_field_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {"correct": "yes"})
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "SELF_MARKED_INVALID_PAYLOAD")
+
+
+def test_self_marked_wrong_profile_for_session_403(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {"correct": False})
+    resp = client.post(
+        f"{API}/{session['id']}/events",
+        json={"profile_id": str(uuid.uuid7()), "events": [event]},
+    )
+    _envelope(resp, 403, "FORBIDDEN")
+
+
+def test_self_marked_resent_idempotent_no_double_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {"correct": False})
+    first = _post(client, session["id"], profile_id, event)
+    second = _post(client, session["id"], profile_id, event)
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json() == second.json()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.id).where(progress_events.c.id == event["id"])
+        ).all()
+        retry_rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert len(retry_rows) == 1
+
+
+def test_fallback_revealed_resent_idempotent_same_solution(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("fallback_revealed", doc["problem_id"], {"part_key": "p1"})
+    first = _post(client, session["id"], profile_id, event)
+    second = _post(client, session["id"], profile_id, event)
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json() == second.json()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.id).where(progress_events.c.id == event["id"])
+        ).all()
+    assert len(rows) == 1
+
+
+def test_fallback_part_never_graded_via_self_marked_path(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """A fallback Problem's `p1` Part is never passed through `grade_part()` for
+    `self_marked`/`fallback_revealed` -- both kinds insert successfully with no 422/500,
+    proving the fallback Part's `TypeError`-raising grader is never invoked for them."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    reveal = _fallback_event("fallback_revealed", doc["problem_id"], {"part_key": "p1"})
+    mark = _fallback_event("self_marked", doc["problem_id"], {"correct": True})
+    resp = _post(client, session["id"], profile_id, reveal, mark)
+    assert resp.status_code == 201, resp.text
+
+
+def test_self_marked_rejected_for_non_fallback_graded_problem(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #1 (critical): `self_marked` posted against a real GRADED
+    Problem (not a `fallback` one) must be rejected -- otherwise a client could
+    self-award a derived Star on `correct: true` with no grading at all, or push an
+    arbitrary never-attempted graded Problem onto the Retry Queue on `correct: false`."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", doc["problem_id"], {"correct": True})
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "SELF_MARKED_NOT_FALLBACK")
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.id).where(progress_events.c.id == event["id"])
+        ).all()
+    assert rows == []
+
+
+def test_self_marked_chua_dung_then_dung_resolves_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #2 (high): a Problem self-marked "chưa đúng" (opening a Retry
+    Queue row), then LATER self-marked "đúng" on a retry, must resolve that row --
+    `grade_part()`/`_grade_and_stage()` are never invoked for a fallback Part, so nothing
+    else could ever resolve it."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    wrong = _fallback_event("self_marked", doc["problem_id"], {"correct": False})
+    _post(client, session["id"], profile_id, wrong)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is None
+
+    right = _fallback_event("self_marked", doc["problem_id"], {"correct": True})
+    resp = _post(client, session["id"], profile_id, right)
+    assert resp.status_code == 201, resp.text
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is not None
+
+
+def test_self_marked_null_problem_id_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #5: `self_marked` with `problem_id: null` -> 422, untested until
+    now (`_validate_self_marked()` explicitly checks this)."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _fallback_event("self_marked", None, {"correct": True})
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "SELF_MARKED_INVALID_PAYLOAD")
+
+
+def test_self_marked_dung_star_is_derived_by_counting_events(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #4: demonstrates the "Star is derived by counting `self_marked`
+    events with `correct: true`" claim as an actual counting mechanism -- posts 2 correct
+    self-marks (on two distinct fallback Problems) and manually queries `progress_events`
+    the way a future Star-derivation reader would, documenting the query shape."""
+    doc_1 = make_fallback_doc("bai-1")
+    doc_2 = make_fallback_doc("bai-2")
+    Pub(engine)(doc_1, doc_2)
+    session = _start(client, profile_id)
+    event_1 = _fallback_event("self_marked", doc_1["problem_id"], {"correct": True})
+    event_2 = _fallback_event("self_marked", doc_2["problem_id"], {"correct": True})
+    _post(client, session["id"], profile_id, event_1)
+    _post(client, session["id"], profile_id, event_2)
+
+    # The derivation query shape a future reader (Story 2.10's Session summary) would
+    # use: count `self_marked` rows for this Profile whose payload's `correct` is True.
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.payload_json).where(
+                progress_events.c.profile_id == profile_id,
+                progress_events.c.kind == "self_marked",
+            )
+        ).all()
+    star_count = sum(1 for row in rows if json.loads(row.payload_json).get("correct") is True)
+    assert star_count == 2
+
+
 def test_retry_queue_counting_is_profile_wide_across_two_sessions(
     client: TestClient, engine: Engine, profile_id: str
 ) -> None:

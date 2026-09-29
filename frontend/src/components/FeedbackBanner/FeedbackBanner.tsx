@@ -3,7 +3,11 @@ import { useMotion } from '../../hooks/useMotion'
 import './FeedbackBanner.css'
 
 export interface FeedbackBannerProps {
-  variant: 'correct' | 'retry'
+  /** `neutral` (Story 2.8): a self-marked "chưa đúng" acknowledgement -- deliberately NOT
+   * `retry` (that variant's orange border is the graded wrong-Attempt penalty look; a
+   * fallback Problem's self-report is never graded, so it must read as neutral, not
+   * wrong -- Boundaries & Constraints). */
+  variant: 'correct' | 'retry' | 'neutral'
   visible: boolean
   children: ReactNode
 }

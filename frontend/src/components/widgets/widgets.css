@@ -361,3 +361,14 @@
   font-family: var(--font-body-family);
   font-size: var(--font-body-size);
 }
+
+.widget-fallback {
+  display: flex;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.widget-fallback .zoomable-image {
+  width: 100%;
+  min-height: 220px;
+}

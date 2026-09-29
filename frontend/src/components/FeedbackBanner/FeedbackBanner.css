@@ -21,6 +21,16 @@
   border-top: 4px solid var(--color-retry);
 }
 
+/* Story 2.8: a self-marked "chưa đúng" acknowledgement -- reuses the existing blue
+   `--color-primary`/`--color-primary-soft` tokens (no new token added; tokens.css is
+   generated from DESIGN.md) so it visually reads as neutral, never as the orange
+   wrong-Attempt `retry` treatment above. */
+.feedback-banner-neutral {
+  background: var(--color-primary-soft);
+  color: var(--color-ink-primary);
+  border-top: 4px solid var(--color-primary);
+}
+
 .feedback-banner-visible {
   transform: translateY(0);
   opacity: 1;

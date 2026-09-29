@@ -23,6 +23,7 @@ import NumberInputWidget from '../components/widgets/NumberInputWidget'
 import NumberTreeWidget from '../components/widgets/NumberTreeWidget'
 import OrderWidget from '../components/widgets/OrderWidget'
 import SpotDifferenceWidget from '../components/widgets/SpotDifferenceWidget'
+import FallbackWidget from '../components/widgets/FallbackWidget'
 import type { ChildPart } from '../components/widgets/types'
 import UnsupportedWidget from '../components/widgets/UnsupportedWidget'
 import { newEventId } from '../ids'
@@ -100,6 +101,26 @@ export default function ProblemPlayer({
     } else {
       onDone()
     }
+  }
+
+  // `fallback` (Story 2.8, FR-11) has no machine-gradable answer at all -- its "Xem đáp
+  // án" -> self-mark flow is fundamentally not the shared ✔ Kiểm tra/Attempt shape every
+  // other Part type here uses, so it gets its own dedicated player rather than another
+  // branch bolted onto `PartPlayer`'s already-large state machine.
+  if (part.type === 'fallback') {
+    return (
+      <FallbackPartPlayer
+        key={part.part_key}
+        sessionId={sessionId}
+        profileId={profileId}
+        problem={problem}
+        bundleProblem={bundleProblem}
+        part={part}
+        stars={stars}
+        onStarEarned={onStarEarned}
+        onAdvance={advance}
+      />
+    )
   }
 
   return (
@@ -532,6 +553,188 @@ function PartPlayer({
           </div>
         )
       )}
+    </section>
+  )
+}
+
+type FallbackChildPart = Extract<ChildPart, { type: 'fallback' }>
+
+type FallbackPhase = 'crop' | 'revealing' | 'self-marking' | 'correct' | 'neutral'
+
+interface FallbackPartPlayerProps {
+  sessionId: string
+  profileId: string
+  problem: ChildProblemView
+  bundleProblem: BundleProblemOut
+  part: FallbackChildPart
+  stars: number
+  onStarEarned: () => void
+  onAdvance: () => void
+}
+
+/** Story 2.8's fallback self-check: "Xem đáp án" reveals the Solution (posting
+ * `fallback_revealed`, whose response carries the Part's own `solution` -- see
+ * `learning/sessions.py`'s `_fallback_solution()` -- since the child_view bundle never
+ * does), then "Em làm đúng"/"Em chưa đúng" self-reports (posting `self_marked`) before
+ * advancing. Never calls `grade_part()`/an `attempt` event at all -- a fallback Problem's
+ * `answer` is always `None` (Boundaries & Constraints). */
+function FallbackPartPlayer({
+  sessionId,
+  profileId,
+  problem,
+  bundleProblem,
+  part,
+  stars,
+  onStarEarned,
+  onAdvance,
+}: FallbackPartPlayerProps) {
+  const [phase, setPhase] = useState<FallbackPhase>('crop')
+  const [solutionSteps, setSolutionSteps] = useState<string[]>([])
+  const [solutionRevealed, setSolutionRevealed] = useState(0)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [justEarned, setJustEarned] = useState(false)
+  const [praiseKey, setPraiseKey] = useState<(typeof PRAISE_KEYS)[number]>(PRAISE_KEYS[0])
+  const submittingRef = useRef(false)
+  const postEvent = usePostEvent(sessionId)
+
+  function imageUrl(imageKey: string): string | undefined {
+    const pages = new Set(problem.source_pages.map((p) => p.page))
+    const prefixCount = pages.size > 1 ? 1 + pages.size : 1
+    const tail = bundleProblem.crop_urls.slice(prefixCount)
+    const index = problem.images.findIndex((i) => i.image_key === imageKey)
+    return index === -1 ? undefined : tail[index]
+  }
+
+  async function handleShowAnswer() {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setSubmitError(null)
+    try {
+      const [result] = await postEvent.mutateAsync({
+        profileId,
+        events: [
+          {
+            id: newEventId(),
+            kind: 'fallback_revealed',
+            problem_id: problem.problem_id,
+            payload: { part_key: part.part_key },
+            occurred_at: new Date().toISOString(),
+          },
+        ],
+      })
+      const steps = result.solution?.steps ?? []
+      setSolutionSteps(steps)
+      setPhase('revealing')
+      if (steps.length > 0) {
+        setSolutionRevealed(1)
+        void speak(steps[0])
+      } else {
+        setSolutionRevealed(0)
+      }
+    } catch (err) {
+      setSubmitError(errorMessage(err))
+    } finally {
+      submittingRef.current = false
+    }
+  }
+
+  function handleSolutionAdvance() {
+    if (solutionRevealed < solutionSteps.length) {
+      const next = solutionRevealed + 1
+      setSolutionRevealed(next)
+      void speak(solutionSteps[next - 1])
+    } else {
+      setPhase('self-marking')
+    }
+  }
+
+  async function handleSelfMark(correct: boolean) {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setSubmitError(null)
+    try {
+      await postEvent.mutateAsync({
+        profileId,
+        events: [
+          {
+            id: newEventId(),
+            kind: 'self_marked',
+            problem_id: problem.problem_id,
+            payload: { correct },
+            occurred_at: new Date().toISOString(),
+          },
+        ],
+      })
+      if (correct) {
+        setPhase('correct')
+        onStarEarned()
+        setJustEarned(true)
+        void playChime()
+        const chosen = PRAISE_KEYS[Math.floor(Math.random() * PRAISE_KEYS.length)]
+        setPraiseKey(chosen)
+        void speak(phrase(chosen))
+      } else {
+        setPhase('neutral')
+        void speak(phrase('self_mark_neutral_ack'))
+      }
+      window.setTimeout(onAdvance, CORRECT_ADVANCE_DELAY_MS)
+    } catch (err) {
+      setSubmitError(errorMessage(err))
+      submittingRef.current = false
+    }
+  }
+
+  const showingSolution = phase === 'revealing' || phase === 'self-marking'
+
+  return (
+    <section className="problem-player" aria-label={problem.display_label || undefined}>
+      <div className="problem-player-header">
+        <StarBurst count={stars} justEarned={justEarned} />
+      </div>
+      <div className="problem-player-work">
+        {problem.display_label && <h2 className="problem-player-label">{problem.display_label}</h2>}
+        <p className="problem-player-prompt">{problem.instruction}</p>
+        {part.prompt && <p className="problem-player-part-prompt">{part.prompt}</p>}
+        <FallbackWidget part={part} imageUrl={imageUrl} />
+        {submitError && (
+          <p role="alert" className="form-error">
+            {submitError}
+          </p>
+        )}
+        {showingSolution && (
+          <>
+            <SolutionPanel steps={solutionSteps} revealedCount={solutionRevealed} />
+            {phase === 'revealing' && (
+              <button type="button" className="problem-player-solution-next" onClick={handleSolutionAdvance}>
+                {solutionRevealed < solutionSteps.length ? 'Xem tiếp ➜' : `${phrase('next')} ➜`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      <FeedbackBanner
+        variant={phase === 'correct' ? 'correct' : 'neutral'}
+        visible={phase === 'correct' || phase === 'neutral'}
+      >
+        {phase === 'correct' ? phrase(praiseKey) : phase === 'neutral' ? phrase('self_mark_neutral_ack') : ''}
+      </FeedbackBanner>
+      <div className="problem-player-actions">
+        {phase === 'crop' && (
+          <button type="button" onClick={() => void handleShowAnswer()}>
+            {phrase('show_answer')}
+          </button>
+        )}
+        {phase === 'self-marking' && (
+          <>
+            <button type="button" onClick={() => void handleSelfMark(false)}>
+              {phrase('self_mark_incorrect')}
+            </button>
+            <button type="button" onClick={() => void handleSelfMark(true)}>
+              {phrase('self_mark_correct')}
+            </button>
+          </>
+        )}
+      </div>
     </section>
   )
 }

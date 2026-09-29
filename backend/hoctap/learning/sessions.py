@@ -237,7 +237,10 @@ class EventOut:
 
 def _row_to_event_out(row: Any) -> EventOut:
     correct = wrong_keys = hint = solution = None
-    if row.kind == "attempt":
+    # `fallback_revealed` (Story 2.8) reuses the same "solution" response field an
+    # `attempt` uses -- see `_fallback_solution()`'s docstring for why the child_view
+    # bundle can never carry it instead.
+    if row.kind in ("attempt", "fallback_revealed"):
         payload = json.loads(row.payload_json)
         correct = payload.get("correct")
         wrong_keys = payload.get("wrong_keys")
@@ -419,6 +422,88 @@ def _maybe_resolve_retry_item(
     )
 
 
+def _fallback_solution(conn: Any, problem_id: str | None, part_key: Any) -> dict[str, Any] | None:
+    """The fallback Part's own `solution` (Story 2.8's on-demand "Xem đáp án" reveal).
+
+    Spec Change Log (2026-09-29): `child_view()` (AD-5) strips `solution`/`hint`/`answer`
+    from EVERY Part type unconditionally, including `fallback` (`content/views.py`'s
+    `ANSWER_FIELDS`) -- so, unlike a graded Part's Hint/Solution (released into `attempt`'s
+    own response payload by `_grade_and_stage()`), a `fallback` Part's Solution reaches the
+    bundle by NO path at all. This helper mirrors that same "augment the stored event's
+    payload with content the child_view never carries" mechanism for `fallback_revealed`,
+    the only other place a Solution is released to the child. It intentionally does NOT
+    reuse `_find_part()` (which excludes `FallbackPart` on purpose, for grading eligibility)
+    nor `grade_part()` (never called for a fallback Problem, per this story's frozen
+    Boundaries). Returns `None` if the Problem/Part can't be resolved -- matching this
+    module's existing "never 500 on a stale/invalid reference" posture (e.g.
+    `get_bundle()`'s `ProblemNotFound` skip) -- rather than raising, since revealing no
+    Solution is a safe degrade and this is telemetry-adjacent, not a gated grading action.
+    """
+    if problem_id is None:
+        return None
+    try:
+        state = load_one(conn, problem_id)
+    except ProblemNotFound:
+        return None
+    if state.doc is None:
+        return None
+    for part in state.doc.parts:
+        if part.part_key == part_key and isinstance(part, FallbackPart):
+            return part.solution.model_dump(mode="json")
+    return None
+
+
+def _validate_self_marked(conn: Any, event: EventIn) -> bool:
+    """Validates a `self_marked` event's payload before it is ever staged or stored:
+    `{"correct": bool}` is required, and `problem_id` must be set (needed to add the
+    Problem to the Retry Queue on `correct: false`, and to know which Problem a future
+    Star-derivation reader is counting). A missing/malformed `correct` field, or a missing
+    `problem_id`, is a normal, expected input from an untrusted client (the same posture
+    Story 2.5's graders take toward malformed Attempt payloads) -- rejected with a 422,
+    never a 500 and never validated against any `GradeResult`/`wrong_keys` concept, since
+    `self_marked` is a self-report, not a grade.
+
+    Review Triage Log #1 (2026-09-29, critical): also verifies the target Problem is
+    actually `fallback`-type (has at least one `FallbackPart`) -- the identical
+    `isinstance(part, FallbackPart)` guard `_fallback_solution()` already applies for
+    `fallback_revealed`. Without it, a client could post `self_marked` against ANY graded
+    Problem: `correct: true` self-awards a derived Star with no grading at all, and
+    `correct: false` pushes an arbitrary never-attempted graded Problem onto the Retry
+    Queue. `self_marked`'s payload never carries a `part_key` (unlike `fallback_revealed`
+    -- see `ProblemPlayer.tsx`'s `handleSelfMark`), so this checks the whole Problem's Part
+    list rather than one named Part; a fallback Problem typically has exactly one Part
+    anyway (this story's frozen Boundaries), so "the Problem has a FallbackPart" and "the
+    Problem IS the fallback Problem" coincide in practice.
+    """
+    correct = event.payload.get("correct")
+    if not isinstance(correct, bool):
+        raise AppError(
+            422,
+            "SELF_MARKED_INVALID_PAYLOAD",
+            "Dữ liệu tự chấm không hợp lệ (thiếu 'correct').",
+        )
+    if event.problem_id is None:
+        raise AppError(
+            422,
+            "SELF_MARKED_INVALID_PAYLOAD",
+            "Dữ liệu tự chấm không hợp lệ (thiếu bài tập).",
+        )
+    is_fallback = False
+    try:
+        state = load_one(conn, event.problem_id)
+    except ProblemNotFound:
+        state = None
+    if state is not None and state.doc is not None:
+        is_fallback = any(isinstance(p, FallbackPart) for p in state.doc.parts)
+    if not is_fallback:
+        raise AppError(
+            422,
+            "SELF_MARKED_NOT_FALLBACK",
+            "Bài tập này không phải dạng tự chấm.",
+        )
+    return correct
+
+
 def _grade_and_stage(
     conn: Any, profile_id: str, problem_id: str | None, payload: dict[str, Any], received_at: str
 ) -> dict[str, Any]:
@@ -483,6 +568,26 @@ def post_event(
 
     Validates the Session exists and belongs to `profile_id` (403), and that the event is
     valid for it (`_validate_event_against_session()`).
+
+    `fallback_revealed` (Story 2.8, FR-11's "Xem đáp án"): no *mutating* side effect --
+    exactly like `hint_requested`, nothing is written beyond the stored event itself (no
+    Retry Queue row, no other table). It DOES augment its own stored payload with the
+    fallback Part's `solution` (`_fallback_solution()`) before insert, the same mechanism
+    `_grade_and_stage()` already uses to release a graded Part's Hint/Solution into an
+    `attempt`'s response -- see `_fallback_solution()`'s own docstring for why the bundle
+    can never carry it instead.
+
+    `self_marked` (Story 2.8): validated (`_validate_self_marked()`) and, on
+    `correct: false`, added to the Retry Queue via `_add_retry_item()` -- same helper,
+    same table, same skip-if-an-unresolved-row-already-exists behaviour Story 2.5 built for
+    `attempt`. On `correct: true`, no further server action -- a Star is DERIVED, not
+    stored: any future reader (Story 2.10's Session summary) computes a Profile's/
+    Session's Star count by counting `self_marked` events whose `payload["correct"] is
+    True`, the same append-only-log-derivation philosophy as `_count_prior_wrong()`/
+    `_part_currently_correct()` above. Neither `fallback_revealed` nor `self_marked` ever
+    counts towards first-try accuracy (not yet built by any story -- see
+    `deferred-work.md`): whichever future story computes it must exclude these two event
+    kinds by construction.
     """
     session = _load_session(conn, session_id)
     if session.profile_id != profile_id:
@@ -508,6 +613,30 @@ def post_event(
             if event.kind == "attempt":
                 payload = _grade_and_stage(
                     conn, profile_id, event.problem_id, payload, received_at
+                )
+            elif event.kind == "self_marked":
+                correct = _validate_self_marked(conn, event)
+                if correct:
+                    # Review Triage Log #2 (2026-09-29, high): a Problem self-marked
+                    # "chưa đúng" earlier (opening a Retry Queue row) and later
+                    # self-marked "đúng" must resolve that row -- `grade_part()`/
+                    # `_grade_and_stage()` are never called for a fallback Part, so
+                    # without this call the row would otherwise never resolve. A
+                    # fallback Problem typically has exactly one Part (this story's
+                    # frozen Boundaries), and that Part is always excluded from
+                    # `_maybe_resolve_retry_item()`'s "every OTHER Part must also be
+                    # correct" check (it filters out `FallbackPart` on purpose) -- so
+                    # passing an empty `parts`/a placeholder `graded_part_key` resolves
+                    # immediately, with no "other Parts" to ever block it.
+                    _maybe_resolve_retry_item(
+                        conn, profile_id, event.problem_id, [], "", received_at
+                    )
+                else:
+                    _add_retry_item(conn, profile_id, event.problem_id, received_at)
+            elif event.kind == "fallback_revealed":
+                payload = dict(payload)
+                payload["solution"] = _fallback_solution(
+                    conn, event.problem_id, payload.get("part_key")
                 )
             conn.execute(
                 progress_events.insert().values(

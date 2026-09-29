@@ -404,17 +404,142 @@ describe('ProblemPlayer: unsupported Part type', () => {
   it('shows a "chưa hỗ trợ" placeholder and a way forward, never a crash', () => {
     mockApi({})
     const onDone = vi.fn()
-    // `fallback` (the cropped-Problem-as-printed type, solution-only, never graded) is the
-    // one Part type this player deliberately never gets a widget for -- Story 2.7 gave
-    // every OTHER remaining type (including `order`, this test's fixture before Story 2.7)
-    // its own widget, so `order` can no longer stand in as "the unsupported one".
+    // Story 2.8 gave `fallback` (the cropped-Problem-as-printed, solution-only, never
+    // graded type) its own dedicated player -- the last remaining Part type in
+    // `content/schema.py`'s `Part` union, so every real type now has a widget. This test
+    // now exercises the switcher's defensive `default` branch with a genuinely unknown
+    // type (schema drift / a future addition this player hasn't caught up to yet), not a
+    // real Part type -- there is no real one left to stand in for "unsupported".
     renderPlayer(
-      bundleProblem([{ part_key: 'a', type: 'fallback', prompt: '', image_keys: ['img1'], image_key: 'img1' }]),
+      bundleProblem([
+        { part_key: 'a', type: 'not_a_real_type', prompt: '', image_keys: [] } as never,
+      ]),
       onDone,
     )
     expect(screen.getByText(/chưa được hỗ trợ/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Tiếp ➜' }))
     expect(onDone).toHaveBeenCalledOnce()
+  })
+})
+
+describe('ProblemPlayer: fallback (Story 2.8 self-check)', () => {
+  const FALLBACK_PART = {
+    part_key: 'p1',
+    type: 'fallback',
+    prompt: '',
+    image_keys: [],
+    image_key: 'img1',
+  }
+
+  function fallbackRevealedReply(steps: string[]) {
+    return {
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [
+          {
+            id: 'e1',
+            session_id: SESSION_ID,
+            kind: 'fallback_revealed',
+            problem_id: header().problem_id,
+            occurred_at: 'x',
+            received_at: 'x',
+            correct: null,
+            wrong_keys: null,
+            hint: null,
+            solution: { steps, final: steps[steps.length - 1] ?? '' },
+          },
+        ],
+      },
+    }
+  }
+
+  function selfMarkedReply() {
+    return {
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [
+          {
+            id: 'e2',
+            session_id: SESSION_ID,
+            kind: 'self_marked',
+            problem_id: header().problem_id,
+            occurred_at: 'x',
+            received_at: 'x',
+            correct: null,
+            wrong_keys: null,
+            hint: null,
+            solution: null,
+          },
+        ],
+      },
+    }
+  }
+
+  it('Xem đáp án tapped: posts fallback_revealed, then shows the Solution via SolutionPanel', async () => {
+    const fetchMock = mockApi(fallbackRevealedReply(['Bước 1', 'Bước 2']))
+    renderPlayer(bundleProblem([FALLBACK_PART]))
+    fireEvent.click(screen.getByRole('button', { name: phrase('show_answer') }))
+    expect(await screen.findByText('Bước 1')).toBeInTheDocument()
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    expect(call).toBeDefined()
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].kind).toBe('fallback_revealed')
+    // Steps reveal one at a time, same as the wrong-Attempt SolutionPanel step-through.
+    expect(screen.queryByText('Bước 2')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Xem tiếp ➜' }))
+    expect(await screen.findByText('Bước 2')).toBeInTheDocument()
+  })
+
+  it('Em làm đúng tapped: posts self_marked(correct:true), correct-style feedback, Star earned, advances', async () => {
+    mockApi(fallbackRevealedReply(['Bước 1']))
+    const onStarEarned = vi.fn()
+    const onDone = vi.fn()
+    renderAt(
+      ROUTE,
+      <ProblemPlayer
+        sessionId={SESSION_ID}
+        profileId={PROFILE_ID}
+        bundleProblem={bundleProblem([FALLBACK_PART])}
+        stars={0}
+        onStarEarned={onStarEarned}
+        onDone={onDone}
+      />,
+      PATTERN,
+    )
+    fireEvent.click(screen.getByRole('button', { name: phrase('show_answer') }))
+    await screen.findByText('Bước 1')
+    fireEvent.click(screen.getByRole('button', { name: `${phrase('next')} ➜` }))
+    const fetchMock = mockApi(selfMarkedReply())
+    fireEvent.click(await screen.findByRole('button', { name: phrase('self_mark_correct') }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    expect(onStarEarned).toHaveBeenCalledOnce()
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].kind).toBe('self_marked')
+    expect(body.events[0].payload).toEqual({ correct: true })
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalledOnce(), { timeout: 3000 })
+  })
+
+  it('Em chưa đúng tapped: posts self_marked(correct:false), NEUTRAL (not wrong/retry) feedback, advances', async () => {
+    mockApi(fallbackRevealedReply(['Bước 1']))
+    const onDone = vi.fn()
+    renderPlayer(bundleProblem([FALLBACK_PART]), onDone)
+    fireEvent.click(screen.getByRole('button', { name: phrase('show_answer') }))
+    await screen.findByText('Bước 1')
+    fireEvent.click(screen.getByRole('button', { name: `${phrase('next')} ➜` }))
+    const fetchMock = mockApi(selfMarkedReply())
+    fireEvent.click(await screen.findByRole('button', { name: phrase('self_mark_incorrect') }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-neutral'),
+    )
+    // Must NOT look like the graded wrong-Attempt shake/orange treatment.
+    expect(document.querySelector('.feedback-banner-visible')).not.toHaveClass('feedback-banner-retry')
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({ correct: false })
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalledOnce(), { timeout: 3000 })
   })
 })
 

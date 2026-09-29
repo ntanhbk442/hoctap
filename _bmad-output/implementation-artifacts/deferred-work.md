@@ -152,3 +152,28 @@
     `SpotDifferencePart.answer.regions`' author-assigned keys server-side. This story
     ships the full tap/ring/counter/✔-gating UX per spec regardless, but grading a real
     Part of this type will always come back incorrect until this is fixed.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-8-fallback-self-check.md`
+  summary: |
+    Whichever future story computes first-try accuracy (Story 2.5 deferred this; still not
+    built by any story through 2.8) must exclude `fallback_revealed` and `self_marked`
+    events by construction -- neither is a graded Attempt, so counting either into
+    first-try accuracy would silently corrupt that metric.
+  evidence: |
+    Frozen intent explicitly calls this out: a `fallback` Problem's `self_marked` is a
+    child self-report, never a `grade_part()` verdict, and `fallback_revealed` is a
+    "the child asked to see the answer" telemetry marker -- neither belongs in a metric
+    defined over graded Attempts. No code enforces this exclusion today because no story
+    has built first-try accuracy yet (`progress_events.payload_json` already stores enough
+    per-attempt `correct`/`wrong_keys` data for a future story to derive it directly); this
+    entry exists so that future story's own design doesn't accidentally query `kind =
+    'attempt'` loosely enough to also catch these two kinds, or forget they exist at all.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-8-fallback-self-check.md`
+  summary: |
+    A real Star display/count (Session summary, Home, a badge) that reads the
+    `self_marked` events with `payload["correct"] is True` this story's events make
+    derivable.
+  evidence: |
+    Frozen intent explicitly defers this to Story 2.10 "Session summary" -- this story only
+    ensures the event log carries enough information (one `self_marked` event per
+    self-check, its own `correct` field) for a future reader to derive the count; no
+    Star-reading endpoint or UI exists yet, by design.

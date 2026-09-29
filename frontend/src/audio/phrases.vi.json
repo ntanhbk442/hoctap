@@ -19,5 +19,9 @@
   "session_summary": "Em đã hoàn thành bài! Em được nhiều ngôi sao lắm.",
   "practice_wrong_again": "Luyện lại bài sai",
   "new_badge_earned": "Em vừa nhận được một huy hiệu mới!",
-  "streak_days": "liên tiếp!"
+  "streak_days": "liên tiếp!",
+  "show_answer": "Xem đáp án",
+  "self_mark_correct": "Em làm đúng",
+  "self_mark_incorrect": "Em chưa đúng",
+  "self_mark_neutral_ack": "Không sao! Bài này sẽ quay lại để em luyện thêm nhé."
 }
