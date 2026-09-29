@@ -85,6 +85,8 @@ progress_retry_items = Table(
     Column("problem_id", Text, nullable=False),
     Column("added_at", Text, nullable=False),
     Column("resolved_at", Text, nullable=True),
+    # Story 3.3: latest wrong Attempt / "chưa đúng" while open; "due" derives from it.
+    Column("last_wrong_at", Text, nullable=True),
 )
 
 progress_stars = Table(

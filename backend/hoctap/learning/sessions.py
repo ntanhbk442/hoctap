@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from hoctap.api.errors import AppError
@@ -24,8 +24,9 @@ from hoctap.content.views import ChildProblemView, child_view
 from hoctap.ids import new_id, to_iso
 from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
-from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
+from hoctap.learning.models import progress_events, progress_sessions
 from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
+from hoctap.learning.retry import add_retry_item, maybe_resolve_retry_item
 from hoctap.learning.scoring import maybe_award_stars
 from hoctap.learning.summary import SessionSummary, compute_summary
 from hoctap.parent.models import parent_profiles
@@ -79,7 +80,7 @@ def start_session(
     if profile_exists is None:
         raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
 
-    problem_ids = resolve(conn, ref, profile_id)
+    problem_ids = resolve(conn, ref, profile_id, now=now)
     if not problem_ids:
         raise AppError(
             422,
@@ -385,101 +386,6 @@ def _count_prior_wrong(conn: Any, profile_id: str, problem_id: str, part_key: st
     return count
 
 
-def _part_currently_correct(conn: Any, profile_id: str, problem_id: str, part_key: str) -> bool:
-    """Whether this Part has at least one stored `attempt` AND its most recent one was
-    graded correct -- used only to decide Retry Queue resolution. A Part NEVER attempted
-    BLOCKS resolution (it has not been "answered correctly" at all); a Part that went
-    wrong and was since corrected does not block.
-
-    "Most recent" is ordered by SQLite's own implicit `rowid` (true insertion order),
-    not `received_at`/`id`: every event of one batch shares the SAME `received_at`
-    (resolved once per request via `get_now()`), and `id` (a client-supplied UUIDv7) is
-    only millisecond-monotonic and client-controlled, so two attempts on the same Part
-    minted in the same millisecond within one batch could otherwise sort in the wrong
-    order and read a stale verdict.
-    """
-    rows = conn.execute(
-        select(progress_events.c.payload_json)
-        .where(
-            progress_events.c.profile_id == profile_id,
-            progress_events.c.problem_id == problem_id,
-            progress_events.c.kind == "attempt",
-        )
-        .order_by(text("progress_events.rowid ASC"))
-    )
-    latest_correct: bool | None = None
-    for row in rows:
-        data = json.loads(row.payload_json)
-        if data.get("part_key") != part_key:
-            continue
-        latest_correct = bool(data.get("correct"))
-    if latest_correct is None:
-        return False  # never attempted -- blocks resolution
-    return latest_correct
-
-
-def _add_retry_item(conn: Any, profile_id: str, problem_id: str, added_at: str) -> None:
-    """Adds the Problem to the Retry Queue, skipping the insert if an unresolved row for
-    this `profile_id`+`problem_id` already exists (a 2nd Part going wrong, or a resend
-    replayed through the same transaction, must not duplicate the row)."""
-    existing = conn.execute(
-        select(progress_retry_items.c.id).where(
-            progress_retry_items.c.profile_id == profile_id,
-            progress_retry_items.c.problem_id == problem_id,
-            progress_retry_items.c.resolved_at.is_(None),
-        )
-    ).first()
-    if existing is not None:
-        return
-    conn.execute(
-        progress_retry_items.insert().values(
-            id=new_id(),
-            profile_id=profile_id,
-            problem_id=problem_id,
-            added_at=added_at,
-            resolved_at=None,
-        )
-    )
-
-
-def _maybe_resolve_retry_item(
-    conn: Any,
-    profile_id: str,
-    problem_id: str,
-    parts: list[Part],
-    graded_part_key: str,
-    now_iso: str,
-) -> None:
-    """Resolves this Problem's open Retry Queue row once every OTHER Part (the
-    just-graded Part is correct by construction, since this is only called on a correct
-    attempt) is also currently correct -- see `_part_currently_correct()`."""
-    others = [
-        p.part_key
-        for p in parts
-        if not isinstance(p, FallbackPart) and p.part_key != graded_part_key
-    ]
-    if any(not _part_currently_correct(conn, profile_id, problem_id, key) for key in others):
-        return
-    # A cheap existence check first: the common case (no open Retry Queue row at all,
-    # e.g. this Part/Problem was never gotten wrong) then needs no write statement --
-    # keeping a correct-and-already-fine attempt from ever requesting SQLite's exclusive
-    # write lock at all.
-    existing = conn.execute(
-        select(progress_retry_items.c.id).where(
-            progress_retry_items.c.profile_id == profile_id,
-            progress_retry_items.c.problem_id == problem_id,
-            progress_retry_items.c.resolved_at.is_(None),
-        )
-    ).first()
-    if existing is None:
-        return
-    conn.execute(
-        progress_retry_items.update()
-        .where(progress_retry_items.c.id == existing.id)
-        .values(resolved_at=now_iso)
-    )
-
-
 def _fallback_solution(conn: Any, problem_id: str | None, part_key: Any) -> dict[str, Any] | None:
     """The fallback Part's own `solution` (Story 2.8's on-demand "Xem đáp án" reveal).
 
@@ -595,21 +501,15 @@ def _grade_and_stage(
     payload["wrong_keys"] = result.wrong_keys
     hint: str | None = None
     solution: dict[str, Any] | None = None
-    if result.correct:
-        _maybe_resolve_retry_item(
-            conn, profile_id, problem_id, list(state.doc.parts), part.part_key, received_at
-        )
-    else:
+    if not result.correct:
         prior_wrong = _count_prior_wrong(conn, profile_id, problem_id, part.part_key)
         hint = part.hint  # released on the 1st wrong attempt, and stays shown afterward
-        if prior_wrong == 0:
-            # Story 2.10, AD-6: a `replay`-mode Session's wrong attempts never re-add to
-            # the Retry Queue (a replay is meant to resolve/practice existing items, never
-            # to open new ones) -- `_maybe_resolve_retry_item()` above is NOT similarly
-            # gated (see `post_event()`'s own docstring for why).
-            if mode != "replay":
-                _add_retry_item(conn, profile_id, problem_id, received_at)
-        else:
+        # Story 2.10, AD-6: a `replay`-mode Session's wrong attempts never touch the
+        # Retry Queue. Story 3.3: EVERY other wrong attempt (not just the first) calls
+        # `add_retry_item()`, which opens the row or refreshes `last_wrong_at`.
+        if mode != "replay":
+            add_retry_item(conn, profile_id, problem_id, received_at)
+        if prior_wrong != 0:
             solution = part.solution.model_dump(mode="json")
     payload["hint"] = hint
     payload["solution"] = solution
@@ -697,25 +597,10 @@ def post_event(
                 )
             elif event.kind == "self_marked":
                 correct = _validate_self_marked(conn, event)
-                if correct:
-                    # Review Triage Log #2 (2026-09-29, high): a Problem self-marked
-                    # "chưa đúng" earlier (opening a Retry Queue row) and later
-                    # self-marked "đúng" must resolve that row -- `grade_part()`/
-                    # `_grade_and_stage()` are never called for a fallback Part, so
-                    # without this call the row would otherwise never resolve. A
-                    # fallback Problem typically has exactly one Part (this story's
-                    # frozen Boundaries), and that Part is always excluded from
-                    # `_maybe_resolve_retry_item()`'s "every OTHER Part must also be
-                    # correct" check (it filters out `FallbackPart` on purpose) -- so
-                    # passing an empty `parts`/a placeholder `graded_part_key` resolves
-                    # immediately, with no "other Parts" to ever block it. Not gated on
-                    # `mode` -- see `post_event()`'s own docstring on why resolution is
-                    # always allowed, unlike adding a NEW item.
-                    _maybe_resolve_retry_item(
-                        conn, profile_id, event.problem_id, [], "", received_at
-                    )
-                elif mode != "replay":
-                    _add_retry_item(conn, profile_id, event.problem_id, received_at)
+                # Story 3.3: a "đúng" self-mark no longer resolves immediately; exit is
+                # evaluated by `maybe_resolve_retry_item()` after the event is stored.
+                if not correct and mode != "replay":
+                    add_retry_item(conn, profile_id, event.problem_id, received_at)
             elif event.kind == "fallback_revealed":
                 payload = dict(payload)
                 payload["solution"] = _fallback_solution(
@@ -763,6 +648,12 @@ def post_event(
                 maybe_award_stars(
                     conn, received_at, session_id, profile_id, event.problem_id, mode
                 )
+            # Story 3.3: Retry Queue exit is checked after the Star row exists (the
+            # non-fallback path counts `progress_stars`), in the same SAVEPOINT. Never
+            # gated on mode inside `post_event`; `replay` Sessions simply produce no
+            # qualifying Star rows / are excluded from the self-mark count.
+            if event.kind in ("attempt", "self_marked") and event.problem_id is not None:
+                maybe_resolve_retry_item(conn, received_at, profile_id, event.problem_id)
             # Story 3.2, AD-6: badge checks run after EVERY event kind (not gated to
             # `attempt`/`self_marked` like Stars above) -- `week1`/`streak7` only ever
             # become true once `session_completed`'s own handling (above) has set

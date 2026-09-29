@@ -18,12 +18,14 @@ wrong list.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy import Connection, select
 
 from hoctap.api.errors import AppError
 from hoctap.content import library as content_library
+from hoctap.learning.summary import LOCAL_TZ
 
 RefKind = Literal["lesson", "concept", "retry", "replay"]
 
@@ -52,8 +54,16 @@ class ReplayRef:
     kind: Literal["replay"] = "replay"
 
 
-# Extension point (Story 2.5+): `ProblemSetRef = LessonRef | ConceptRef | RetryRef | ReplayRef`.
-ProblemSetRef = LessonRef | ReplayRef
+@dataclass(frozen=True)
+class RetryRef:
+    """`kind: "retry"` (Story 3.3): the Profile's DUE Retry Queue Problems (last wrong
+    Attempt on an earlier local calendar day), ordered by `last_wrong_at` ascending."""
+
+    kind: Literal["retry"] = "retry"
+
+
+# Extension point: `ProblemSetRef = LessonRef | ConceptRef | RetryRef | ReplayRef`.
+ProblemSetRef = LessonRef | ReplayRef | RetryRef
 
 
 class UnsupportedProblemSetRef(NotImplementedError):
@@ -81,10 +91,14 @@ def ref_key(ref: ProblemSetRef) -> str:
         return f"lesson:{ref.book_id}:{ref.unit_key}:{ref.lesson_key}"
     if ref.kind == "replay":
         return f"replay:{ref.source_session_id}"
+    if ref.kind == "retry":
+        return "retry"
     raise UnsupportedProblemSetRef(ref.kind)
 
 
-def resolve(conn: Connection, ref: ProblemSetRef, profile_id: str) -> list[str]:
+def resolve(
+    conn: Connection, ref: ProblemSetRef, profile_id: str, now: datetime | None = None
+) -> list[str]:
     """The ordered `problem_id`s of `ref`, for `profile_id`.
 
     `profile_id` is unused for `kind: "lesson"` (a Lesson's Problems aren't personalised);
@@ -142,4 +156,16 @@ def resolve(conn: Connection, ref: ProblemSetRef, profile_id: str) -> list[str]:
                 "Lượt học này không có bài nào làm sai để luyện lại.",
             )
         return wrong_ids
+    if ref.kind == "retry":
+        from hoctap.learning.retry import due_problem_ids
+
+        today = (now or datetime.now(UTC)).astimezone(LOCAL_TZ).date()
+        due = due_problem_ids(conn, profile_id, today)
+        if not due:
+            raise AppError(
+                422,
+                "RETRY_QUEUE_EMPTY",
+                "Chưa có bài nào cần luyện lại hôm nay.",
+            )
+        return due
     raise UnsupportedProblemSetRef(ref.kind)

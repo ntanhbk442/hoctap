@@ -102,6 +102,8 @@ function HomeContent({ profile }: { profile: Profile }) {
   const libraryLabel = phrase('home_library')
   const continueLabel = phrase('home_continue')
   const badgesLabel = phrase('your_badges')
+  const retryDue = (home.data?.retry_due_count ?? 0) > 0
+  const practiceAgainLabel = phrase('home_practice_again')
   const recentBadges = home.data?.recent_badges ?? []
 
   const startLesson = () => {
@@ -116,6 +118,13 @@ function HomeContent({ profile }: { profile: Profile }) {
           lesson_key: lesson.lesson_key,
         },
       },
+      { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
+    )
+  }
+
+  const startRetry = () => {
+    startSession.mutate(
+      { profileId: profile.id, ref: { kind: 'retry' }, mode: 'retry' },
       { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
     )
   }
@@ -199,6 +208,25 @@ function HomeContent({ profile }: { profile: Profile }) {
           />
           <SpeakerButton label={`Nghe: ${badgesLabel}`} onClick={() => void speak(badgesLabel)} />
         </div>
+        {retryDue && (
+          <div className="home-card-slot">
+            <HomeCard
+              title={practiceAgainLabel}
+              icon="🔁"
+              onClick={startRetry}
+              onLongPress={() => void speak(practiceAgainLabel)}
+            />
+            <SpeakerButton
+              label={`Nghe: ${practiceAgainLabel}`}
+              onClick={() => void speak(practiceAgainLabel)}
+            />
+            {startSession.isError && !lesson && (
+              <p role="alert" className="form-error">
+                {errorMessage(startSession.error)}
+              </p>
+            )}
+          </div>
+        )}
         {continueSession && (
           <div className="home-card-slot">
             <HomeCard

@@ -866,7 +866,7 @@ def test_grade_second_wrong_releases_solution_retry_item_not_duplicated(
     assert len(rows) == 1  # not duplicated
 
 
-def test_grade_wrong_then_correct_resolves_retry_item(
+def test_grade_wrong_then_correct_same_session_keeps_retry_item_open(
     client: TestClient, engine: Engine, profile_id: str
 ) -> None:
     """A single-Part Problem (`make_multi_slot_doc` has exactly one Part, "a") -- wrong
@@ -900,7 +900,9 @@ def test_grade_wrong_then_correct_resolves_retry_item(
             )
         ).all()
     assert len(rows) == 1
-    assert rows[0].resolved_at is not None
+    # Story 3.3: correcting within the same Session no longer resolves the row (exit needs
+    # 2 later first-try Sessions -- see test_retry.py).
+    assert rows[0].resolved_at is None
 
 
 def test_grade_two_parts_one_ever_wrong_retry_queue_stays_open(
@@ -1016,7 +1018,7 @@ def test_grade_same_part_wrong_then_correct_within_one_batch_resolves(
             )
         ).all()
     assert len(rows) == 1
-    assert rows[0].resolved_at is not None  # the later (correct) attempt wins
+    assert rows[0].resolved_at is None  # Story 3.3: same-Session correction no longer exits
 
 
 def test_grade_order_wrong_has_no_partial_wrong_keys(
@@ -1506,7 +1508,7 @@ def test_self_marked_chua_dung_then_dung_resolves_retry_item(
             )
         ).all()
     assert len(rows) == 1
-    assert rows[0].resolved_at is not None
+    assert rows[0].resolved_at is None  # Story 3.3: exit needs 2 "đúng" in 2 Sessions
 
 
 def test_self_marked_null_problem_id_422(
@@ -1878,7 +1880,7 @@ def test_replay_self_marked_false_does_not_add_retry_item(
     assert rows == []
 
 
-def test_replay_correct_attempt_still_resolves_existing_retry_item(
+def test_replay_correct_attempt_never_resolves_existing_retry_item(
     client: TestClient, engine: Engine, profile_id: str
 ) -> None:
     """Documented implementer's decision: `_maybe_resolve_retry_item()` is NOT gated on
@@ -1931,7 +1933,7 @@ def test_replay_correct_attempt_still_resolves_existing_retry_item(
             )
         ).all()
     assert len(rows) == 1
-    assert rows[0].resolved_at is not None
+    assert rows[0].resolved_at is None  # Story 3.3: a replay never counts toward exit
 
 
 def test_streak_excludes_replay_mode_sessions() -> None:

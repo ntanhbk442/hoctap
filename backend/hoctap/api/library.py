@@ -18,6 +18,7 @@ from hoctap.content import library
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import badges as learning_badges
 from hoctap.learning import progress as learning_progress
+from hoctap.learning import retry as learning_retry
 from hoctap.learning import scoring as learning_scoring
 from hoctap.learning import sessions as learning_sessions
 from hoctap.learning.summary import LOCAL_TZ, compute_streak
@@ -168,6 +169,9 @@ class LibraryHomeOut(BaseModel):
     # Story 3.2: the Profile's latest 3 earned `badge_key`s by `earned_at` DESC --
     # Home's latest-3 badges row.
     recent_badges: list[str] = []
+    # Story 3.3: number of DUE Retry Queue Problems (last wrong Attempt on an earlier local
+    # calendar day). Home shows the "Luyện lại" card only when > 0.
+    retry_due_count: int = 0
 
 
 @router.get(
@@ -205,4 +209,5 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
             total_stars=learning_scoring.total_stars(conn, profile_id),
             streak=compute_streak(conn, profile_id, today),
             recent_badges=learning_badges.recent_badges(conn, profile_id),
+            retry_due_count=len(learning_retry.due_problem_ids(conn, profile_id, today)),
         )

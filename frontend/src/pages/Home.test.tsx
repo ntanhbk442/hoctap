@@ -42,6 +42,11 @@ const HOME_WITH_STARS_STREAK = {
   body: { profile_id: 'p1', grade: 1, lesson: null, total_stars: 12, streak: 3 },
 }
 
+const HOME_WITH_RETRY_DUE = {
+  status: 200,
+  body: { profile_id: 'p1', grade: 1, lesson: null, retry_due_count: 2 },
+}
+
 beforeEach(() => {
   sessionStorage.clear()
 })
@@ -260,6 +265,45 @@ describe('Home', () => {
     expect(speak).toHaveBeenCalledWith('Tiếp tục')
     expect(screen.queryByText('session player screen')).not.toBeInTheDocument()
     vi.useRealTimers()
+  })
+
+  it('shows "Luyện lại" only when retry items are due, and starts a retry Session (Story 3.3)', async () => {
+    const fetchMock = mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_WITH_RETRY_DUE,
+      'POST /api/v1/sessions': {
+        status: 201,
+        body: {
+          id: 'session-r',
+          profile_id: 'p1',
+          ref_kind: 'retry',
+          problem_ids: ['a', 'b'],
+          chunk_size: 10,
+          mode: 'retry',
+          started_at: '2026-09-29T10:00:00+00:00',
+        },
+      },
+    })
+    renderAt('/', <Home />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Luyện lại' }))
+    expect(await screen.findByText('session player screen')).toBeInTheDocument()
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      ref: { kind: 'retry' },
+      mode: 'retry',
+    })
+  })
+
+  it('does not show "Luyện lại" when nothing is due', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_EMPTY,
+    })
+    renderAt('/', <Home />)
+    await screen.findByTestId('home-empty')
+    expect(screen.queryByRole('button', { name: 'Luyện lại' })).not.toBeInTheDocument()
   })
 
   it('does not show "Tiếp tục" when there is no unfinished Session', async () => {

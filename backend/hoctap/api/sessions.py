@@ -20,7 +20,7 @@ from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.content.schema import Solution
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
-from hoctap.learning.problem_sets import LessonRef, ReplayRef
+from hoctap.learning.problem_sets import LessonRef, ReplayRef, RetryRef
 from hoctap.learning.summary import LOCAL_TZ
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -64,14 +64,21 @@ class ReplayRefIn(BaseModel):
     source_session_id: str
 
 
+class RetryRefIn(BaseModel):
+    """Story 3.3: a Session of the Profile's due Retry Queue Problems. Profile-scoped, so
+    no extra fields; the created Session's mode is always `"retry"`."""
+
+    kind: Literal["retry"] = "retry"
+
+
 class StartSessionIn(BaseModel):
     profile_id: str
-    ref: LessonRefIn | ReplayRefIn = Field(discriminator="kind")
+    ref: LessonRefIn | ReplayRefIn | RetryRefIn = Field(discriminator="kind")
     # Story 2.10, AD-6: defaults to `"practice"` (every Session before this story). The
     # frontend's "Luyện lại bài sai" button passes `mode: "replay"` alongside a
     # `ref.kind: "replay"` -- kept as an independent field (not derived from `ref.kind`)
     # per this story's frozen Boundaries & Constraints wording.
-    mode: Literal["practice", "replay"] = "practice"
+    mode: Literal["practice", "replay", "retry"] = "practice"
 
 
 class SessionOut(BaseModel):
@@ -112,8 +119,12 @@ def _session_out(s: service.SessionOut) -> SessionOut:
     },
 )
 def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> SessionOut:
-    ref: LessonRef | ReplayRef
-    if body.ref.kind == "lesson":
+    ref: LessonRef | ReplayRef | RetryRef
+    mode = body.mode
+    if body.ref.kind == "retry":
+        ref = RetryRef()
+        mode = "retry"
+    elif body.ref.kind == "lesson":
         ref = LessonRef(
             book_id=body.ref.book_id, unit_key=body.ref.unit_key, lesson_key=body.ref.lesson_key
         )
@@ -121,7 +132,7 @@ def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> Sessi
         ref = ReplayRef(source_session_id=body.ref.source_session_id)
     with engine.begin() as conn:
         return _session_out(
-            service.start_session(conn, now, body.profile_id, ref, mode=body.mode)
+            service.start_session(conn, now, body.profile_id, ref, mode=mode)
         )
 
 

@@ -1746,6 +1746,11 @@ export interface components {
              * @default []
              */
             recent_badges: string[];
+            /**
+             * Retry Due Count
+             * @default 0
+             */
+            retry_due_count: number;
         };
         /** LibraryLesson */
         LibraryLesson: {
@@ -2390,6 +2395,18 @@ export interface components {
             /** Resolved At */
             resolved_at: string | null;
         };
+        /**
+         * RetryRefIn
+         * @description Story 3.3: a Session of the Profile's due Retry Queue Problems. Profile-scoped, so
+         *     no extra fields; the created Session's mode is always `"retry"`.
+         */
+        RetryRefIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "retry";
+        };
         /** ReviewBook */
         ReviewBook: {
             /** Book Id */
@@ -2744,13 +2761,13 @@ export interface components {
             /** Profile Id */
             profile_id: string;
             /** Ref */
-            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"];
+            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"] | components["schemas"]["RetryRefIn"];
             /**
              * Mode
              * @default practice
              * @enum {string}
              */
-            mode: "practice" | "replay";
+            mode: "practice" | "replay" | "retry";
         };
         /** SummaryOut */
         SummaryOut: {

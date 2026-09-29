@@ -5467,6 +5467,11 @@
             "type": "array",
             "title": "Recent Badges",
             "default": []
+          },
+          "retry_due_count": {
+            "type": "integer",
+            "title": "Retry Due Count",
+            "default": 0
           }
         },
         "type": "object",
@@ -7084,6 +7089,19 @@
         ],
         "title": "ReportOut"
       },
+      "RetryRefIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "retry",
+            "title": "Kind",
+            "default": "retry"
+          }
+        },
+        "type": "object",
+        "title": "RetryRefIn",
+        "description": "Story 3.3: a Session of the Profile's due Retry Queue Problems. Profile-scoped, so\nno extra fields; the created Session's mode is always `\"retry\"`."
+      },
       "ReviewBook": {
         "properties": {
           "book_id": {
@@ -7980,6 +7998,9 @@
               },
               {
                 "$ref": "#/components/schemas/ReplayRefIn"
+              },
+              {
+                "$ref": "#/components/schemas/RetryRefIn"
               }
             ],
             "title": "Ref",
@@ -7987,7 +8008,8 @@
               "propertyName": "kind",
               "mapping": {
                 "lesson": "#/components/schemas/LessonRefIn",
-                "replay": "#/components/schemas/ReplayRefIn"
+                "replay": "#/components/schemas/ReplayRefIn",
+                "retry": "#/components/schemas/RetryRefIn"
               }
             }
           },
@@ -7995,7 +8017,8 @@
             "type": "string",
             "enum": [
               "practice",
-              "replay"
+              "replay",
+              "retry"
             ],
             "title": "Mode",
             "default": "practice"

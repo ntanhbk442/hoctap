@@ -36,7 +36,8 @@ export type HomeLessonOut = Schemas['HomeLessonOut']
 export type SessionOut = Schemas['SessionOut']
 export type LessonRefIn = Schemas['LessonRefIn']
 export type ReplayRefIn = Schemas['ReplayRefIn']
-export type StartSessionRefIn = LessonRefIn | ReplayRefIn
+export type RetryRefIn = Schemas['RetryRefIn']
+export type StartSessionRefIn = LessonRefIn | ReplayRefIn | RetryRefIn
 export type BundleOut = Schemas['BundleOut']
 export type BundleProblemOut = Schemas['BundleProblemOut']
 export type EventIn = Schemas['EventIn']
@@ -212,7 +213,7 @@ const SESSIONS = '/sessions'
 export function startSession(
   profileId: string,
   ref: StartSessionRefIn,
-  mode?: 'practice' | 'replay',
+  mode?: 'practice' | 'replay' | 'retry',
 ): Promise<SessionOut> {
   return apiPost<SessionOut>(SESSIONS, { profile_id: profileId, ref, mode })
 }

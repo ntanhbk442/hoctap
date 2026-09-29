@@ -207,7 +207,7 @@ export function useStartSession() {
     }: {
       profileId: string
       ref: StartSessionRefIn
-      mode?: 'practice' | 'replay'
+      mode?: 'practice' | 'replay' | 'retry'
     }) => startSession(profileId, ref, mode),
   })
 }
