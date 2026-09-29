@@ -36,6 +36,7 @@ import FallbackWidget from '../components/widgets/FallbackWidget'
 import type { ChildPart } from '../components/widgets/types'
 import UnsupportedWidget from '../components/widgets/UnsupportedWidget'
 import { newEventId } from '../ids'
+import { QueuedOfflineError } from '../offline/outbox'
 import './ProblemPlayer.css'
 
 // UX-DR7's literal timing: the "boop" plays, then the Hint (or Solution) appears after this
@@ -82,6 +83,12 @@ export interface ProblemPlayerProps {
   /** The current Profile's `auto_play` setting (Story 2.9). Defaults `true` so existing
    * callers/tests that don't pass it keep the pre-Story-2.9 auto-play-on behaviour. */
   autoPlay?: boolean
+  /** Story 2.11: called instead of showing a normal `submitError` when an event got
+   * queued to the offline outbox (`QueuedOfflineError`) -- the caller (`SessionPlayer`)
+   * shows the "Máy tính bảng chưa kết nối…" screen in place of this whole Problem. Optional
+   * (defaults to a no-op) so existing tests that don't exercise the offline path are
+   * unaffected. */
+  onOffline?: () => void
 }
 
 /** One Problem's worth of the real player (Story 2.6): owns only which Part of the Problem
@@ -101,6 +108,7 @@ export default function ProblemPlayer({
   onStarEarned,
   onDone,
   autoPlay = true,
+  onOffline = () => {},
 }: ProblemPlayerProps) {
   const problem = bundleProblem.problem
   const [partIndex, setPartIndex] = useState(0)
@@ -147,6 +155,7 @@ export default function ProblemPlayer({
         stars={stars}
         onStarEarned={onStarEarned}
         onAdvance={advance}
+        onOffline={onOffline}
       />
     )
   }
@@ -162,6 +171,7 @@ export default function ProblemPlayer({
       stars={stars}
       onStarEarned={onStarEarned}
       onAdvance={advance}
+      onOffline={onOffline}
     />
   )
 }
@@ -216,6 +226,7 @@ interface PartPlayerProps {
   stars: number
   onStarEarned: () => void
   onAdvance: () => void
+  onOffline: () => void
 }
 
 function PartPlayer({
@@ -227,6 +238,7 @@ function PartPlayer({
   stars,
   onStarEarned,
   onAdvance,
+  onOffline,
 }: PartPlayerProps) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string[]>([])
@@ -488,9 +500,17 @@ function PartPlayer({
         }, WRONG_FEEDBACK_DELAY_MS)
       }
     } catch (err) {
+      submittingRef.current = false
+      if (err instanceof QueuedOfflineError) {
+        // No local grading, ever (Boundaries & Constraints): the attempt was queued, not
+        // graded, so this Part is left exactly as it was for the child to answer -- the
+        // parent replaces the whole screen with the offline screen instead.
+        setPhase('answering')
+        onOffline()
+        return
+      }
       setPhase('answering')
       setSubmitError(errorMessage(err))
-      submittingRef.current = false
     }
   }
 
@@ -639,6 +659,7 @@ interface FallbackPartPlayerProps {
   stars: number
   onStarEarned: () => void
   onAdvance: () => void
+  onOffline: () => void
 }
 
 /** Story 2.8's fallback self-check: "Xem đáp án" reveals the Solution (posting
@@ -656,6 +677,7 @@ function FallbackPartPlayer({
   stars,
   onStarEarned,
   onAdvance,
+  onOffline,
 }: FallbackPartPlayerProps) {
   const [phase, setPhase] = useState<FallbackPhase>('crop')
   const [solutionSteps, setSolutionSteps] = useState<string[]>([])
@@ -701,7 +723,11 @@ function FallbackPartPlayer({
         setSolutionRevealed(0)
       }
     } catch (err) {
-      setSubmitError(errorMessage(err))
+      if (err instanceof QueuedOfflineError) {
+        onOffline()
+      } else {
+        setSubmitError(errorMessage(err))
+      }
     } finally {
       submittingRef.current = false
     }
@@ -748,8 +774,12 @@ function FallbackPartPlayer({
       }
       window.setTimeout(onAdvance, CORRECT_ADVANCE_DELAY_MS)
     } catch (err) {
-      setSubmitError(errorMessage(err))
       submittingRef.current = false
+      if (err instanceof QueuedOfflineError) {
+        onOffline()
+        return
+      }
+      setSubmitError(errorMessage(err))
     }
   }
 

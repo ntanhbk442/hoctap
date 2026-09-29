@@ -459,9 +459,137 @@ def test_home_nothing_visible_yet_is_a_friendly_null_not_a_crash(client: TestCli
     profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
     resp = client.get(f"{API}/home/{profile_id}")
     assert resp.status_code == 200
-    assert resp.json() == {"profile_id": profile_id, "grade": 1, "lesson": None}
+    assert resp.json() == {
+        "profile_id": profile_id,
+        "grade": 1,
+        "lesson": None,
+        "continue_session": None,
+    }
 
 
 def test_home_unknown_profile_404(client: TestClient) -> None:
     resp = client.get(f"{API}/home/no-such-profile")
     _envelope(resp, 404, "PROFILE_NOT_FOUND")
+
+
+# --- "Tiếp tục" continue-session resolution (Story 2.11) ---------------------------
+
+
+def test_home_no_continue_session_when_none_started(client: TestClient) -> None:
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    resp = client.get(f"{API}/home/{profile_id}")
+    assert resp.status_code == 200
+    assert resp.json()["continue_session"] is None
+
+
+def test_home_continue_session_for_an_unfinished_session(
+    client: TestClient, engine: Engine
+) -> None:
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    Pub(engine, BOOK_2020, "2020", 1)(make_doc(BOOK_2020, "bai-1"))
+    session = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+
+    resp = client.get(f"{API}/home/{profile_id}")
+    assert resp.status_code == 200
+    assert resp.json()["continue_session"] == {"session_id": session["id"]}
+
+
+def test_home_no_continue_session_once_completed(client: TestClient, engine: Engine) -> None:
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    Pub(engine, BOOK_2020, "2020", 1)(make_doc(BOOK_2020, "bai-1"))
+    session = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+    resp = client.post(
+        f"/api/v1/sessions/{session['id']}/events",
+        json={
+            "profile_id": profile_id,
+            "events": [
+                {
+                    "id": "018e6f1a-0000-7000-8000-000000000001",
+                    "kind": "session_completed",
+                    "problem_id": None,
+                    "payload": {},
+                    "occurred_at": "2026-09-29T10:00:00+00:00",
+                }
+            ],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+    resp = client.get(f"{API}/home/{profile_id}")
+    assert resp.status_code == 200
+    assert resp.json()["continue_session"] is None
+
+
+def test_home_continue_session_excludes_replay_mode(client: TestClient, engine: Engine) -> None:
+    """A `replay`-mode Session ("Luyện lại bài sai") left unfinished must NOT surface as
+    "Tiếp tục" -- it is a practice loop over already-seen wrong Problems, not something to
+    resume the way an interrupted regular Session is (this story's frozen Boundaries)."""
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    Pub(engine, BOOK_2020, "2020", 1)(make_doc(BOOK_2020, "bai-1"))
+    source = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+    # Complete the source Session first, and give it one wrong attempt so `ReplayRef`
+    # resolves to a non-empty Problem set.
+    from hoctap.ids import new_id, utc_now
+    from hoctap.learning.models import progress_events
+
+    with engine.begin() as conn:
+        now = utc_now()
+        conn.execute(
+            progress_events.insert().values(
+                id=new_id(),
+                session_id=source["id"],
+                profile_id=profile_id,
+                kind="attempt",
+                problem_id=source["problem_ids"][0],
+                payload_json='{"correct": false, "part_key": "a"}',
+                occurred_at=now.isoformat(),
+                received_at=now.isoformat(),
+            )
+        )
+    client.post(
+        f"/api/v1/sessions/{source['id']}/events",
+        json={
+            "profile_id": profile_id,
+            "events": [
+                {
+                    "id": "018e6f1a-0000-7000-8000-000000000002",
+                    "kind": "session_completed",
+                    "problem_id": None,
+                    "payload": {},
+                    "occurred_at": "2026-09-29T10:00:00+00:00",
+                }
+            ],
+        },
+    )
+
+    replay = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "replay", "source_session_id": source["id"]},
+            "mode": "replay",
+        },
+    )
+    assert replay.status_code == 201, replay.text
+
+    resp = client.get(f"{API}/home/{profile_id}")
+    assert resp.status_code == 200
+    assert resp.json()["continue_session"] is None

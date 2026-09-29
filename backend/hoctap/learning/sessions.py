@@ -123,6 +123,34 @@ def start_session(
     )
 
 
+@dataclass(frozen=True)
+class UnfinishedSession:
+    id: str
+
+
+def find_unfinished_session(conn: Any, profile_id: str) -> UnfinishedSession | None:
+    """The most recent unfinished (non-`replay`-mode, `completed_at IS NULL`) Session for
+    `profile_id` -- Home's "Tiếp tục" card (Story 2.11). Reuses this module's own Session/
+    `mode` model directly (the same `progress_sessions` row this whole module already
+    owns) rather than re-deriving "unfinished" anywhere else. `started_at` DESC picks the
+    most RECENTLY STARTED Session; `id` is a UUIDv7 (also time-ordered), so sorting by it
+    would agree, but `started_at` is the more directly honest "most recent" signal to sort
+    by. `replay`-mode Sessions are excluded outright (AD-6: "Luyện lại bài sai" is a
+    practice loop over already-seen wrong Problems, never something to "resume" the way an
+    interrupted regular Session is)."""
+    row = conn.execute(
+        select(progress_sessions.c.id)
+        .where(
+            progress_sessions.c.profile_id == profile_id,
+            progress_sessions.c.completed_at.is_(None),
+            progress_sessions.c.mode != "replay",
+        )
+        .order_by(progress_sessions.c.started_at.desc())
+        .limit(1)
+    ).one_or_none()
+    return None if row is None else UnfinishedSession(id=row.id)
+
+
 def _load_session(conn: Any, session_id: str) -> Any:
     row = conn.execute(
         select(progress_sessions).where(progress_sessions.c.id == session_id)

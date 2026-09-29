@@ -60,6 +60,18 @@ export class ApiError extends Error {
   }
 }
 
+/** Story 2.11: a genuinely unreachable server (`fetch()` itself threw -- e.g. a real
+ * browser's `TypeError: Failed to fetch`, or a timeout/abort), as opposed to `ApiError`
+ * (the server responded, just with a 4xx/5xx). Only THIS distinguishes "queue it for the
+ * offline outbox" from "surface a normal error" -- see `offline/outbox.ts`. */
+export class NetworkError extends Error {
+  constructor(cause: unknown) {
+    super('Không có kết nối mạng.')
+    this.name = 'NetworkError'
+    this.cause = cause
+  }
+}
+
 function isJson(resp: Response): boolean {
   return (resp.headers.get('content-type') ?? '').includes('json')
 }
@@ -67,7 +79,14 @@ function isJson(resp: Response): boolean {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!headers.has('Accept')) headers.set('Accept', 'application/json')
-  const resp = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  let resp: Response
+  try {
+    resp = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  } catch (err) {
+    // The server never answered at all (DNS/TCP failure, offline, timeout) -- never an
+    // `ApiError`, which requires an actual HTTP response to read a status/body from.
+    throw new NetworkError(err)
+  }
   if (!resp.ok) {
     let body: Partial<ErrorResponse> | undefined
     try {

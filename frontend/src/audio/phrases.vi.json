@@ -23,5 +23,6 @@
   "show_answer": "Xem đáp án",
   "self_mark_correct": "Em làm đúng",
   "self_mark_incorrect": "Em chưa đúng",
-  "self_mark_neutral_ack": "Không sao! Bài này sẽ quay lại để em luyện thêm nhé."
+  "self_mark_neutral_ack": "Không sao! Bài này sẽ quay lại để em luyện thêm nhé.",
+  "offline_not_connected": "Máy tính bảng chưa kết nối mạng…"
 }

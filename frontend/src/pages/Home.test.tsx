@@ -28,6 +28,15 @@ const HOME_WITH_LESSON = {
 }
 const HOME_EMPTY = { status: 200, body: { profile_id: 'p1', grade: 1, lesson: null } }
 const HOME_EMPTY_P2 = { status: 200, body: { profile_id: 'p2', grade: 2, lesson: null } }
+const HOME_WITH_CONTINUE = {
+  status: 200,
+  body: {
+    profile_id: 'p1',
+    grade: 1,
+    lesson: null,
+    continue_session: { session_id: 'session-9' },
+  },
+}
 
 beforeEach(() => {
   sessionStorage.clear()
@@ -217,6 +226,47 @@ describe('Home', () => {
     expect(speak).toHaveBeenCalledWith('Học tiếp')
     expect(screen.queryByText('lesson detail screen')).not.toBeInTheDocument()
     vi.useRealTimers()
+  })
+
+  it('shows "Tiếp tục" when an unfinished Session exists, navigating straight to it', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_WITH_CONTINUE,
+    })
+    renderAt('/', <Home />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Tiếp tục' }))
+    expect(await screen.findByText('session player screen')).toBeInTheDocument()
+  })
+
+  it('a long-press on "Tiếp tục" speaks the label and does not navigate (Story 2.11 review fix, finding #7)', async () => {
+    const { speak } = await import('../audio/speech')
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_WITH_CONTINUE,
+    })
+    renderAt('/', <Home />)
+    const card = await screen.findByRole('button', { name: 'Tiếp tục' })
+    vi.useFakeTimers()
+    fireEvent.pointerDown(card)
+    vi.advanceTimersByTime(600)
+    fireEvent.pointerUp(card)
+    fireEvent.click(card) // browsers still fire a click after a long-press pointerup
+    expect(speak).toHaveBeenCalledWith('Tiếp tục')
+    expect(screen.queryByText('session player screen')).not.toBeInTheDocument()
+    vi.useRealTimers()
+  })
+
+  it('does not show "Tiếp tục" when there is no unfinished Session', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_EMPTY,
+    })
+    renderAt('/', <Home />)
+    await screen.findByTestId('home-empty')
+    expect(screen.queryByRole('button', { name: 'Tiếp tục' })).not.toBeInTheDocument()
   })
 
   it('links to the Parent Area', async () => {

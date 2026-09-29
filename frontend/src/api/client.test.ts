@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, apiGet, apiPost } from './client'
+import { ApiError, NetworkError, apiGet, apiPost } from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -35,11 +35,14 @@ describe('apiGet', () => {
     await expect(apiGet('/x')).rejects.toMatchObject({ code: 'NOT_FOUND', status: 404 })
   })
 
-  it('propagates a network failure', async () => {
+  it('wraps a genuine network failure (fetch throwing) in NetworkError, distinct from ApiError', async () => {
     stubFetch(async () => {
       throw new TypeError('Failed to fetch')
     })
-    await expect(apiGet('/x')).rejects.toThrow('Failed to fetch')
+    const err = await apiGet('/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(NetworkError)
+    expect(err).not.toBeInstanceOf(ApiError)
+    expect((err as NetworkError).cause).toBeInstanceOf(TypeError)
   })
 
   it('returns undefined for 204 and non-JSON success', async () => {

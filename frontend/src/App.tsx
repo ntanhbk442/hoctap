@@ -1,6 +1,7 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import { authRedirect } from './api/errors'
+import { useOutboxAutoFlush } from './offline/useOutboxAutoFlush.ts'
 import ExtractionPage from './pages/ExtractionPage.tsx'
 import Home from './pages/Home.tsx'
 import LessonDetail from './pages/LessonDetail.tsx'
@@ -45,6 +46,9 @@ const queryClient = new QueryClient({
 })
 
 export default function App() {
+  // Story 2.11 (AD-10): flushes the IndexedDB event outbox in the background on every
+  // `online` event (and once on mount), independent of whichever screen queued an event.
+  useOutboxAutoFlush()
   return (
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />

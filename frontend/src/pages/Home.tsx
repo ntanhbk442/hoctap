@@ -96,8 +96,10 @@ function HomeContent({ profile }: { profile: Profile }) {
   const home = useLibraryHome(profile.id)
   const startSession = useStartSession()
   const lesson = home.data?.lesson
+  const continueSession = home.data?.continue_session
   const keepLearningLabel = phrase('home_keep_learning')
   const libraryLabel = phrase('home_library')
+  const continueLabel = phrase('home_continue')
 
   const startLesson = () => {
     if (!lesson) return
@@ -165,6 +167,17 @@ function HomeContent({ profile }: { profile: Profile }) {
           />
           <SpeakerButton label={`Nghe: ${libraryLabel}`} onClick={() => void speak(libraryLabel)} />
         </div>
+        {continueSession && (
+          <div className="home-card-slot">
+            <HomeCard
+              title={continueLabel}
+              icon="↩️"
+              onClick={() => navigate(`/sessions/${continueSession.session_id}`)}
+              onLongPress={() => void speak(continueLabel)}
+            />
+            <SpeakerButton label={`Nghe: ${continueLabel}`} onClick={() => void speak(continueLabel)} />
+          </div>
+        )}
       </div>
       <p className="parent-link">
         <Link to="/parent/login">Khu vực phụ huynh</Link>

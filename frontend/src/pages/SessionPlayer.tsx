@@ -14,6 +14,9 @@ import {
 import { phrase } from '../audio/phrases'
 import StarBurst from '../components/StarBurst/StarBurst'
 import { newEventId } from '../ids'
+import { cacheBundleAssets } from '../offline/assetCache'
+import OfflineScreen from '../offline/OfflineScreen'
+import { defaultOutboxStore, flushOutbox, QueuedOfflineError } from '../offline/outbox'
 import { getCurrentProfileId } from '../profile'
 import ProblemPlayer from './ProblemPlayer'
 
@@ -38,6 +41,15 @@ export default function SessionPlayer() {
   const [problemIndex, setProblemIndex] = useState(0)
   const [stars, setStars] = useState(0)
   const [completedPosted, setCompletedPosted] = useState(false)
+  // Story 2.11: true once ANY event (an attempt/self_marked/fallback_revealed/
+  // session_completed, from anywhere below) got queued to the offline outbox instead of
+  // reaching the server -- replaces the whole Session view with `OfflineScreen` (no local
+  // grading happens while this is up). `retryTick` re-arms the `session_completed` effect
+  // below after a successful manual flush, since neither `trueEnd` nor `completedPosted`
+  // themselves change just because the outbox drained in the background.
+  const [offline, setOffline] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [retryTick, setRetryTick] = useState(0)
   // Guards the `session_completed` post against firing more than once per true end (the
   // effect below can re-run while the mutation is still in flight, e.g. a re-render from
   // an unrelated state change) -- a synchronous ref, not state, so it's checked-and-set
@@ -62,6 +74,13 @@ export default function SessionPlayer() {
   const summary = useSessionSummary(sessionId, profileId, completedPosted)
   const startReplay = useStartSession()
 
+  // Story 2.11 (AD-10): warm the Workbox `/assets-data/*` runtime cache with this chunk's
+  // crop/page/audio URLs as soon as the bundle is fetched, so the rest of the chunk stays
+  // available if connectivity drops mid-Session.
+  useEffect(() => {
+    if (bundle.data) cacheBundleAssets(bundle.data)
+  }, [bundle.data])
+
   useEffect(() => {
     if (!trueEnd || completedPosted || postingCompletedRef.current) return
     postingCompletedRef.current = true
@@ -79,13 +98,30 @@ export default function SessionPlayer() {
         ],
       })
       .then(() => setCompletedPosted(true))
-      .catch(() => {
+      .catch((err: unknown) => {
         postingCompletedRef.current = false
+        // Story 2.11: queued to the offline outbox rather than a real error -- show the
+        // offline screen; the retry below (or the app-wide `online` auto-flush) re-arms
+        // this same effect via `retryTick` once the queue has actually drained.
+        if (err instanceof QueuedOfflineError) setOffline(true)
       })
     // `postEvent` is a fresh `useMutation()` object identity on every render -- only
-    // `trueEnd`/`completedPosted` should ever re-arm this effect.
+    // `trueEnd`/`completedPosted`/`retryTick` should ever re-arm this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trueEnd, completedPosted])
+  }, [trueEnd, completedPosted, retryTick])
+
+  async function handleRetryOnline() {
+    setRetrying(true)
+    try {
+      const outcome = await flushOutbox(defaultOutboxStore())
+      if (outcome === 'drained') {
+        setOffline(false)
+        setRetryTick((t) => t + 1)
+      }
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   function goToNextChunk() {
     setChunk((c) => c + 1)
@@ -126,7 +162,11 @@ export default function SessionPlayer() {
         <>
           <p className="session-chunk-label">{bundle.data.chunk_label}</p>
 
-          {problems.length === 0 ? (
+          {offline ? (
+            // Story 2.11: replaces the whole Session view -- no local grading happens
+            // while an event is queued in the offline outbox.
+            <OfflineScreen onRetry={() => void handleRetryOnline()} retrying={retrying} />
+          ) : problems.length === 0 ? (
             <p className="home-empty">Phần này chưa có bài tập nào để hiển thị.</p>
           ) : trueEnd ? (
             <SessionSummaryScreen
@@ -152,6 +192,7 @@ export default function SessionPlayer() {
               onStarEarned={() => setStars((s) => s + 1)}
               onDone={() => setProblemIndex((i) => i + 1)}
               autoPlay={autoPlay}
+              onOffline={() => setOffline(true)}
             />
           )}
         </>

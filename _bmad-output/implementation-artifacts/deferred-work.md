@@ -214,3 +214,46 @@
     Every prior Epic 2 story (2.5 through 2.9) has deferred badges in turn; this story's own
     frozen Boundaries repeat the deferral explicitly. No badge schema, computation, or UI
     exists yet.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-11-pwa-offline-shell-and-event-outbox.md`
+  summary: |
+    KaTeX (or any math-typesetting library) integration -- still not built by any story
+    through 2.11, despite being named in the architecture's stack table.
+  evidence: |
+    Checked directly for this story: `grep -ril katex frontend/src frontend/package.json
+    backend` returns nothing. No Part/widget renders LaTeX; the extractor's own maths
+    notations (`content.speech`'s `\overline{...}`/`\frac{a}{b}`, comparison/arithmetic
+    operators) are read aloud as plain Vietnamese text, never typeset. This story's own
+    frozen Boundaries explicitly forbid inventing a KaTeX integration as a side effect of
+    the PWA-precache work -- precaching only covers a real, already-used dependency; a
+    future story adding actual LaTeX rendering to a widget/Part would add the package and
+    then extend `vite.config.ts`'s `globPatterns` (or a `runtimeCaching` entry, depending on
+    how the library ships its fonts/wasm) to precache it at that point.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-11-pwa-offline-shell-and-event-outbox.md`
+  summary: |
+    A queued event that fails again on flush for a genuine (non-network) reason -- e.g. a
+    422 because the referenced Problem/content changed while offline -- permanently jams
+    the FIFO queue behind it until a human intervenes; there is no UI that surfaces WHICH
+    event is stuck or lets a parent skip/discard it.
+  evidence: |
+    `frontend/src/offline/outbox.ts`'s `flushOutbox()` docstring documents this as the
+    deliberate, frozen-spec-sanctioned choice for the I/O matrix's "flush hits a genuine new
+    failure mid-queue" row (never reorder, never drop silently) -- but the matrix also notes
+    this is "implementer's call," and no story has built any stuck-queue visibility/recovery
+    UI. Acceptable for a local single-child app today; a future story could add a small
+    Parent-Area view of `pendingOutboxCount()`/the stuck item for genuine unblocking.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-11-pwa-offline-shell-and-event-outbox.md`
+  summary: |
+    Retrying "Kiểm tra"/"Xem đáp án"/self-mark right after an event was queued offline (the
+    offline screen dismisses once the network returns) can post a SECOND, distinct
+    (different UUIDv7) event for the same Part/action if the FIRST queued event had already
+    been delivered by the background auto-flush in the meantime -- a harmless but real
+    double `attempt`/`self_marked` in the append-only event log.
+  evidence: |
+    `ProblemPlayer.tsx`'s `PartPlayer`/`FallbackPartPlayer` reset back to their normal
+    interactive phase on `QueuedOfflineError` (so the child isn't stuck), but do not track
+    "this Part's answer is already queued, don't let it be resubmitted" -- doing so would
+    need to thread the outbox's per-Part pending state through the widget tree. Never
+    corrupts grading (each event is independently graded/stored; a duplicate `attempt` for
+    an already-correct Part is graded again, redundantly, never double-counted into a
+    Star/Retry-Queue transition it wasn't already eligible for) -- a UX polish gap, not a
+    correctness one.

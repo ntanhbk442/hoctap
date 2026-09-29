@@ -19,11 +19,11 @@ import {
   getSessionSummary,
   getSetupStatus,
   getSpotCheck,
-  postSessionEvents,
   type ProblemFilter,
   startSession,
   type StartSessionRefIn,
 } from './client'
+import { defaultOutboxStore, postEventsOrQueue } from '../offline/outbox'
 
 // A run polled while it is active (running/pausing); polling stops once it settles.
 const ACTIVE_RUN_STATUSES = new Set(['running', 'pausing'])
@@ -227,12 +227,18 @@ export function useSessionSummary(sessionId: string, profileId: string, enabled:
 
 /** Posts one or more progress events (Story 2.4: `POST /sessions/{id}/events`); each
  * event's own client-generated UUIDv7 id makes a resend idempotent. Invalidates that
- * Session's bundle so `attempted` reflects the new event on the next read. */
+ * Session's bundle so `attempted` reflects the new event on the next read.
+ *
+ * Story 2.11: routed through `postEventsOrQueue()` -- a genuine network failure (the
+ * server unreachable, not a 4xx/5xx) queues `events` in the IndexedDB outbox instead of
+ * rejecting with the original error, and rejects with `QueuedOfflineError` instead; the
+ * caller (a Problem/Session screen) must treat that specially -- show the offline screen,
+ * never compute a local verdict. */
 export function usePostEvent(sessionId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ profileId, events }: { profileId: string; events: EventIn[] }) =>
-      postSessionEvents(sessionId, profileId, events),
+      postEventsOrQueue(defaultOutboxStore(), sessionId, profileId, events),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sessions', sessionId, 'bundle'] })
     },

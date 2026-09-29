@@ -1,5 +1,6 @@
 import { fireEvent, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { _resetDefaultOutboxStoreForTests } from '../offline/outbox'
 import { setCurrentProfileId } from '../profile'
 import { mockApi, renderAt } from '../test/render'
 import SessionPlayer from './SessionPlayer'
@@ -56,6 +57,7 @@ const PATTERN = '/sessions/:sessionId'
 
 beforeEach(() => {
   setCurrentProfileId(PROFILE_ID)
+  _resetDefaultOutboxStoreForTests()
 })
 
 afterEach(() => {
@@ -264,5 +266,82 @@ describe('SessionPlayer', () => {
     expect(
       await screen.findByRole('button', { name: 'Phần tiếp theo ➜' }, { timeout: 3000 }),
     ).toBeInTheDocument()
+  })
+
+  // --- Story 2.11: offline outbox ---------------------------------------------------
+
+  it('shows the offline screen (no local grading) when submitting an attempt while the network is unreachable', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+
+    // Genuinely unreachable server: `fetch()` itself throws (`NetworkError`), not a 4xx/5xx.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+
+    expect(await screen.findByTestId('offline-screen')).toBeInTheDocument()
+    expect(screen.getByText('Máy tính bảng chưa kết nối mạng…')).toBeInTheDocument()
+    // No correct/wrong verdict of any kind while offline.
+    expect(screen.queryByText('Bài 1')).not.toBeInTheDocument()
+    expect(document.querySelector('.feedback-banner-correct')).not.toBeInTheDocument()
+  })
+
+  it('retrying once back online flushes the queued attempt and returns to the Session', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByTestId('offline-screen')).toBeInTheDocument()
+
+    // Back online: the queued `attempt` now flushes successfully.
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [
+          {
+            id: 'e1',
+            session_id: 'session-1',
+            kind: 'attempt',
+            problem_id: PROBLEM.problem_id,
+            occurred_at: 'x',
+            received_at: 'x',
+            correct: true,
+          },
+        ],
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(screen.queryByTestId('offline-screen')).not.toBeInTheDocument()
+  })
+
+  it('retry tapped while still offline stays on the offline screen, no crash', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByTestId('offline-screen')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
+    await vi.waitFor(() => expect(screen.getByTestId('offline-screen')).toBeInTheDocument())
   })
 })

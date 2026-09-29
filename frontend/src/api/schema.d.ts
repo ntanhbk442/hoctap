@@ -1080,6 +1080,17 @@ export interface components {
             dots: components["schemas"]["Dot"][];
         };
         /**
+         * ContinueSessionOut
+         * @description Story 2.11's "Tiếp tục" card: just enough to resume -- the Session id. Its frozen
+         *     `problem_ids_json`/chunk state live entirely server-side (Story 2.4's AD-9), so
+         *     "resuming" is simply navigating to the existing `SessionPlayer` route for this id; no
+         *     other field is needed.
+         */
+        ContinueSessionOut: {
+            /** Session Id */
+            session_id: string;
+        };
+        /**
          * CountEntry
          * @description A count: a non-negative integer (count_image, dot_draw).
          */
@@ -1688,6 +1699,7 @@ export interface components {
             /** Grade */
             grade: number;
             lesson?: components["schemas"]["HomeLessonOut"] | null;
+            continue_session?: components["schemas"]["ContinueSessionOut"] | null;
         };
         /** LibraryLesson */
         LibraryLesson: {

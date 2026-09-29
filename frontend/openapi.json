@@ -3912,6 +3912,20 @@
         ],
         "title": "ConnectDotsView"
       },
+      "ContinueSessionOut": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "ContinueSessionOut",
+        "description": "Story 2.11's \"Tiếp tục\" card: just enough to resume -- the Session id. Its frozen\n`problem_ids_json`/chunk state live entirely server-side (Story 2.4's AD-9), so\n\"resuming\" is simply navigating to the existing `SessionPlayer` route for this id; no\nother field is needed."
+      },
       "CountEntry": {
         "properties": {
           "key": {
@@ -5334,6 +5348,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/HomeLessonOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "continue_session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContinueSessionOut"
               },
               {
                 "type": "null"

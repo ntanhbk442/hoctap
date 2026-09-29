@@ -16,6 +16,7 @@ from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.content import library
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import progress as learning_progress
+from hoctap.learning import sessions as learning_sessions
 from hoctap.parent.models import parent_profiles
 
 router = APIRouter(prefix="/library", tags=["library"])
@@ -139,10 +140,21 @@ class HomeLessonOut(BaseModel):
     lesson_title: str
 
 
+class ContinueSessionOut(BaseModel):
+    """Story 2.11's "Tiếp tục" card: just enough to resume -- the Session id. Its frozen
+    `problem_ids_json`/chunk state live entirely server-side (Story 2.4's AD-9), so
+    "resuming" is simply navigating to the existing `SessionPlayer` route for this id; no
+    other field is needed."""
+
+    session_id: str
+
+
 class LibraryHomeOut(BaseModel):
     profile_id: str
     grade: int
     lesson: HomeLessonOut | None = None
+    # Story 2.11: the most recent unfinished (non-replay) Session for this Profile, if any.
+    continue_session: ContinueSessionOut | None = None
 
 
 @router.get(
@@ -159,6 +171,7 @@ def get_home(profile_id: str, engine: EngineDep) -> LibraryHomeOut:
         if grade is None:
             raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
         lesson = library.home_lesson(conn, grade)
+        unfinished = learning_sessions.find_unfinished_session(conn, profile_id)
         return LibraryHomeOut(
             profile_id=profile_id,
             grade=grade,
@@ -172,4 +185,7 @@ def get_home(profile_id: str, engine: EngineDep) -> LibraryHomeOut:
                 lesson_label=lesson.lesson_label,
                 lesson_title=lesson.lesson_title,
             ),
+            continue_session=None
+            if unfinished is None
+            else ContinueSessionOut(session_id=unfinished.id),
         )
