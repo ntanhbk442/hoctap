@@ -10,6 +10,7 @@ import {
   getLibraryHome,
   getLibraryLesson,
   getParentSession,
+  getProfileBadges,
   getProfiles,
   getReviewBooks,
   getReviewProblem,
@@ -52,6 +53,7 @@ export const queryKeys = {
     ['sessions', sessionId, 'bundle', profileId, chunk] as const,
   sessionSummary: (sessionId: string, profileId: string) =>
     ['sessions', sessionId, 'summary', profileId] as const,
+  profileBadges: (profileId: string) => ['profiles', profileId, 'badges'] as const,
 }
 
 export function useHealth() {
@@ -179,6 +181,16 @@ export function useLibraryHome(profileId: string) {
   return useQuery({
     queryKey: queryKeys.libraryHome(profileId),
     queryFn: ({ signal }) => getLibraryHome(profileId, signal),
+  })
+}
+
+/** All 3 fixed badges with `earned`/`earned_at` (Story 3.2: `GET /profiles/{id}/badges`)
+ * -- the "Huy hiệu của em" screen's full state. */
+export function useProfileBadges(profileId: string) {
+  return useQuery({
+    queryKey: queryKeys.profileBadges(profileId),
+    queryFn: ({ signal }) => getProfileBadges(profileId, signal),
+    enabled: profileId !== '',
   })
 }
 

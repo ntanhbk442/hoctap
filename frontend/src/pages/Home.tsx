@@ -5,6 +5,7 @@ import { errorMessage } from '../api/errors'
 import { useLibraryHome, useProfiles, useSetupStatus, useStartSession } from '../api/queries'
 import { phrase } from '../audio/phrases'
 import { speak } from '../audio/speech'
+import Badge from '../components/Badge/Badge'
 import HomeCard from '../components/HomeCard/HomeCard'
 import SpeakerButton from '../components/SpeakerButton/SpeakerButton'
 import { getCurrentProfileId, setCurrentProfileId } from '../profile'
@@ -100,6 +101,8 @@ function HomeContent({ profile }: { profile: Profile }) {
   const keepLearningLabel = phrase('home_keep_learning')
   const libraryLabel = phrase('home_library')
   const continueLabel = phrase('home_continue')
+  const badgesLabel = phrase('your_badges')
+  const recentBadges = home.data?.recent_badges ?? []
 
   const startLesson = () => {
     if (!lesson) return
@@ -132,6 +135,13 @@ function HomeContent({ profile }: { profile: Profile }) {
             </span>
           )}
         </p>
+      )}
+      {recentBadges.length > 0 && (
+        <div className="home-recent-badges" data-testid="home-recent-badges">
+          {recentBadges.map((badgeKey) => (
+            <Badge key={badgeKey} badgeKey={badgeKey} earned small />
+          ))}
+        </div>
       )}
       <div className="home-cards">
         <div className="home-card-slot">
@@ -179,6 +189,15 @@ function HomeContent({ profile }: { profile: Profile }) {
             onLongPress={() => void speak(libraryLabel)}
           />
           <SpeakerButton label={`Nghe: ${libraryLabel}`} onClick={() => void speak(libraryLabel)} />
+        </div>
+        <div className="home-card-slot">
+          <HomeCard
+            title={badgesLabel}
+            icon="🏅"
+            onClick={() => navigate('/badges')}
+            onLongPress={() => void speak(badgesLabel)}
+          />
+          <SpeakerButton label={`Nghe: ${badgesLabel}`} onClick={() => void speak(badgesLabel)} />
         </div>
         {continueSession && (
           <div className="home-card-slot">

@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, text
 
 from hoctap.ids import from_iso
-from hoctap.learning.models import progress_events, progress_sessions
+from hoctap.learning.models import progress_badges, progress_events, progress_sessions
 from hoctap.learning.scoring import session_stars_earned
 
 # The PRD's Streak is defined in child-local calendar days (AD-6/this story's frozen
@@ -44,6 +44,42 @@ class SessionSummary:
     # `self_marked` at all) and awards a graded Problem needing only a Hint/retry a Star
     # too, not just a flawless first try.
     stars_earned: int
+    # Story 3.2: the `badge_key`s newly earned by events posted during THIS Session
+    # (`[]` otherwise) -- see `session_new_badges()`'s own docstring for how that's
+    # derived without a `session_id` column on `progress_badges`.
+    new_badges: list[str]
+
+
+def session_new_badges(conn: Any, session_id: str) -> list[str]:
+    """The `badge_key`s newly earned by events posted during THIS Session. Deliberately
+    lives here, not in `learning.badges` (which this module already depends on for
+    `compute_streak()`/`LOCAL_TZ` reuse -- importing back from `learning.badges` here
+    would be circular): a badge's `earned_at` is always set to exactly the `received_at`
+    of the one event whose processing triggered `learning.badges.maybe_award_badges()`
+    to insert it (see `learning.sessions.post_event()`), so matching this Session's own
+    set of event `received_at` values against the Profile's `progress_badges` rows
+    identifies exactly the badge(s) (if any) THIS Session itself caused -- no
+    `session_id` column needed on `progress_badges` (which, per this story's frozen
+    Boundaries, only ever carries `id`/`profile_id`/`badge_key`/`earned_at`)."""
+    session = conn.execute(
+        select(progress_sessions.c.profile_id).where(progress_sessions.c.id == session_id)
+    ).one()
+    received_ats = {
+        row.received_at
+        for row in conn.execute(
+            select(progress_events.c.received_at).where(
+                progress_events.c.session_id == session_id
+            )
+        )
+    }
+    if not received_ats:
+        return []
+    rows = conn.execute(
+        select(progress_badges.c.badge_key, progress_badges.c.earned_at)
+        .where(progress_badges.c.profile_id == session.profile_id)
+        .order_by(progress_badges.c.earned_at.asc())
+    )
+    return [row.badge_key for row in rows if row.earned_at in received_ats]
 
 
 def session_wrong_problem_ids(conn: Any, session_id: str) -> list[str]:
@@ -153,10 +189,12 @@ def compute_summary(conn: Any, session: Any, today: date) -> SessionSummary:
     first_try_correct = total - len(wrong_ids)
     streak = compute_streak(conn, session.profile_id, today)
     stars_earned = session_stars_earned(conn, session.id)
+    new_badges = session_new_badges(conn, session.id)
     return SessionSummary(
         first_try_correct=first_try_correct,
         total=total,
         wrong_problem_ids=wrong_ids,
         streak=streak,
         stars_earned=stars_earned,
+        new_badges=new_badges,
     )

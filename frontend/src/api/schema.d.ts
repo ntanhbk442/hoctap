@@ -416,6 +416,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/profiles/{profile_id}/badges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Profile Badges
+         * @description Story 3.2: all 3 fixed badges (`week1`, `streak7`, `stars100`) with `earned`/
+         *     `earned_at` -- the "Huy hiệu của em" screen's full state, unearned ones rendered
+         *     greyed out by the frontend.
+         */
+        get: operations["get_profile_badges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/grades/{grade}/books": {
         parameters: {
             query?: never;
@@ -798,6 +820,15 @@ export interface components {
              * @description false: chưa đủ bài để đánh giá — hãy chạy thử thêm trang
              */
             enough_problems: boolean;
+        };
+        /** BadgeOut */
+        BadgeOut: {
+            /** Badge Key */
+            badge_key: string;
+            /** Earned */
+            earned: boolean;
+            /** Earned At */
+            earned_at?: string | null;
         };
         /** BookPilotPages */
         BookPilotPages: {
@@ -1710,6 +1741,11 @@ export interface components {
              * @default 0
              */
             streak: number;
+            /**
+             * Recent Badges
+             * @default []
+             */
+            recent_badges: string[];
         };
         /** LibraryLesson */
         LibraryLesson: {
@@ -2730,6 +2766,8 @@ export interface components {
             streak: number;
             /** Stars Earned */
             stars_earned: number;
+            /** New Badges */
+            new_badges: string[];
         };
         /** TreeNode */
         TreeNode: {
@@ -4171,6 +4209,46 @@ export interface operations {
                 };
             };
             /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_profile_badges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BadgeOut"][];
+                };
+            };
+            /** @description Unknown profile */
             404: {
                 headers: {
                     [name: string]: unknown;

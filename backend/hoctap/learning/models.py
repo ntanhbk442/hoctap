@@ -25,6 +25,14 @@
   (`session_id`, `problem_id`) index makes a resolving event's resend idempotent (checked
   before insert, same "already stored, no-op" posture as every other Story 2.5+
   mutation). Only `hoctap.learning` writes it.
+- `progress_badges` (Story 3.2, AD-6): one row per Profile-per-earned-badge, written ONCE
+  inside the SAME transaction as whichever event first makes that badge's condition true
+  (see `learning.badges.maybe_award_badges()`), reusing Story 3.1's exact SAVEPOINT --
+  never a second commit boundary. `badge_key` is one of a fixed enum (`week1`, `streak7`,
+  `stars100`) -- a `CHECK` constraint, not an arbitrary string. A unique
+  (`profile_id`, `badge_key`) index makes a badge "earned once, ever, per Profile" --
+  the same idempotency posture `progress_stars` already has. Only `hoctap.learning`
+  writes it.
 """
 
 from __future__ import annotations
@@ -91,6 +99,19 @@ progress_stars = Table(
     CheckConstraint("stars IN (0, 1, 3)", name="ck_progress_stars_stars"),
 )
 
+progress_badges = Table(
+    "progress_badges",
+    metadata,
+    Column("id", Text, primary_key=True),  # UUIDv7
+    Column("profile_id", Text, nullable=False),
+    Column("badge_key", Text, nullable=False),
+    Column("earned_at", Text, nullable=False),
+    CheckConstraint(
+        "badge_key IN ('week1', 'streak7', 'stars100')",
+        name="ck_progress_badges_badge_key",
+    ),
+)
+
 Index("ix_progress_sessions_profile_id", progress_sessions.c.profile_id)
 Index("ix_progress_events_session_id", progress_events.c.session_id)
 Index(
@@ -110,3 +131,9 @@ Index(
     unique=True,
 )
 Index("ix_progress_stars_profile_id", progress_stars.c.profile_id)
+Index(
+    "ux_progress_badges_profile_badge",
+    progress_badges.c.profile_id,
+    progress_badges.c.badge_key,
+    unique=True,
+)

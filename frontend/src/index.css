@@ -55,6 +55,22 @@ body {
   color: #59636e;
 }
 
+/* Story 3.2: Home's latest-3-badges row (small variant) and the "Huy hiệu của em"
+ * screen's full-size grid. */
+.home-recent-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4, 1rem);
+  margin: 0 0 1rem;
+}
+
+.badges-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5, 1.5rem);
+  margin: 1.5rem 0;
+}
+
 /* Profile Picker (Story 2.3) */
 .profile-picker-grid {
   display: grid;

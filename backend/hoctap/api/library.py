@@ -16,6 +16,7 @@ from hoctap.api.deps import get_engine, get_now
 from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.content import library
 from hoctap.content.views import ChildProblemView
+from hoctap.learning import badges as learning_badges
 from hoctap.learning import progress as learning_progress
 from hoctap.learning import scoring as learning_scoring
 from hoctap.learning import sessions as learning_sessions
@@ -164,6 +165,9 @@ class LibraryHomeOut(BaseModel):
     # recomputed) -- Home's persistent Star total + Streak display.
     total_stars: int = 0
     streak: int = 0
+    # Story 3.2: the Profile's latest 3 earned `badge_key`s by `earned_at` DESC --
+    # Home's latest-3 badges row.
+    recent_badges: list[str] = []
 
 
 @router.get(
@@ -200,4 +204,5 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
             else ContinueSessionOut(session_id=unfinished.id),
             total_stars=learning_scoring.total_stars(conn, profile_id),
             streak=compute_streak(conn, profile_id, today),
+            recent_badges=learning_badges.recent_badges(conn, profile_id),
         )

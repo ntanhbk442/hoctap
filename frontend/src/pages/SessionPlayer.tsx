@@ -12,6 +12,9 @@ import {
   useStartSession,
 } from '../api/queries'
 import { phrase } from '../audio/phrases'
+import { speak } from '../audio/speech'
+import Badge from '../components/Badge/Badge'
+import { badgeName } from '../components/Badge/badgeCopy'
 import StarBurst from '../components/StarBurst/StarBurst'
 import { newEventId } from '../ids'
 import { cacheBundleAssets } from '../offline/assetCache'
@@ -218,6 +221,19 @@ interface SessionSummaryScreenProps {
  * "Luyện lại bài sai" -- hidden entirely when there are zero wrong Problems (per this
  * story's frozen Boundaries: never shown for nothing to replay). */
 function SessionSummaryScreen({ summary, onReplay, replayPending }: SessionSummaryScreenProps) {
+  const newBadges = summary.data?.new_badges ?? []
+  // Story 3.2: fanfare + 🔊 the moment the summary resolves with 1+ newly earned badges
+  // -- runs once per Session summary (keyed by the joined badge list, which only ever
+  // changes when a genuinely different summary loads).
+  const newBadgesKey = newBadges.join(',')
+  useEffect(() => {
+    if (newBadges.length === 0) return
+    void speak(phrase('new_badge_earned')).then(() => {
+      for (const key of newBadges) void speak(badgeName(key))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newBadgesKey])
+
   if (summary.isPending) {
     return (
       <div className="session-done">
@@ -254,6 +270,14 @@ function SessionSummaryScreen({ summary, onReplay, replayPending }: SessionSumma
         <p>
           {data.streak} {phrase('streak_days')}
         </p>
+      )}
+      {newBadges.length > 0 && (
+        <div className="session-new-badges" data-testid="session-new-badges">
+          <p>{phrase('new_badge_earned')}</p>
+          {newBadges.map((badgeKey) => (
+            <Badge key={badgeKey} badgeKey={badgeKey} earned pop />
+          ))}
+        </div>
       )}
       {hasWrong && (
         <button type="button" onClick={onReplay} disabled={replayPending}>

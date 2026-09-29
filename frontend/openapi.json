@@ -1725,6 +1725,63 @@
         }
       }
     },
+    "/api/v1/profiles/{profile_id}/badges": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "summary": "Get Profile Badges",
+        "description": "Story 3.2: all 3 fixed badges (`week1`, `streak7`, `stars100`) with `earned`/\n`earned_at` -- the \"Huy hiệu của em\" screen's full state, unearned ones rendered\ngreyed out by the frontend.",
+        "operationId": "get_profile_badges",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BadgeOut"
+                  },
+                  "title": "Response Get Profile Badges"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/library/grades/{grade}/books": {
       "get": {
         "tags": [
@@ -3177,6 +3234,35 @@
           "enough_problems"
         ],
         "title": "AccuracyCheck"
+      },
+      "BadgeOut": {
+        "properties": {
+          "badge_key": {
+            "type": "string",
+            "title": "Badge Key"
+          },
+          "earned": {
+            "type": "boolean",
+            "title": "Earned"
+          },
+          "earned_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earned At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "badge_key",
+          "earned"
+        ],
+        "title": "BadgeOut"
       },
       "BookPilotPages": {
         "properties": {
@@ -5373,6 +5459,14 @@
             "type": "integer",
             "title": "Streak",
             "default": 0
+          },
+          "recent_badges": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recent Badges",
+            "default": []
           }
         },
         "type": "object",
@@ -7942,6 +8036,13 @@
           "stars_earned": {
             "type": "integer",
             "title": "Stars Earned"
+          },
+          "new_badges": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "New Badges"
           }
         },
         "type": "object",
@@ -7951,7 +8052,8 @@
           "total",
           "wrong_problem_ids",
           "streak",
-          "stars_earned"
+          "stars_earned",
+          "new_badges"
         ],
         "title": "SummaryOut"
       },

@@ -42,6 +42,8 @@ export type BundleProblemOut = Schemas['BundleProblemOut']
 export type EventIn = Schemas['EventIn']
 export type EventOut = Schemas['EventOut']
 export type SummaryOut = Schemas['SummaryOut']
+export type BadgeOut = Schemas['BadgeOut']
+export type BadgeKey = BadgeOut['badge_key']
 
 export const API_BASE = '/api/v1'
 
@@ -161,6 +163,14 @@ export function getParentSession(signal?: AbortSignal): Promise<SessionStatus> {
 
 export function getProfiles(signal?: AbortSignal): Promise<Profile[]> {
   return apiGet<Profile[]>('/profiles', { signal })
+}
+
+// --- Badges (Story 3.2) ----------------------------------------------------------------
+
+/** All 3 fixed badges (`week1`/`streak7`/`stars100`) with `earned`/`earned_at` -- the
+ * "Huy hiệu của em" screen's full state. */
+export function getProfileBadges(profileId: string, signal?: AbortSignal): Promise<BadgeOut[]> {
+  return apiGet<BadgeOut[]>(`/profiles/${enc(profileId)}/badges`, { signal })
 }
 
 // --- Child Library (Sách, Story 2.3) ------------------------------------------------

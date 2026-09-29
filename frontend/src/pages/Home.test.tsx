@@ -285,6 +285,44 @@ describe('Home', () => {
     expect(banner).toHaveTextContent('3')
   })
 
+  it('shows the latest 3 earned badges (Story 3.2) as small medals on Home', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': {
+        status: 200,
+        body: { profile_id: 'p1', grade: 1, lesson: null, recent_badges: ['stars100', 'week1'] },
+      },
+    })
+    renderAt('/', <Home />)
+    const row = await screen.findByTestId('home-recent-badges')
+    expect(row).toBeInTheDocument()
+    expect(screen.getByTestId('badge-stars100')).toBeInTheDocument()
+    expect(screen.getByTestId('badge-week1')).toBeInTheDocument()
+  })
+
+  it('shows no recent-badges row when none are earned', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_EMPTY,
+    })
+    renderAt('/', <Home />)
+    await screen.findByTestId('home-empty')
+    expect(screen.queryByTestId('home-recent-badges')).not.toBeInTheDocument()
+  })
+
+  it('"Huy hiệu của em" card navigates to /badges', async () => {
+    mockApi({
+      'GET /api/v1/setup/status': SETUP_OK,
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/home/p1': HOME_EMPTY,
+    })
+    renderAt('/', <Home />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Huy hiệu của em' }))
+    expect(await screen.findByText('badges screen')).toBeInTheDocument()
+  })
+
   it('shows no Star/Streak banner when both are zero', async () => {
     mockApi({
       'GET /api/v1/setup/status': SETUP_OK,

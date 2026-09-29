@@ -22,6 +22,7 @@ from hoctap.content.schema import FallbackPart, Part
 from hoctap.content.speech import problem_speech_refs, speech_url
 from hoctap.content.views import ChildProblemView, child_view
 from hoctap.ids import new_id, to_iso
+from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
 from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
@@ -762,6 +763,14 @@ def post_event(
                 maybe_award_stars(
                     conn, received_at, session_id, profile_id, event.problem_id, mode
                 )
+            # Story 3.2, AD-6: badge checks run after EVERY event kind (not gated to
+            # `attempt`/`self_marked` like Stars above) -- `week1`/`streak7` only ever
+            # become true once `session_completed`'s own handling (above) has set
+            # `completed_at`, while `stars100` can only cross right after the
+            # `maybe_award_stars()` call just above. Mode-gated internally
+            # (`maybe_award_badges()`'s own `BADGE_CHECK_MODES`), the same posture
+            # `maybe_award_stars()` takes with `STAR_AWARDING_MODES`.
+            maybe_award_badges(conn, received_at, session_id, profile_id, mode)
     except IntegrityError:
         existing = conn.execute(
             select(progress_events).where(progress_events.c.id == event.id)

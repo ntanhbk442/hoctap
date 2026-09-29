@@ -5,6 +5,14 @@ import { setCurrentProfileId } from '../profile'
 import { mockApi, renderAt } from '../test/render'
 import SessionPlayer from './SessionPlayer'
 
+// `speechKey` mocked as an identity function (see `ProblemPlayer.test.tsx`'s own
+// docstring) so `ProblemPlayer`'s instruction audio wiring doesn't need real `crypto`
+// digesting; `speak` mocked to assert the badge fanfare's exact calls deterministically.
+vi.mock('../audio/speech', () => ({
+  speak: vi.fn(() => Promise.resolve()),
+  speechKey: vi.fn((text: string) => Promise.resolve(text)),
+}))
+
 const PROFILE_ID = 'profile-1'
 
 const PROBLEM = {
@@ -152,6 +160,70 @@ describe('SessionPlayer', () => {
     // Zero wrong Problems -- "Luyện lại bài sai" must not be shown.
     expect(screen.queryByRole('button', { name: 'Luyện lại bài sai' })).not.toBeInTheDocument()
     expect(screen.getAllByText('Về Sách').length).toBeGreaterThan(0)
+  })
+
+  it('pops a newly earned badge with fanfare + 🔊 on the summary screen (Story 3.2)', async () => {
+    const { speak } = await import('../audio/speech')
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
+      'GET /api/v1/sessions/session-1/summary': {
+        status: 200,
+        body: {
+          session_id: 'session-1',
+          first_try_correct: 1,
+          total: 1,
+          wrong_problem_ids: [],
+          streak: 1,
+          stars_earned: 3,
+          new_badges: ['week1'],
+        },
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(
+      await screen.findByTestId('session-new-badges', {}, { timeout: 3000 }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('badge-week1')).toBeInTheDocument()
+    expect(screen.getByText('Hoàn thành Tuần 1')).toBeInTheDocument()
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledWith('Em vừa nhận được một huy hiệu mới!'))
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledWith('Hoàn thành Tuần 1'))
+  })
+
+  it('shows no badge fanfare when the summary reports no new badges', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
+      'GET /api/v1/sessions/session-1/summary': {
+        status: 200,
+        body: {
+          session_id: 'session-1',
+          first_try_correct: 1,
+          total: 1,
+          wrong_problem_ids: [],
+          streak: 1,
+          stars_earned: 3,
+          new_badges: [],
+        },
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await screen.findByTestId('stars-earned', {}, { timeout: 3000 })
+    expect(screen.queryByTestId('session-new-badges')).not.toBeInTheDocument()
   })
 
   it('shows "Luyện lại bài sai" at the summary screen when the summary reports wrong Problems, and starts a replay Session on tap', async () => {
