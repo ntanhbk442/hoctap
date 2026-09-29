@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Column, Integer, MetaData, Table, Text
+from sqlalchemy import Boolean, CheckConstraint, Column, Integer, MetaData, Table, Text, true
 
 metadata = MetaData()
 
@@ -29,5 +29,9 @@ parent_profiles = Table(
     Column("avatar", Text, nullable=False),
     Column("grade", Integer, nullable=False),
     Column("created_at", Text, nullable=False),
+    # Story 2.9: gates auto-playing a Problem's instruction on open. Default on for every
+    # existing and new Profile -- no Parent-Area toggle ships with this story (see
+    # spec-2-9's Boundaries & Constraints / deferred-work.md).
+    Column("auto_play", Boolean, nullable=False, server_default=true()),
     CheckConstraint("grade BETWEEN 1 AND 5", name="ck_parent_profiles_grade"),
 )

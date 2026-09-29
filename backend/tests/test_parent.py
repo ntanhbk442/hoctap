@@ -432,7 +432,9 @@ def test_profiles(client: TestClient) -> None:
     client.cookies.clear()
     resp = client.get("/api/v1/profiles")  # no auth needed
     assert resp.status_code == 200
-    assert resp.json() == [{"id": created["id"], "name": "Bin", "avatar": "cat", "grade": 1}]
+    assert resp.json() == [
+        {"id": created["id"], "name": "Bin", "avatar": "cat", "grade": 1, "auto_play": True}
+    ]
 
 
 def test_list_profiles_order(client: TestClient) -> None:

@@ -1,15 +1,24 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { BundleProblemOut, ChildProblemView, EventOut } from '../api/client'
 import { errorMessage } from '../api/errors'
 import { usePostEvent } from '../api/queries'
+import {
+  getPlayerState,
+  isAudioUnlocked,
+  isMissing,
+  stop as stopAudio,
+  subscribe as subscribePlayer,
+  type PlayerState,
+} from '../audio/player'
 import { phrase } from '../audio/phrases'
 import { playBoop, playChime } from '../audio/sfx'
-import { speak } from '../audio/speech'
+import { speak, speechKey } from '../audio/speech'
 import type { AnswerSlotState } from '../components/AnswerSlot/AnswerSlot'
 import FeedbackBanner from '../components/FeedbackBanner/FeedbackBanner'
 import HintBubble from '../components/HintBubble/HintBubble'
 import NumberPad from '../components/NumberPad/NumberPad'
 import SolutionPanel from '../components/SolutionPanel/SolutionPanel'
+import SpeakerButton from '../components/SpeakerButton/SpeakerButton'
 import StarBurst from '../components/StarBurst/StarBurst'
 import CompareWidget from '../components/widgets/CompareWidget'
 import ConnectDotsWidget from '../components/widgets/ConnectDotsWidget'
@@ -70,6 +79,9 @@ export interface ProblemPlayerProps {
   /** Called once the last Part of this Problem is finished (correctly answered, or an
    * unsupported Part skipped) -- the caller advances to the next Problem/chunk. */
   onDone: () => void
+  /** The current Profile's `auto_play` setting (Story 2.9). Defaults `true` so existing
+   * callers/tests that don't pass it keep the pre-Story-2.9 auto-play-on behaviour. */
+  autoPlay?: boolean
 }
 
 /** One Problem's worth of the real player (Story 2.6): owns only which Part of the Problem
@@ -88,10 +100,26 @@ export default function ProblemPlayer({
   stars,
   onStarEarned,
   onDone,
+  autoPlay = true,
 }: ProblemPlayerProps) {
   const problem = bundleProblem.problem
   const [partIndex, setPartIndex] = useState(0)
   const part = problem.parts[partIndex] as ChildPart | undefined
+
+  // Story 2.9: auto-play the Problem's instruction once when it opens -- this component is
+  // remounted per Problem (see `SessionPlayer`'s `key={problems[...].problem.problem_id}`),
+  // never per Part, so an empty-deps effect here fires exactly once per Problem open, not on
+  // every Part advance. Gated on both `autoPlay` (the Profile's setting) and the page having
+  // been unlocked by a user gesture already (Boundaries & Constraints: never attempted, never
+  // retried, before unlock). The cleanup stops the shared player on unmount -- covers both a
+  // Part-to-Part remount lower in the tree and leaving the Session entirely.
+  useEffect(() => {
+    if (autoPlay && isAudioUnlocked()) {
+      void speak(problem.instruction)
+    }
+    return () => stopAudio()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally once per Problem
+  }, [])
 
   if (!part) return null
 
@@ -135,6 +163,47 @@ export default function ProblemPlayer({
       onStarEarned={onStarEarned}
       onAdvance={advance}
     />
+  )
+}
+
+/** Story 2.9, finding #1: the Problem instruction's own 🔊, wired to `audio/player.ts`'s real
+ * subscribable state -- not just built-and-unit-tested at the `SpeakerButton` level, but
+ * actually reachable from the running Problem screen. `playing` is true while this exact
+ * instruction's `speechKey()` is the one the shared player is currently playing (covers both
+ * the auto-play-on-open effect above AND this button's own manual tap, since both ultimately
+ * call `player.ts`'s `playKey()` -- the auto-play effect via `speak()`, and this tap via the
+ * same `speak()` call). `missing` reflects `isMissing()` once the key is known. Shared by
+ * `PartPlayer` and `FallbackPartPlayer` below, which both render the same instruction line. */
+function InstructionLine({ instruction }: { instruction: string }) {
+  const [instructionKey, setInstructionKey] = useState<string | null>(null)
+  const [playerState, setPlayerState] = useState<PlayerState>(() => getPlayerState())
+
+  useEffect(() => {
+    let cancelled = false
+    void speechKey(instruction).then((key) => {
+      if (!cancelled) setInstructionKey(key)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [instruction])
+
+  useEffect(() => subscribePlayer(setPlayerState), [])
+
+  const playing =
+    instructionKey !== null && playerState.key === instructionKey && playerState.status === 'playing'
+  const missing = instructionKey !== null && isMissing(instructionKey)
+
+  return (
+    <div className="problem-player-instruction-row">
+      <p className="problem-player-prompt">{instruction}</p>
+      <SpeakerButton
+        label={instruction}
+        playing={playing}
+        missing={missing}
+        onClick={() => void speak(instruction)}
+      />
+    </div>
   )
 }
 
@@ -502,7 +571,7 @@ function PartPlayer({
       </div>
       <div className="problem-player-work">
         {problem.display_label && <h2 className="problem-player-label">{problem.display_label}</h2>}
-        <p className="problem-player-prompt">{problem.instruction}</p>
+        <InstructionLine instruction={problem.instruction} />
         {part.prompt && <p className="problem-player-part-prompt">{part.prompt}</p>}
         {widget()}
         {submitError && (
@@ -693,7 +762,7 @@ function FallbackPartPlayer({
       </div>
       <div className="problem-player-work">
         {problem.display_label && <h2 className="problem-player-label">{problem.display_label}</h2>}
-        <p className="problem-player-prompt">{problem.instruction}</p>
+        <InstructionLine instruction={problem.instruction} />
         {part.prompt && <p className="problem-player-part-prompt">{part.prompt}</p>}
         <FallbackWidget part={part} imageUrl={imageUrl} />
         {submitError && (

@@ -8,6 +8,8 @@
 // `DEFAULT_VOICE_ID` mirrors `Settings.tts_voice_id`'s default (`backend/hoctap/config.py`)
 // -- there is no endpoint exposing it, so this is a deliberate, documented duplication (see
 // this story's Implementation Notes), not a new backend concept.
+import { playKey } from './player'
+
 export const DEFAULT_VOICE_ID = 'vi-VN-HoaiMyNeural'
 
 const ASSETS_URL = '/assets-data'
@@ -85,12 +87,16 @@ export function speechUrl(key: string): string {
  * wiring, Story 2.3). Never throws and never rejects visibly: no `Audio`/`crypto.subtle`
  * support (tests), no audio file yet (not synthesised), or playback being blocked all end
  * in the same silent no-op.
+ *
+ * Story 2.9: internally upgraded to go through `audio/player.ts`'s single shared `<audio>`
+ * element (stop-previous-on-new-clip, stop-on-unmount via the player's `stop()`, missing-file
+ * detection via the element's own `error` event) -- this function's signature/behaviour for
+ * existing callers (HintBubble/SolutionPanel/long-press-to-speak/etc.) is unchanged.
  */
 export async function speak(text: string): Promise<void> {
   try {
     const key = await speechKey(text)
-    const audio = new Audio(speechUrl(key))
-    await audio.play()
+    await playKey(key, speechUrl(key))
   } catch {
     // Silent no-op -- see the module docstring.
   }

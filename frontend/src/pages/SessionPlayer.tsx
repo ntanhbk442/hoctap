@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/errors'
-import { useSessionBundle } from '../api/queries'
+import { useProfiles, useSessionBundle } from '../api/queries'
 import { phrase } from '../audio/phrases'
 import { getCurrentProfileId } from '../profile'
 import ProblemPlayer from './ProblemPlayer'
@@ -21,6 +21,11 @@ export default function SessionPlayer() {
   const [stars, setStars] = useState(0)
   const profileId = getCurrentProfileId() ?? ''
   const bundle = useSessionBundle(sessionId, profileId, chunk)
+  // Story 2.9: the current Profile's `auto_play` setting gates auto-playing a Problem's
+  // instruction on open. Defaults to true while Profiles are still loading/unknown, matching
+  // `Profile.auto_play`'s own default-on -- never blocks the player on this fetch.
+  const profiles = useProfiles()
+  const autoPlay = profiles.data?.find((p) => p.id === profileId)?.auto_play ?? true
   const sessionGone =
     bundle.isError && bundle.error instanceof ApiError && bundle.error.code === 'SESSION_NOT_FOUND'
 
@@ -80,6 +85,7 @@ export default function SessionPlayer() {
               stars={stars}
               onStarEarned={() => setStars((s) => s + 1)}
               onDone={() => setProblemIndex((i) => i + 1)}
+              autoPlay={autoPlay}
             />
           )}
         </>

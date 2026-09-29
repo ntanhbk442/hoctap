@@ -177,3 +177,11 @@
     ensures the event log carries enough information (one `self_marked` event per
     self-check, its own `correct` field) for a future reader to derive the count; no
     Star-reading endpoint or UI exists yet, by design.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-9-audio-player-and-auto-play.md`
+  summary: A Parent-Area UI control to toggle a Profile's `auto_play` setting.
+  evidence: |
+    Frozen intent explicitly scopes this story to the column + schema + `GET /profiles`
+    exposure only (default `true` for every Profile, no toggle in acceptance criteria).
+    `parent_profiles.auto_play` and `Profile.auto_play` are both ready for a future Parent
+    Area story to add a switch that PATCHes it -- no new backend concept needed, just a
+    write endpoint and a form control.

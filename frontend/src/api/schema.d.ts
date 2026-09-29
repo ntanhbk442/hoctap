@@ -2226,6 +2226,11 @@ export interface components {
             avatar: "cat" | "dog" | "rabbit" | "bear" | "fox" | "panda";
             /** Grade */
             grade: number;
+            /**
+             * Auto Play
+             * @default true
+             */
+            auto_play: boolean;
         };
         /** ProfileIn */
         ProfileIn: {

@@ -7,12 +7,15 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from alembic import command
 from fastapi.testclient import TestClient
 
 from hoctap.api.errors import AppError
 from hoctap.app import create_app
 from hoctap.cli import main as cli_main
 from hoctap.config import ConfigError, Settings, load_settings
+from hoctap.db.engine import alembic_config, create_db_engine
+from hoctap.ids import new_id, to_iso, utc_now
 
 INDEX_HTML = "<!doctype html><html><body><div id='root'>Học Tập</div></body></html>"
 
@@ -188,8 +191,10 @@ def test_fresh_data_dir_created_with_wal_and_migrations(data_dir: Path, dist: Pa
     try:
         assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert con.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("0012_retry_items",)
+            ("0013_auto_play",)
         ]
+        columns = {r[1] for r in con.execute("PRAGMA table_info(parent_profiles)")}
+        assert "auto_play" in columns
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert tables == {
             "alembic_version",
@@ -223,6 +228,36 @@ def test_fresh_data_dir_created_with_wal_and_migrations(data_dir: Path, dist: Pa
     # Restart on an existing database is a no-op upgrade.
     with TestClient(create_app(Settings(data_dir=data_dir, frontend_dist=dist))) as c:
         assert c.get("/api/v1/health").status_code == 200
+
+
+# Story 2.9 review, finding #5: a migration-level test that a pre-existing `parent_profiles`
+# row (inserted back when the column didn't exist yet) backfills `auto_play` to `true` via
+# the new `0013_auto_play` migration's `server_default`, not `NULL` -- exercising the actual
+# upgrade path a real installed database goes through, not just a fresh-DB create.
+def test_migration_0013_backfills_auto_play_true_for_existing_profiles(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0012_retry_items")
+        profile_id = new_id()
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO parent_profiles (id, name, avatar, grade, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (profile_id, "Bin", "cat", 1, now),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+    with engine.begin() as connection:
+        row = connection.exec_driver_sql(
+            "SELECT auto_play FROM parent_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+    assert row is not None
+    assert row[0] == 1  # SQLite booleans are stored as 0/1 -- 1 means backfilled to `true`.
 
 
 def test_engine_enables_foreign_keys(client: TestClient) -> None:

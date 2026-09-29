@@ -6,7 +6,25 @@ import { setCurrentProfileId } from '../profile'
 import { mockApi, renderAt } from '../test/render'
 import ProblemPlayer from './ProblemPlayer'
 
-vi.mock('../audio/speech', () => ({ speak: vi.fn(() => Promise.resolve()) }))
+// `speechKey` is mocked as an identity function (resolves to the input text itself) so the
+// rest of this file's tests -- which don't care about `InstructionLine`'s real key/playing
+// wiring, only that `speak()` gets called with the right text -- don't need real `crypto`
+// digesting to make instruction-key comparisons deterministic.
+vi.mock('../audio/speech', () => ({
+  speak: vi.fn(() => Promise.resolve()),
+  speechKey: vi.fn((text: string) => Promise.resolve(text)),
+}))
+// Story 2.9's auto-play-on-open gate, and `InstructionLine`'s (finding #1) live
+// playing/missing wiring: mocked so tests control unlock/player state deterministically
+// instead of depending on real window `pointerdown`/`click` event leakage between tests, or a
+// real shared `<audio>` element's async `play()`.
+vi.mock('../audio/player', () => ({
+  isAudioUnlocked: vi.fn(() => false),
+  stop: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getPlayerState: vi.fn(() => ({ key: null, status: 'idle' })),
+  isMissing: vi.fn(() => false),
+}))
 
 const PROFILE_ID = 'profile-1'
 const SESSION_ID = 'session-1'
@@ -948,5 +966,75 @@ describe('ProblemPlayer: spot_difference', () => {
       part_key: 'a',
       value: { region_keys: ['d_0_0', 'd_5_5'] },
     })
+  })
+})
+
+// Story 2.9: auto-play the Problem's instruction on open, gated on `autoPlay` AND the page
+// being unlocked -- `isAudioUnlocked`/`stop` are mocked above so each case controls unlock
+// state deterministically.
+describe('ProblemPlayer: auto-play the instruction on open', () => {
+  const NUMBER_INPUT_PART = {
+    part_key: 'a',
+    type: 'number_input',
+    prompt: '',
+    image_keys: [],
+    template: '3 + 2 = [[s1]]',
+    slots: [{ slot_key: 's1' }],
+  }
+
+  afterEach(async () => {
+    const { isAudioUnlocked, stop } = await import('../audio/player')
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(false)
+    ;(stop as ReturnType<typeof vi.fn>).mockClear()
+  })
+
+  function renderWithAutoPlay(autoPlay: boolean | undefined) {
+    mockApi({})
+    return renderAt(
+      ROUTE,
+      <ProblemPlayer
+        sessionId={SESSION_ID}
+        profileId={PROFILE_ID}
+        bundleProblem={bundleProblem([NUMBER_INPUT_PART])}
+        stars={0}
+        onStarEarned={vi.fn()}
+        onDone={vi.fn()}
+        autoPlay={autoPlay}
+      />,
+      PATTERN,
+    )
+  }
+
+  it('plays the instruction once when autoPlay is true and the page is unlocked', async () => {
+    const { isAudioUnlocked } = await import('../audio/player')
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    const { speak } = await import('../audio/speech')
+    renderWithAutoPlay(true)
+    expect(speak).toHaveBeenCalledWith('Tính:')
+  })
+
+  it('does not auto-play when the page is not yet unlocked', async () => {
+    const { isAudioUnlocked } = await import('../audio/player')
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(false)
+    const { speak } = await import('../audio/speech')
+    renderWithAutoPlay(true)
+    expect(speak).not.toHaveBeenCalledWith('Tính:')
+  })
+
+  it('does not auto-play when autoPlay (the Profile setting) is false, even unlocked', async () => {
+    const { isAudioUnlocked } = await import('../audio/player')
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    const { speak } = await import('../audio/speech')
+    renderWithAutoPlay(false)
+    expect(speak).not.toHaveBeenCalledWith('Tính:')
+  })
+
+  it('stops the shared player on unmount', async () => {
+    const { isAudioUnlocked, stop } = await import('../audio/player')
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    const { unmount } = renderWithAutoPlay(true)
+    ;(stop as ReturnType<typeof vi.fn>).mockClear()
+    unmount()
+    expect(stop).toHaveBeenCalledOnce()
   })
 })

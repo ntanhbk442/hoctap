@@ -16,6 +16,16 @@
   animation: speaker-pulse 1s ease-in-out infinite;
 }
 
+/* Story 2.9: greyed-out for a confirmed-missing clip -- the button itself is visually
+ * disabled, but this never affects the instruction/option/hint text next to it (a sibling
+ * element, rendered by the caller, untouched by this class). */
+.speaker-button-missing {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink-secondary);
+  cursor: default;
+  opacity: 0.6;
+}
+
 @keyframes speaker-pulse {
   0%,
   100% {

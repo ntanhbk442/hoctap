@@ -26,12 +26,20 @@
   margin: 0;
 }
 
+.problem-player-instruction-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
 .problem-player-prompt {
   font-family: var(--font-instruction-family);
   font-size: var(--font-instruction-size);
   font-weight: var(--font-instruction-weight);
   color: var(--color-ink-primary);
   text-align: center;
+  margin: 0;
 }
 
 .problem-player-part-prompt {

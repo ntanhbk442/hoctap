@@ -57,6 +57,9 @@ class Profile(BaseModel):
     name: str
     avatar: Avatar
     grade: int
+    # Story 2.9: whether a Problem's instruction auto-plays on open. Defaults on; no
+    # Parent-Area control ships with this story.
+    auto_play: bool = True
 
 
 class SetupStatus(BaseModel):

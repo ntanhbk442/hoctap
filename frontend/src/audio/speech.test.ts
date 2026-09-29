@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { speechKey, speechText, speechUrl } from './speech'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getPlayerState, stop } from './player'
+import { speak, speechKey, speechText, speechUrl } from './speech'
 
 // Regression guard against `speechText()`/`speechKey()` drifting from their Python source
 // of truth (`backend/hoctap/content/speech.py`'s `speech_text()`/`speech_key()`) -- the
@@ -88,5 +89,42 @@ describe('speechKey (ported from content.speech.speech_key)', () => {
 describe('speechUrl', () => {
   it('mirrors content.assets/content.speech\'s URL scheme', () => {
     expect(speechUrl('abc123')).toBe('/assets-data/audio/abc123.mp3')
+  })
+})
+
+// Story 2.9: `speak()`'s internals now go through `audio/player.ts`'s shared `<audio>`
+// element instead of a new `Audio` per call -- these tests check that upgrade without
+// touching `speak()`'s existing signature/silent-no-op contract, which `ProblemPlayer.test.tsx`/
+// `Home.test.tsx` already cover via `vi.mock('../audio/speech')` at the call-site level.
+describe('speak (Story 2.9: shared-player internals)', () => {
+  afterEach(() => {
+    stop()
+  })
+
+  it('plays the resolved key/url on the shared player', async () => {
+    await speak('xin chào')
+    const key = await speechKey('xin chào')
+    expect(getPlayerState()).toEqual({ key, status: 'playing' })
+  })
+
+  it('is still a silent no-op when speechKey rejects', async () => {
+    const bad = { subtle: undefined } as unknown as Crypto
+    const originalCrypto = globalThis.crypto
+    // `speechKey()` uses `crypto.subtle.digest` -- simulate an environment without it (the
+    // same class of failure the pre-2.9 docstring already promised to swallow silently).
+    Object.defineProperty(globalThis, 'crypto', { value: bad, configurable: true })
+    try {
+      await expect(speak('xin chào')).resolves.toBeUndefined()
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: originalCrypto, configurable: true })
+    }
+  })
+
+  it('is a silent no-op when the shared element rejects play()', async () => {
+    const { getAudioElement } = await import('./player')
+    const el = getAudioElement()
+    const playSpy = vi.spyOn(el, 'play').mockRejectedValueOnce(new Error('blocked'))
+    await expect(speak('xin chào')).resolves.toBeUndefined()
+    playSpy.mockRestore()
   })
 })

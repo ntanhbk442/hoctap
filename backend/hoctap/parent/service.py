@@ -167,6 +167,10 @@ def list_profiles(engine: Engine) -> list[Profile]:
                 parent_profiles.c.name,
                 parent_profiles.c.avatar,
                 parent_profiles.c.grade,
+                parent_profiles.c.auto_play,
             ).order_by(parent_profiles.c.created_at, parent_profiles.c.id)
         ).all()
-    return [Profile(id=r.id, name=r.name, avatar=r.avatar, grade=r.grade) for r in rows]
+    return [
+        Profile(id=r.id, name=r.name, avatar=r.avatar, grade=r.grade, auto_play=bool(r.auto_play))
+        for r in rows
+    ]

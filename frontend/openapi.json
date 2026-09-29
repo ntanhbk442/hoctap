@@ -6658,6 +6658,11 @@
           "grade": {
             "type": "integer",
             "title": "Grade"
+          },
+          "auto_play": {
+            "type": "boolean",
+            "title": "Auto Play",
+            "default": true
           }
         },
         "type": "object",
