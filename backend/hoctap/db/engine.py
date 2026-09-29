@@ -20,7 +20,13 @@ ALEMBIC_DIR = _DB_DIR / "alembic"
 def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
     cursor = dbapi_connection.cursor()
     try:
-        cursor.execute("PRAGMA busy_timeout=5000")
+        # 30s (was 5s until Story 2.5): `learning.sessions.post_event()` now grades an
+        # `attempt` synchronously inside the same write transaction as its insert (AD-6),
+        # which can hold SQLite's single-writer lock noticeably longer under genuine
+        # concurrent writes (e.g. two real threads racing the same event id) than the
+        # single-statement insert Story 2.4 shipped with -- see this story's
+        # Implementation Notes.
+        cursor.execute("PRAGMA busy_timeout=30000")
         mode = cursor.execute("PRAGMA journal_mode=WAL").fetchone()
         if not mode or str(mode[0]).lower() != "wal":
             log.warning("sqlite WAL not enabled", extra={"journal_mode": mode and mode[0]})

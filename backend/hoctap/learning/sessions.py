@@ -12,16 +12,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from hoctap.api.errors import AppError
 from hoctap.content import assets
 from hoctap.content.effective import ProblemNotFound, load_one
+from hoctap.content.schema import FallbackPart, Part
 from hoctap.content.speech import problem_speech_refs, speech_url
 from hoctap.content.views import ChildProblemView, child_view
 from hoctap.ids import new_id, to_iso
-from hoctap.learning.models import progress_events, progress_sessions
+from hoctap.learning.graders import grade_part
+from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
 from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
 from hoctap.parent.models import parent_profiles
 
@@ -224,9 +226,23 @@ class EventOut:
     problem_id: str | None
     occurred_at: str
     received_at: str
+    # Grading fields (Story 2.5): present only for `attempt` events, read back from the
+    # stored `payload_json` -- so a freshly-graded insert and a resent (already-stored)
+    # event return identically, without recomputing anything.
+    correct: bool | None = None
+    wrong_keys: list[str] | None = None
+    hint: str | None = None
+    solution: dict[str, Any] | None = None
 
 
 def _row_to_event_out(row: Any) -> EventOut:
+    correct = wrong_keys = hint = solution = None
+    if row.kind == "attempt":
+        payload = json.loads(row.payload_json)
+        correct = payload.get("correct")
+        wrong_keys = payload.get("wrong_keys")
+        hint = payload.get("hint")
+        solution = payload.get("solution")
     return EventOut(
         id=row.id,
         session_id=row.session_id,
@@ -234,6 +250,10 @@ def _row_to_event_out(row: Any) -> EventOut:
         problem_id=row.problem_id,
         occurred_at=row.occurred_at,
         received_at=row.received_at,
+        correct=correct,
+        wrong_keys=wrong_keys,
+        hint=hint,
+        solution=solution,
     )
 
 
@@ -272,28 +292,223 @@ def validate_events_batch(
         _validate_event_against_session(session, event)
 
 
+def _find_part(parts: list[Part], part_key: Any) -> Part:
+    """The named Part of the resolved Problem, or an AppError (422) -- never a 500 for a
+    bad `part_key`, and `FallbackPart` (solution-only, `answer` always None) is never
+    gradeable, so it is rejected the same way as a genuinely unknown `part_key`."""
+    if isinstance(part_key, str):
+        for part in parts:
+            if part.part_key == part_key and not isinstance(part, FallbackPart):
+                return part
+    raise AppError(
+        422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm."
+    )
+
+
+def _count_prior_wrong(conn: Any, profile_id: str, problem_id: str, part_key: str) -> int:
+    """Prior wrong `attempt` events for this Part, across ALL Sessions (Profile-wide, per
+    AD-6/this story's frozen intent) -- staged help is derived by counting the append-only
+    log, not a separate mutable counter."""
+    rows = conn.execute(
+        select(progress_events.c.payload_json).where(
+            progress_events.c.profile_id == profile_id,
+            progress_events.c.problem_id == problem_id,
+            progress_events.c.kind == "attempt",
+        )
+    )
+    count = 0
+    for row in rows:
+        data = json.loads(row.payload_json)
+        if data.get("part_key") == part_key and data.get("correct") is False:
+            count += 1
+    return count
+
+
+def _part_currently_correct(conn: Any, profile_id: str, problem_id: str, part_key: str) -> bool:
+    """Whether this Part has at least one stored `attempt` AND its most recent one was
+    graded correct -- used only to decide Retry Queue resolution. A Part NEVER attempted
+    BLOCKS resolution (it has not been "answered correctly" at all); a Part that went
+    wrong and was since corrected does not block.
+
+    "Most recent" is ordered by SQLite's own implicit `rowid` (true insertion order),
+    not `received_at`/`id`: every event of one batch shares the SAME `received_at`
+    (resolved once per request via `get_now()`), and `id` (a client-supplied UUIDv7) is
+    only millisecond-monotonic and client-controlled, so two attempts on the same Part
+    minted in the same millisecond within one batch could otherwise sort in the wrong
+    order and read a stale verdict.
+    """
+    rows = conn.execute(
+        select(progress_events.c.payload_json)
+        .where(
+            progress_events.c.profile_id == profile_id,
+            progress_events.c.problem_id == problem_id,
+            progress_events.c.kind == "attempt",
+        )
+        .order_by(text("progress_events.rowid ASC"))
+    )
+    latest_correct: bool | None = None
+    for row in rows:
+        data = json.loads(row.payload_json)
+        if data.get("part_key") != part_key:
+            continue
+        latest_correct = bool(data.get("correct"))
+    if latest_correct is None:
+        return False  # never attempted -- blocks resolution
+    return latest_correct
+
+
+def _add_retry_item(conn: Any, profile_id: str, problem_id: str, added_at: str) -> None:
+    """Adds the Problem to the Retry Queue, skipping the insert if an unresolved row for
+    this `profile_id`+`problem_id` already exists (a 2nd Part going wrong, or a resend
+    replayed through the same transaction, must not duplicate the row)."""
+    existing = conn.execute(
+        select(progress_retry_items.c.id).where(
+            progress_retry_items.c.profile_id == profile_id,
+            progress_retry_items.c.problem_id == problem_id,
+            progress_retry_items.c.resolved_at.is_(None),
+        )
+    ).first()
+    if existing is not None:
+        return
+    conn.execute(
+        progress_retry_items.insert().values(
+            id=new_id(),
+            profile_id=profile_id,
+            problem_id=problem_id,
+            added_at=added_at,
+            resolved_at=None,
+        )
+    )
+
+
+def _maybe_resolve_retry_item(
+    conn: Any,
+    profile_id: str,
+    problem_id: str,
+    parts: list[Part],
+    graded_part_key: str,
+    now_iso: str,
+) -> None:
+    """Resolves this Problem's open Retry Queue row once every OTHER Part (the
+    just-graded Part is correct by construction, since this is only called on a correct
+    attempt) is also currently correct -- see `_part_currently_correct()`."""
+    others = [
+        p.part_key
+        for p in parts
+        if not isinstance(p, FallbackPart) and p.part_key != graded_part_key
+    ]
+    if any(not _part_currently_correct(conn, profile_id, problem_id, key) for key in others):
+        return
+    # A cheap existence check first: the common case (no open Retry Queue row at all,
+    # e.g. this Part/Problem was never gotten wrong) then needs no write statement --
+    # keeping a correct-and-already-fine attempt from ever requesting SQLite's exclusive
+    # write lock at all.
+    existing = conn.execute(
+        select(progress_retry_items.c.id).where(
+            progress_retry_items.c.profile_id == profile_id,
+            progress_retry_items.c.problem_id == problem_id,
+            progress_retry_items.c.resolved_at.is_(None),
+        )
+    ).first()
+    if existing is None:
+        return
+    conn.execute(
+        progress_retry_items.update()
+        .where(progress_retry_items.c.id == existing.id)
+        .values(resolved_at=now_iso)
+    )
+
+
+def _grade_and_stage(
+    conn: Any, profile_id: str, problem_id: str | None, payload: dict[str, Any], received_at: str
+) -> dict[str, Any]:
+    """The `attempt`-kind core: loads the effective Problem the same defensive way the
+    bundle does (never 500s on a Problem whose override became invalid), grades the named
+    Part, augments and returns `payload` with the verdict, and stages Hint/Solution
+    release + the Retry Queue transition (AD-6's staged-help rule, this story's Boundaries
+    & Constraints step 4)."""
+    if problem_id is None:
+        raise AppError(422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm.")
+    try:
+        state = load_one(conn, problem_id)
+    except ProblemNotFound:
+        raise AppError(
+            422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm."
+        ) from None
+    if state.doc is None:
+        raise AppError(422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm.")
+
+    part = _find_part(list(state.doc.parts), payload.get("part_key"))
+    result = grade_part(part, payload.get("value"))
+
+    payload = dict(payload)
+    payload["correct"] = result.correct
+    payload["wrong_keys"] = result.wrong_keys
+    hint: str | None = None
+    solution: dict[str, Any] | None = None
+    if result.correct:
+        _maybe_resolve_retry_item(
+            conn, profile_id, problem_id, list(state.doc.parts), part.part_key, received_at
+        )
+    else:
+        prior_wrong = _count_prior_wrong(conn, profile_id, problem_id, part.part_key)
+        hint = part.hint  # released on the 1st wrong attempt, and stays shown afterward
+        if prior_wrong == 0:
+            _add_retry_item(conn, profile_id, problem_id, received_at)
+        else:
+            solution = part.solution.model_dump(mode="json")
+    payload["hint"] = hint
+    payload["solution"] = solution
+    return payload
+
+
 def post_event(
     conn: Any, now: datetime, session_id: str, profile_id: str, event: EventIn
 ) -> EventOut:
-    """Race-safe idempotent insert (AD-6): the client's UUIDv7 is the primary key, so a
-    resend (even a concurrent one) hits an IntegrityError, which is caught and turned into
-    a re-fetch of the already-stored row -- never a check-then-insert race window. The
-    re-fetched row is only treated as a legitimate resend if it belongs to THIS
-    `session_id`; a genuine cross-session UUID collision is rejected (409), never
-    silently returned as if it were the caller's own event.
+    """Race-safe idempotent insert (AD-6): the client's UUIDv7 is the primary key.
+
+    An `attempt` event is graded synchronously, in the SAME transaction as its insert
+    (AD-6's literal rule) -- `_grade_and_stage()` augments the event's own `payload_json`
+    with the verdict and stages the Hint/Solution/Retry-Queue transition before the row is
+    ever written. A genuinely already-stored event (same id, same session -- a sequential
+    resend, or the 2nd occurrence of one id within a batch) is detected up front and
+    returned as-is: it is NOT re-graded and cannot double-count into the Retry Queue.
+    A CONCURRENT resend instead races the insert itself; that still hits an IntegrityError,
+    which is caught and turned into a re-fetch of the already-stored row -- and because the
+    grading + staging above runs inside the same SAVEPOINT as the insert, the loser of that
+    race has its own (redundant) grading/Retry-Queue side effects rolled back with it, never
+    left half-applied. Either way, the re-fetched row is only treated as a legitimate resend
+    if it belongs to THIS `session_id`; a genuine cross-session UUID collision is rejected
+    (409), never silently returned as if it were the caller's own event.
 
     Validates the Session exists and belongs to `profile_id` (403), and that the event is
-    valid for it (`_validate_event_against_session()`). Does NOT grade -- an `attempt`
-    event is stored inertly; Story 2.5 reacts to it.
+    valid for it (`_validate_event_against_session()`).
     """
     session = _load_session(conn, session_id)
     if session.profile_id != profile_id:
         raise AppError(403, "FORBIDDEN", "Lượt học này không thuộc về hồ sơ này.")
     _validate_event_against_session(session, event)
 
+    already_stored = conn.execute(
+        select(progress_events).where(progress_events.c.id == event.id)
+    ).one_or_none()
+    if already_stored is not None:
+        if already_stored.session_id != session_id:
+            raise AppError(
+                409,
+                "EVENT_ID_COLLISION",
+                "Mã sự kiện này đã được dùng cho một lượt học khác.",
+            )
+        return _row_to_event_out(already_stored)
+
     received_at = to_iso(now)
     try:
         with conn.begin_nested():
+            payload = event.payload
+            if event.kind == "attempt":
+                payload = _grade_and_stage(
+                    conn, profile_id, event.problem_id, payload, received_at
+                )
             conn.execute(
                 progress_events.insert().values(
                     id=event.id,
@@ -301,7 +516,7 @@ def post_event(
                     profile_id=profile_id,
                     kind=event.kind,
                     problem_id=event.problem_id,
-                    payload_json=json.dumps(event.payload),
+                    payload_json=json.dumps(payload),
                     occurred_at=event.occurred_at,
                     received_at=received_at,
                 )

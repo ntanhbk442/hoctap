@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -12,14 +13,29 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
 
 from hoctap.api.deps import get_engine, get_now
 from hoctap.api.errors import AppError, ErrorResponse
+from hoctap.content.schema import Solution
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
 from hoctap.learning.problem_sets import LessonRef
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+# Story 2.5's `attempt` grading does several reads (the effective Problem, the Retry
+# Queue, prior `attempt` events) before its write, inside the SAME transaction as Story
+# 2.4's event insert (AD-6). Under SQLite's WAL mode, a transaction that read before a
+# CONCURRENT writer on another connection committed cannot then be promoted to a writer
+# -- `SQLITE_BUSY_SNAPSHOT` ("database is locked"), which `PRAGMA busy_timeout` does NOT
+# retry (the snapshot is stale, not merely contended; waiting cannot fix it -- verified
+# directly against sqlite3, see this story's Implementation Notes). The whole batch is
+# re-run in a FRESH transaction (a fresh read snapshot); any event another connection
+# already committed in the meantime is picked up by `post_event()`'s own idempotent
+# already-stored fast path, never re-graded or double-inserted.
+_LOCK_RETRY_ATTEMPTS = 10
+_LOCK_RETRY_DELAY_S = 0.05
 
 EngineDep = Annotated[Engine, Depends(get_engine)]
 NowDep = Annotated[datetime, Depends(get_now)]
@@ -159,6 +175,11 @@ class EventOut(BaseModel):
     problem_id: str | None
     occurred_at: str
     received_at: str
+    # Grading fields (Story 2.5): present only for `attempt` events.
+    correct: bool | None = None
+    wrong_keys: list[str] | None = None
+    hint: str | None = None
+    solution: Solution | None = None
 
 
 def _event_out(e: service.EventOut) -> EventOut:
@@ -169,6 +190,10 @@ def _event_out(e: service.EventOut) -> EventOut:
         problem_id=e.problem_id,
         occurred_at=e.occurred_at,
         received_at=e.received_at,
+        correct=e.correct,
+        wrong_keys=e.wrong_keys,
+        hint=e.hint,
+        solution=e.solution,
     )
 
 
@@ -180,7 +205,10 @@ def _event_out(e: service.EventOut) -> EventOut:
     responses={
         403: {"model": ErrorResponse, "description": "Profile doesn't own this Session"},
         404: {"model": ErrorResponse, "description": "Unknown Session"},
-        422: {"model": ErrorResponse, "description": "Invalid event id, kind, or problem_id"},
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid event id, kind, problem_id, or (attempt) part_key",
+        },
     },
 )
 def post_events(
@@ -206,10 +234,19 @@ def post_events(
     with engine.connect() as conn:
         service.validate_events_batch(conn, session_id, body.profile_id, in_events)
 
-    out: list[EventOut] = []
-    with engine.begin() as conn:
-        for in_event in in_events:
-            out.append(
-                _event_out(service.post_event(conn, now, session_id, body.profile_id, in_event))
-            )
-    return out
+    for attempt in range(_LOCK_RETRY_ATTEMPTS):
+        try:
+            out: list[EventOut] = []
+            with engine.begin() as conn:
+                for in_event in in_events:
+                    out.append(
+                        _event_out(
+                            service.post_event(conn, now, session_id, body.profile_id, in_event)
+                        )
+                    )
+            return out
+        except OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == _LOCK_RETRY_ATTEMPTS - 1:
+                raise
+            time.sleep(_LOCK_RETRY_DELAY_S * (attempt + 1))
+    raise AssertionError("unreachable")  # pragma: no cover

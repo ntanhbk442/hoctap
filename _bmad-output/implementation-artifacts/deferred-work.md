@@ -105,3 +105,35 @@
     semantics and/or grading (Story 2.5) to define "unfinished" -- the same blocker
     already noted above for the "Tiếp tục" card. Deferred to Story 2.5 rather than
     building a heuristic now.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-grading-and-staged-help.md`
+  summary: Stars, Streak, and badge computation/tables.
+  evidence: |
+    Frozen intent explicitly defers these; AD-6 mentions `learning` eventually deriving
+    them, but no story before 2.10 "Session summary" consumes them, and epics.md's own
+    Story 2.5 acceptance criteria never mention them.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-grading-and-staged-help.md`
+  summary: Assignment-status computation/tables.
+  evidence: Frozen intent explicitly defers this; no consumer exists before a later story.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-grading-and-staged-help.md`
+  summary: First-try-accuracy computation/tables.
+  evidence: |
+    Frozen intent explicitly defers this; grading's own `correct`/`wrong_keys` per
+    attempt is stored (in `progress_events.payload_json`), so a later story can derive
+    first-try accuracy from the existing log without a schema change, but no story
+    before 2.10 consumes it yet.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-grading-and-staged-help.md`
+  summary: |
+    The actual Problem player/interaction that calls this story's grading (submitting an
+    answer, seeing the Hint/Solution, the Retry Queue UI).
+  evidence: |
+    Frozen intent explicitly scopes this story to `POST /sessions/{id}/events` only --
+    `SessionPlayer.tsx` (Story 2.4) stays read-only; the Problem Player widgets that
+    would actually call this are Stories 2.6/2.7.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-grading-and-staged-help.md`
+  summary: |
+    A real Retry Queue endpoint/UI (a "Retry" Home card, a `ProblemSetRef` kind that
+    resolves to the Retry Queue's own open Problems).
+  evidence: |
+    `progress_retry_items` rows are written and resolved correctly by this story, but
+    nothing reads them yet -- `learning.problem_sets.resolve()`'s `retry` kind is still
+    `UnsupportedProblemSetRef` (Story 2.4's own deferral, unchanged here).

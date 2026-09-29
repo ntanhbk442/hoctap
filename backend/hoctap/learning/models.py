@@ -12,6 +12,11 @@
   duplicate id, re-fetch). `occurred_at` is the client's own timestamp, stored verbatim
   (never overwritten by server time -- it decides the calendar day per AD-6); `received_at`
   is server time via the app's testable clock.
+- `progress_retry_items` (Story 2.5): the Retry Queue. One row per Profile+Problem
+  currently needing a retry -- added on a Part's first wrong `attempt`, resolved
+  (`resolved_at` set) once every Part of that Problem has since been answered correctly.
+  Profile-wide (not Session-scoped), matching staged help's own scope (AD-6). Not
+  append-only: `resolved_at` is the one field ever updated after insert.
 """
 
 from __future__ import annotations
@@ -56,10 +61,25 @@ progress_events = Table(
     ),
 )
 
+progress_retry_items = Table(
+    "progress_retry_items",
+    metadata,
+    Column("id", Text, primary_key=True),  # UUIDv7
+    Column("profile_id", Text, nullable=False),
+    Column("problem_id", Text, nullable=False),
+    Column("added_at", Text, nullable=False),
+    Column("resolved_at", Text, nullable=True),
+)
+
 Index("ix_progress_sessions_profile_id", progress_sessions.c.profile_id)
 Index("ix_progress_events_session_id", progress_events.c.session_id)
 Index(
     "ix_progress_events_profile_problem",
     progress_events.c.profile_id,
     progress_events.c.problem_id,
+)
+Index(
+    "ix_progress_retry_items_profile_problem",
+    progress_retry_items.c.profile_id,
+    progress_retry_items.c.problem_id,
 )

@@ -32,7 +32,7 @@ from hoctap.content.catalog.service import (
     upsert_books,
 )
 from hoctap.content.review import service as review
-from hoctap.learning.models import progress_events, progress_sessions
+from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
 from hoctap.parent import service as parent_service
 
 FIXTURES = Path(__file__).parent / "fixtures" / "problemdocs"
@@ -260,7 +260,7 @@ def test_bundle_attempted_true_after_attempt_event(
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": doc["problem_id"],
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     resp = client.post(
@@ -283,7 +283,7 @@ def test_event_first_post_stored_once(client: TestClient, engine: Engine, profil
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": doc["problem_id"],
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     resp = client.post(
@@ -307,7 +307,7 @@ def test_event_resent_is_idempotent_no_duplicate(
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": doc["problem_id"],
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     body = {"profile_id": profile_id, "events": [event]}
@@ -433,7 +433,7 @@ def test_event_batch_two_distinct_events_both_stored(
             "id": str(uuid.uuid7()),
             "kind": "attempt",
             "problem_id": doc["problem_id"],
-            "payload": {"part_key": "a", "value": "5"},
+            "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
             "occurred_at": "2026-09-28T10:00:01+00:00",
         },
     ]
@@ -462,7 +462,7 @@ def test_event_batch_same_id_twice_within_batch_is_idempotent(
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": doc["problem_id"],
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     resp = client.post(
@@ -492,7 +492,7 @@ def test_event_no_partial_insert_when_a_later_event_in_the_batch_is_invalid(
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": doc["problem_id"],
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     bad_event = {
@@ -527,7 +527,7 @@ def test_event_problem_id_must_belong_to_the_session(
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": "some-other-book.some-unit.some-lesson.bai-9",
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     resp = client.post(
@@ -555,7 +555,7 @@ def test_event_concurrent_same_id_exactly_one_row_both_same_result(
         "id": str(uuid.uuid7()),
         "kind": "attempt",
         "problem_id": doc["problem_id"],
-        "payload": {"part_key": "a", "value": "5"},
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
         "occurred_at": "2026-09-28T10:00:00+00:00",
     }
     body = {"profile_id": profile_id, "events": [event]}
@@ -729,3 +729,539 @@ def test_bundle_degrades_gracefully_after_whole_unit_and_book_deleted(
 )
 def test_is_uuid7(value: str, expected: bool) -> None:
     assert _is_uuid7(value) is expected
+
+
+# --- Grading and staged help (Story 2.5) ----------------------------------------------
+
+
+def make_multi_slot_doc(label: str) -> dict[str, Any]:
+    """A single Part with two numeric slots, for multi-slot wrong-key tests."""
+    doc = make_doc(label)
+    doc["parts"] = [
+        {
+            "part_key": "a",
+            "type": "number_input",
+            "prompt": "",
+            "image_keys": [],
+            "template": "3 + 2 = [[s1]], 4 + 3 = [[s2]]",
+            "slots": [{"slot_key": "s1"}, {"slot_key": "s2"}],
+            "answer": [{"key": "s1", "value": "5"}, {"key": "s2", "value": "7"}],
+            "hint": "Con đếm thêm từng số nhé.",
+            "solution": {"steps": ["5, rồi 7."], "final": "5 và 7"},
+        }
+    ]
+    return doc
+
+
+def _attempt(problem_id: str, part_key: str, value: Any, occurred_at: str) -> dict[str, Any]:
+    return {
+        "id": str(uuid.uuid7()),
+        "kind": "attempt",
+        "problem_id": problem_id,
+        "payload": {"part_key": part_key, "value": value},
+        "occurred_at": occurred_at,
+    }
+
+
+def _post(client: TestClient, session_id: str, profile_id: str, *events: dict[str, Any]):
+    return client.post(
+        f"{API}/{session_id}/events", json={"profile_id": profile_id, "events": list(events)}
+    )
+
+
+def test_grade_correct_single_slot_no_hint_no_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+    )
+    resp = _post(client, session["id"], profile_id, event)
+    assert resp.status_code == 201, resp.text
+    out = resp.json()[0]
+    assert out["correct"] is True
+    assert out["wrong_keys"] == []
+    assert out["hint"] is None
+    assert out["solution"] is None
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.problem_id == doc["problem_id"]
+            )
+        ).all()
+    assert rows == []
+
+
+def test_grade_wrong_multi_slot_returns_exactly_the_wrong_key(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_multi_slot_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(
+        doc["problem_id"],
+        "a",
+        [{"key": "s1", "value": "5"}, {"key": "s2", "value": "9"}],  # s2 wrong (answer 7)
+        "2026-09-29T10:00:00+00:00",
+    )
+    resp = _post(client, session["id"], profile_id, event)
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["wrong_keys"] == ["s2"]
+
+
+def test_grade_first_wrong_releases_hint_and_adds_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    resp = _post(client, session["id"], profile_id, event)
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["hint"]
+    assert out["solution"] is None
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is None
+
+
+def test_grade_second_wrong_releases_solution_retry_item_not_duplicated(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    first = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    second = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "8"}], "2026-09-29T10:00:01+00:00"
+    )
+    _post(client, session["id"], profile_id, first)
+    resp = _post(client, session["id"], profile_id, second)
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["hint"]  # still shown
+    assert out["solution"] and out["solution"]["final"] == "3 + 2 = 5"
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1  # not duplicated
+
+
+def test_grade_wrong_then_correct_resolves_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """A single-Part Problem (`make_multi_slot_doc` has exactly one Part, "a") -- wrong
+    then correct on its only Part must resolve, with no OTHER Part to ever block it."""
+    doc = make_multi_slot_doc("bai-1")  # answer: s1=5, s2=7
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    wrong = _attempt(
+        doc["problem_id"],
+        "a",
+        [{"key": "s1", "value": "9"}, {"key": "s2", "value": "9"}],
+        "2026-09-29T10:00:00+00:00",
+    )
+    correct = _attempt(
+        doc["problem_id"],
+        "a",
+        [{"key": "s1", "value": "5"}, {"key": "s2", "value": "7"}],
+        "2026-09-29T10:00:01+00:00",
+    )
+    _post(client, session["id"], profile_id, wrong)
+    resp = _post(client, session["id"], profile_id, correct)
+    out = resp.json()[0]
+    assert out["correct"] is True
+    assert out["hint"] is None
+    assert out["solution"] is None
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is not None
+
+
+def test_grade_two_parts_one_ever_wrong_retry_queue_stays_open(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Part A wrong once (never corrected), Part B always correct -- Problem-level
+    resolution needs every Part correct, so the Retry Queue row stays open."""
+    doc = make_doc("bai-1")  # parts "a" (answer 5) and "b" (answer 3)
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    a_wrong = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    b_correct = _attempt(
+        doc["problem_id"], "b", [{"key": "s1", "value": "3"}], "2026-09-29T10:00:01+00:00"
+    )
+    _post(client, session["id"], profile_id, a_wrong)
+    resp = _post(client, session["id"], profile_id, b_correct)
+    assert resp.json()[0]["correct"] is True
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is None  # still open -- Part A is still wrong
+
+
+def make_three_part_doc(label: str) -> dict[str, Any]:
+    """Three independent single-slot `number_input` Parts ("a", "b", "c")."""
+    doc = make_doc(label)
+    doc["parts"] = [
+        {
+            "part_key": key,
+            "type": "number_input",
+            "prompt": "",
+            "image_keys": [],
+            "template": f"{value} = [[s1]]",
+            "slots": [{"slot_key": "s1"}],
+            "answer": [{"key": "s1", "value": value}],
+            "hint": "Con thử lại nhé.",
+            "solution": {"steps": [f"Kết quả là {value}."], "final": value},
+        }
+        for key, value in (("a", "5"), ("b", "3"), ("c", "8"))
+    ]
+    return doc
+
+
+def test_grade_never_attempted_sibling_part_blocks_resolution(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """#2 (review follow-up): a 3-Part Problem where only Part A is ever touched (wrong,
+    then corrected) must NOT resolve the Retry Queue row while Parts B and C were never
+    attempted at all -- a never-attempted Part is not "answered correctly", so it blocks
+    resolution the same as a currently-wrong one."""
+    doc = make_three_part_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    a_wrong = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    a_correct = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:01+00:00"
+    )
+    _post(client, session["id"], profile_id, a_wrong)
+    resp = _post(client, session["id"], profile_id, a_correct)
+    assert resp.json()[0]["correct"] is True
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is None  # Parts B and C were never attempted
+
+
+def test_grade_same_part_wrong_then_correct_within_one_batch_resolves(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """#3 (review follow-up): two attempts on the SAME Part within ONE batch call (wrong,
+    then correct) share the same `received_at` (resolved once per request) -- resolution
+    must reflect the LATER (correct) one regardless of the two events' UUIDv7 ordering,
+    via SQLite's own insertion-order `rowid`, not `(received_at, id)`."""
+    doc = make_multi_slot_doc("bai-1")  # single Part "a", answer s1=5, s2=7
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    wrong = _attempt(
+        doc["problem_id"],
+        "a",
+        [{"key": "s1", "value": "9"}, {"key": "s2", "value": "9"}],
+        "2026-09-29T10:00:00+00:00",
+    )
+    correct = _attempt(
+        doc["problem_id"],
+        "a",
+        [{"key": "s1", "value": "5"}, {"key": "s2", "value": "7"}],
+        "2026-09-29T10:00:01+00:00",
+    )
+    resp = _post(client, session["id"], profile_id, wrong, correct)  # ONE batch call
+    assert resp.status_code == 201, resp.text
+    out = resp.json()
+    assert out[0]["correct"] is False
+    assert out[1]["correct"] is True
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is not None  # the later (correct) attempt wins
+
+
+def test_grade_order_wrong_has_no_partial_wrong_keys(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    doc["parts"] = [
+        {
+            "part_key": "p1",
+            "type": "order",
+            "prompt": "",
+            "image_keys": [],
+            "items": [
+                {"item_key": "n2", "text": "2"},
+                {"item_key": "n4", "text": "4"},
+            ],
+            "direction": "asc",
+            "answer": {"order": ["n2", "n4"]},
+            "hint": "Số bé trước.",
+            "solution": {"steps": ["2 rồi 4."], "final": "2, 4"},
+        }
+    ]
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(doc["problem_id"], "p1", {"order": ["n4", "n2"]}, "2026-09-29T10:00:00+00:00")
+    resp = _post(client, session["id"], profile_id, event)
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["wrong_keys"] == []
+
+
+def test_grade_resent_attempt_idempotent_no_regrade_no_double_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    first = _post(client, session["id"], profile_id, event)
+    second = _post(client, session["id"], profile_id, event)
+    assert first.json() == second.json()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1  # resend did not add a 2nd row
+
+
+def test_hint_requested_has_no_side_effect_no_pre_released_hint(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = {
+        "id": str(uuid.uuid7()),
+        "kind": "hint_requested",
+        "problem_id": doc["problem_id"],
+        "payload": {"part_key": "a"},
+        "occurred_at": "2026-09-29T10:00:00+00:00",
+    }
+    resp = _post(client, session["id"], profile_id, event)
+    out = resp.json()[0]
+    assert out["correct"] is None  # not an attempt -- no grading fields at all
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.problem_id == doc["problem_id"]
+            )
+        ).all()
+    assert rows == []
+
+
+def test_grade_bad_part_key_422_not_500(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(doc["problem_id"], "not-a-real-part", "5", "2026-09-29T10:00:00+00:00")
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "PART_NOT_FOUND")
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.id).where(progress_events.c.id == event["id"])
+        ).all()
+    assert rows == []  # never stored
+
+
+def test_grade_malformed_submitted_value_graded_wrong_not_500(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(
+        doc["problem_id"], "a", "not-the-expected-shape-at-all", "2026-09-29T10:00:00+00:00"
+    )
+    resp = _post(client, session["id"], profile_id, event)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["correct"] is False
+
+
+# --- #6 edge cases (review follow-up) --------------------------------------------------
+
+
+def make_fallback_doc(label: str) -> dict[str, Any]:
+    doc = json.loads((FIXTURES / "fallback.json").read_text(encoding="utf-8"))
+    doc.update(
+        problem_id=f"{BOOK}.{UNIT}.{LESSON}.{label}",
+        book_id=BOOK,
+        unit_key=UNIT,
+        lesson_key=LESSON,
+        problem_label=label,
+        display_label=f"Bài {label}",
+        concept_ids=[],
+        concept_proposals=[],
+    )
+    return doc
+
+
+def test_grade_attempt_on_fallback_part_422_via_real_endpoint(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """A real `attempt` event against a `fallback` Part's own `part_key`, through the
+    actual `POST /events` endpoint (not just a direct `grade_part()` call) -- `fallback`
+    is solution-only (`answer` always `None`) and must never be graded."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(doc["problem_id"], "p1", "anything", "2026-09-29T10:00:00+00:00")
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "PART_NOT_FOUND")
+
+
+def test_grade_attempt_with_null_problem_id_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """An `attempt` event with `problem_id: null` reaches the grading code path (not
+    just some earlier, unrelated short-circuit) and fails loudly, never a 500."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = {
+        "id": str(uuid.uuid7()),
+        "kind": "attempt",
+        "problem_id": None,
+        "payload": {"part_key": "a", "value": [{"key": "s1", "value": "5"}]},
+        "occurred_at": "2026-09-29T10:00:00+00:00",
+    }
+    resp = _post(client, session["id"], profile_id, event)
+    _envelope(resp, 422, "PART_NOT_FOUND")
+
+
+def test_grade_third_wrong_attempt_still_shows_solution_single_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """A 3rd (and not just a 2nd) wrong attempt on the same Part keeps showing the
+    Solution, and the Retry Queue row is still exactly one (not re-added)."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    resp = None
+    for i in range(3):
+        event = _attempt(
+            doc["problem_id"],
+            "a",
+            [{"key": "s1", "value": "9"}],
+            f"2026-09-29T10:00:0{i}+00:00",
+        )
+        resp = _post(client, session["id"], profile_id, event)
+    assert resp is not None
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["solution"] is not None
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1
+
+
+def test_hint_requested_then_wrong_attempt_on_same_part_still_stages_normally(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """`hint_requested` right before a wrong `attempt` on the same Part doesn't change
+    staging: the wrong attempt is still treated as the Part's FIRST wrong attempt (Hint
+    released, Retry Queue row added) -- asking early doesn't unlock anything early, and
+    doesn't interfere with the real staged-help count either."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    hint_event = {
+        "id": str(uuid.uuid7()),
+        "kind": "hint_requested",
+        "problem_id": doc["problem_id"],
+        "payload": {"part_key": "a"},
+        "occurred_at": "2026-09-29T10:00:00+00:00",
+    }
+    wrong_event = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:01+00:00"
+    )
+    _post(client, session["id"], profile_id, hint_event)
+    resp = _post(client, session["id"], profile_id, wrong_event)
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["hint"]
+    assert out["solution"] is None  # still the FIRST wrong attempt on this Part
+
+
+def test_retry_queue_counting_is_profile_wide_across_two_sessions(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """A 1st wrong attempt in one Session and a 2nd wrong attempt in a DIFFERENT Session
+    (same Profile, same Problem/Part) still correctly escalates to the Solution -- staged
+    help and the Retry Queue are Profile-wide, not Session-scoped (this story's frozen
+    intent), with two REAL distinct `session_id`s, not just asserted by code inspection."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session_a = _start(client, profile_id)
+    session_b = _start(client, profile_id)
+    assert session_a["id"] != session_b["id"]
+    first_wrong = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    second_wrong = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "8"}], "2026-09-29T10:00:01+00:00"
+    )
+    _post(client, session_a["id"], profile_id, first_wrong)
+    resp = _post(client, session_b["id"], profile_id, second_wrong)
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["solution"] is not None
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert len(rows) == 1  # one Retry Queue row, not one per Session
