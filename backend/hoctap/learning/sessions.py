@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import select, text
@@ -25,6 +25,7 @@ from hoctap.ids import new_id, to_iso
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
 from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
+from hoctap.learning.summary import SessionSummary, compute_summary
 from hoctap.parent.models import parent_profiles
 
 CHUNK_SIZE = 10
@@ -58,10 +59,18 @@ class SessionOut:
     started_at: str
 
 
-def start_session(conn: Any, now: datetime, profile_id: str, ref: ProblemSetRef) -> SessionOut:
+def start_session(
+    conn: Any, now: datetime, profile_id: str, ref: ProblemSetRef, mode: str = "practice"
+) -> SessionOut:
     """Resolves `ref`, refuses an empty set (422), creates the Session, writes its
     `session_started` event (server-generated id -- the Session doesn't exist yet for the
-    client to have already minted one), returns the frozen Session."""
+    client to have already minted one), returns the frozen Session.
+
+    `mode` (Story 2.10, AD-6): defaults to `"practice"`, matching every Session started
+    before this story. The "Luyện lại bài sai" flow passes `mode="replay"` together with a
+    `ReplayRef` -- `post_event()` reads this stored value back to gate Retry-Queue/Streak
+    side effects off for a replay Session's events.
+    """
     profile_exists = conn.execute(
         select(parent_profiles.c.id).where(parent_profiles.c.id == profile_id)
     ).scalar_one_or_none()
@@ -84,7 +93,7 @@ def start_session(conn: Any, now: datetime, profile_id: str, ref: ProblemSetRef)
             profile_id=profile_id,
             ref_kind=ref.kind,
             ref_key=ref_key(ref),
-            mode="practice",
+            mode=mode,
             problem_ids_json=json.dumps(problem_ids),
             chunk_size=CHUNK_SIZE,
             started_at=started_at,
@@ -109,7 +118,7 @@ def start_session(conn: Any, now: datetime, profile_id: str, ref: ProblemSetRef)
         ref_kind=ref.kind,
         problem_ids=problem_ids,
         chunk_size=CHUNK_SIZE,
-        mode="practice",
+        mode=mode,
         started_at=started_at,
     )
 
@@ -121,6 +130,25 @@ def _load_session(conn: Any, session_id: str) -> Any:
     if row is None:
         raise AppError(404, "SESSION_NOT_FOUND", "Không tìm thấy lượt học.")
     return row
+
+
+def get_session_summary(
+    conn: Any, session_id: str, profile_id: str, today: date
+) -> SessionSummary:
+    """`GET /sessions/{id}/summary` (Story 2.10): 403/404 the same way every other
+    Session-scoped read does, then 422 if `completed_at` is still unset -- the summary
+    (first-try accuracy, wrong-Problem ids, Streak) is only meaningful for a Session that
+    has actually reached its true end (`session_completed`, see `post_event()`)."""
+    session = _load_session(conn, session_id)
+    if session.profile_id != profile_id:
+        raise AppError(403, "FORBIDDEN", "Lượt học này không thuộc về hồ sơ này.")
+    if session.completed_at is None:
+        raise AppError(
+            422,
+            "SESSION_NOT_COMPLETED",
+            "Lượt học này chưa hoàn thành, chưa có tổng kết.",
+        )
+    return compute_summary(conn, session, today)
 
 
 @dataclass(frozen=True)
@@ -505,13 +533,19 @@ def _validate_self_marked(conn: Any, event: EventIn) -> bool:
 
 
 def _grade_and_stage(
-    conn: Any, profile_id: str, problem_id: str | None, payload: dict[str, Any], received_at: str
+    conn: Any,
+    profile_id: str,
+    problem_id: str | None,
+    payload: dict[str, Any],
+    received_at: str,
+    mode: str,
 ) -> dict[str, Any]:
     """The `attempt`-kind core: loads the effective Problem the same defensive way the
     bundle does (never 500s on a Problem whose override became invalid), grades the named
     Part, augments and returns `payload` with the verdict, and stages Hint/Solution
     release + the Retry Queue transition (AD-6's staged-help rule, this story's Boundaries
-    & Constraints step 4)."""
+    & Constraints step 4). `mode` (Story 2.10) gates only the ADD side of that Retry Queue
+    transition -- see the `mode != "replay"` check below and `post_event()`'s docstring."""
     if problem_id is None:
         raise AppError(422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm.")
     try:
@@ -539,7 +573,12 @@ def _grade_and_stage(
         prior_wrong = _count_prior_wrong(conn, profile_id, problem_id, part.part_key)
         hint = part.hint  # released on the 1st wrong attempt, and stays shown afterward
         if prior_wrong == 0:
-            _add_retry_item(conn, profile_id, problem_id, received_at)
+            # Story 2.10, AD-6: a `replay`-mode Session's wrong attempts never re-add to
+            # the Retry Queue (a replay is meant to resolve/practice existing items, never
+            # to open new ones) -- `_maybe_resolve_retry_item()` above is NOT similarly
+            # gated (see `post_event()`'s own docstring for why).
+            if mode != "replay":
+                _add_retry_item(conn, profile_id, problem_id, received_at)
         else:
             solution = part.solution.model_dump(mode="json")
     payload["hint"] = hint
@@ -580,19 +619,31 @@ def post_event(
     `self_marked` (Story 2.8): validated (`_validate_self_marked()`) and, on
     `correct: false`, added to the Retry Queue via `_add_retry_item()` -- same helper,
     same table, same skip-if-an-unresolved-row-already-exists behaviour Story 2.5 built for
-    `attempt`. On `correct: true`, no further server action -- a Star is DERIVED, not
-    stored: any future reader (Story 2.10's Session summary) computes a Profile's/
-    Session's Star count by counting `self_marked` events whose `payload["correct"] is
-    True`, the same append-only-log-derivation philosophy as `_count_prior_wrong()`/
-    `_part_currently_correct()` above. Neither `fallback_revealed` nor `self_marked` ever
-    counts towards first-try accuracy (not yet built by any story -- see
-    `deferred-work.md`): whichever future story computes it must exclude these two event
-    kinds by construction.
+    `attempt`, EXCEPT for a `replay`-mode Session (Story 2.10, AD-6): a replay's wrong
+    self-marks never re-add to the Retry Queue either, the same gate `_grade_and_stage()`
+    applies to a wrong `attempt`. On `correct: true`, no further server action -- a Star is
+    DERIVED, not stored: any future reader (Story 2.10's Session summary) computes a
+    Profile's/Session's Star count by counting `self_marked` events whose
+    `payload["correct"] is True`, the same append-only-log-derivation philosophy as
+    `_count_prior_wrong()`/`_part_currently_correct()` above. Neither `fallback_revealed`
+    nor `self_marked` ever counts towards first-try accuracy (`learning.summary`'s Story
+    2.10 computation only reads `attempt`/`self_marked` for a Problem's OWN verdict, per its
+    own docstring) -- `fallback_revealed` in particular is pure telemetry, no verdict at all.
+
+    `session_completed` (Story 2.10): posted by the frontend once, at the TRUE end of a
+    Session (the last Problem of the last chunk, never a mid-Session chunk boundary). Sets
+    `progress_sessions.completed_at` to this event's own `received_at` -- idempotent the
+    same way every other event kind already is (a resent `session_completed` for an
+    already-completed Session hits the `already_stored` fast path above and is a pure
+    no-op, never re-setting `completed_at` or erroring). No grading side effect of its own;
+    it exists purely to mark completion so `learning.summary`/the Streak have something
+    durable to read.
     """
     session = _load_session(conn, session_id)
     if session.profile_id != profile_id:
         raise AppError(403, "FORBIDDEN", "Lượt học này không thuộc về hồ sơ này.")
     _validate_event_against_session(session, event)
+    mode: str = session.mode
 
     already_stored = conn.execute(
         select(progress_events).where(progress_events.c.id == event.id)
@@ -612,7 +663,7 @@ def post_event(
             payload = event.payload
             if event.kind == "attempt":
                 payload = _grade_and_stage(
-                    conn, profile_id, event.problem_id, payload, received_at
+                    conn, profile_id, event.problem_id, payload, received_at, mode
                 )
             elif event.kind == "self_marked":
                 correct = _validate_self_marked(conn, event)
@@ -627,16 +678,38 @@ def post_event(
                     # `_maybe_resolve_retry_item()`'s "every OTHER Part must also be
                     # correct" check (it filters out `FallbackPart` on purpose) -- so
                     # passing an empty `parts`/a placeholder `graded_part_key` resolves
-                    # immediately, with no "other Parts" to ever block it.
+                    # immediately, with no "other Parts" to ever block it. Not gated on
+                    # `mode` -- see `post_event()`'s own docstring on why resolution is
+                    # always allowed, unlike adding a NEW item.
                     _maybe_resolve_retry_item(
                         conn, profile_id, event.problem_id, [], "", received_at
                     )
-                else:
+                elif mode != "replay":
                     _add_retry_item(conn, profile_id, event.problem_id, received_at)
             elif event.kind == "fallback_revealed":
                 payload = dict(payload)
                 payload["solution"] = _fallback_solution(
                     conn, event.problem_id, payload.get("part_key")
+                )
+            elif event.kind == "session_completed":
+                # Review Triage Log #1 (2026-09-29, high): the `already_stored` check
+                # above only catches a literal RESEND of the same event id. A second,
+                # DISTINCT `session_completed` event (different UUIDv7 -- two open tabs,
+                # or a client retry after a false-timeout) would otherwise pass straight
+                # through to here and unconditionally overwrite `completed_at` with this
+                # later `received_at`, potentially shifting the Session to the wrong
+                # calendar day for Streak purposes. Guarding the UPDATE itself with
+                # `completed_at IS NULL` makes only the FIRST `session_completed` event
+                # (whichever id arrives first) ever actually set it -- a second distinct
+                # event is still stored durably below (it's a valid event, just a no-op
+                # for `completed_at`), never rejected.
+                conn.execute(
+                    progress_sessions.update()
+                    .where(
+                        progress_sessions.c.id == session_id,
+                        progress_sessions.c.completed_at.is_(None),
+                    )
+                    .values(completed_at=received_at)
                 )
             conn.execute(
                 progress_events.insert().values(

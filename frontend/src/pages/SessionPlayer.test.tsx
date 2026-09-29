@@ -114,12 +114,22 @@ describe('SessionPlayer', () => {
     expect(screen.queryByRole('button', { name: 'Thử lại' })).not.toBeInTheDocument()
   })
 
-  it('reaches a "done" state, with a link back to the Library, after the only Problem in a single-chunk Session', async () => {
+  it('reaches the real summary screen, with a link back to the Library, after the only Problem in a single-chunk (true-end) Session', async () => {
     mockApi({
       'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
       'POST /api/v1/sessions/session-1/events': {
         status: 201,
         body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
+      'GET /api/v1/sessions/session-1/summary': {
+        status: 200,
+        body: {
+          session_id: 'session-1',
+          first_try_correct: 1,
+          total: 1,
+          wrong_problem_ids: [],
+          streak: 1,
+        },
       },
     })
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
@@ -131,7 +141,65 @@ describe('SessionPlayer', () => {
     expect(
       await screen.findByText('Em đã hoàn thành bài! Em được nhiều ngôi sao lắm.', {}, { timeout: 3000 }),
     ).toBeInTheDocument()
+    expect(screen.getByText('1/1')).toBeInTheDocument()
+    // Zero wrong Problems -- "Luyện lại bài sai" must not be shown.
+    expect(screen.queryByRole('button', { name: 'Luyện lại bài sai' })).not.toBeInTheDocument()
     expect(screen.getAllByText('Về Sách').length).toBeGreaterThan(0)
+  })
+
+  it('shows "Luyện lại bài sai" at the summary screen when the summary reports wrong Problems, and starts a replay Session on tap', async () => {
+    const fetchMock = mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ id: 'e1', session_id: 'session-1', kind: 'attempt', problem_id: PROBLEM.problem_id, occurred_at: 'x', received_at: 'x', correct: true }],
+      },
+      'GET /api/v1/sessions/session-1/summary': {
+        status: 200,
+        body: {
+          session_id: 'session-1',
+          first_try_correct: 0,
+          total: 1,
+          wrong_problem_ids: [PROBLEM.problem_id],
+          streak: 1,
+        },
+      },
+      'POST /api/v1/sessions': {
+        status: 201,
+        body: {
+          id: 'session-replay',
+          profile_id: PROFILE_ID,
+          ref_kind: 'replay',
+          problem_ids: [PROBLEM.problem_id],
+          chunk_size: 10,
+          mode: 'replay',
+          started_at: 'x',
+        },
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    const replayButton = await screen.findByRole(
+      'button',
+      { name: 'Luyện lại bài sai' },
+      { timeout: 3000 },
+    )
+    fireEvent.click(replayButton)
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/v1/sessions',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    const [, init] = fetchMock.mock.calls.find(([url]) => url === '/api/v1/sessions') ?? []
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      profile_id: PROFILE_ID,
+      ref: { kind: 'replay', source_session_id: 'session-1' },
+      mode: 'replay',
+    })
   })
 
   it('advances from Problem 1 to Problem 2 within one chunk (finding #7)', async () => {

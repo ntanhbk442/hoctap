@@ -34,6 +34,7 @@ from hoctap.content.catalog.service import (
 from hoctap.content.review import service as review
 from hoctap.learning.models import progress_events, progress_retry_items, progress_sessions
 from hoctap.parent import service as parent_service
+from hoctap.parent.models import parent_profiles
 
 FIXTURES = Path(__file__).parent / "fixtures" / "problemdocs"
 BOOK = "toan1-2020-q1"
@@ -1581,3 +1582,601 @@ def test_retry_queue_counting_is_profile_wide_across_two_sessions(
             )
         ).all()
     assert len(rows) == 1  # one Retry Queue row, not one per Session
+
+
+# --- Session summary, replay, streak (Story 2.10) -------------------------------------
+
+
+def _completed(occurred_at: str = "2026-09-29T10:00:00+00:00") -> dict[str, Any]:
+    return {
+        "id": str(uuid.uuid7()),
+        "kind": "session_completed",
+        "problem_id": None,
+        "payload": {},
+        "occurred_at": occurred_at,
+    }
+
+
+def _summary(client: TestClient, session_id: str, profile_id: str):
+    return client.get(f"{API}/{session_id}/summary", params={"profile_id": profile_id})
+
+
+def _replay_ref(source_session_id: str) -> dict[str, str]:
+    return {"kind": "replay", "source_session_id": source_session_id}
+
+
+def _start_replay(client: TestClient, profile_id: str, source_session_id: str):
+    return client.post(
+        API,
+        json={
+            "profile_id": profile_id,
+            "ref": _replay_ref(source_session_id),
+            "mode": "replay",
+        },
+    )
+
+
+def test_summary_before_completion_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    resp = _summary(client, session["id"], profile_id)
+    _envelope(resp, 422, "SESSION_NOT_COMPLETED")
+
+
+def test_session_completed_sets_completed_at_and_is_idempotent(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    event = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+    )
+    _post(client, session["id"], profile_id, event)
+    completed = _completed()
+    resp = _post(client, session["id"], profile_id, completed)
+    assert resp.status_code == 201, resp.text
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(progress_sessions).where(progress_sessions.c.id == session["id"])
+        ).one()
+    assert row.completed_at is not None
+    first_completed_at = row.completed_at
+
+    # Resent (same event id): idempotent no-op, `completed_at` unchanged.
+    resp2 = _post(client, session["id"], profile_id, completed)
+    assert resp2.status_code == 201, resp2.text
+    with engine.connect() as conn:
+        row2 = conn.execute(
+            select(progress_sessions).where(progress_sessions.c.id == session["id"])
+        ).one()
+    assert row2.completed_at == first_completed_at
+
+    summary = _summary(client, session["id"], profile_id).json()
+    assert summary["first_try_correct"] == 1
+    assert summary["total"] == 1
+    assert summary["wrong_problem_ids"] == []
+
+
+def test_summary_first_try_wrong_then_correct_not_counted(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    wrong = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+    )
+    correct = _attempt(
+        doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:01+00:00"
+    )
+    _post(client, session["id"], profile_id, wrong)
+    _post(client, session["id"], profile_id, correct)
+    _post(client, session["id"], profile_id, _completed())
+    summary = _summary(client, session["id"], profile_id).json()
+    assert summary["first_try_correct"] == 0
+    assert summary["total"] == 1
+    assert summary["wrong_problem_ids"] == [doc["problem_id"]]
+
+
+def test_summary_wrong_problem_ids_preserve_session_order(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    docs = [make_doc(f"bai-{i}") for i in range(3)]
+    Pub(engine)(*docs)
+    session = _start(client, profile_id)
+    # bai-0: correct first try. bai-1: wrong. bai-2: never attempted at all.
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _attempt(
+            docs[0]["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _attempt(
+            docs[1]["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:01+00:00"
+        ),
+    )
+    _post(client, session["id"], profile_id, _completed())
+    summary = _summary(client, session["id"], profile_id).json()
+    assert summary["first_try_correct"] == 1
+    assert summary["total"] == 3
+    assert summary["wrong_problem_ids"] == [docs[1]["problem_id"], docs[2]["problem_id"]]
+
+
+def test_summary_streak_is_one_right_after_first_completed_session(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    _post(client, session["id"], profile_id, _completed())
+    summary = _summary(client, session["id"], profile_id).json()
+    assert summary["streak"] == 1
+
+
+def test_replay_resolves_wrong_problems_in_original_order_only(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    docs = [make_doc(f"bai-{i}") for i in range(3)]
+    Pub(engine)(*docs)
+    source = _start(client, profile_id)
+    _post(
+        client,
+        source["id"],
+        profile_id,
+        _attempt(
+            docs[0]["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    _post(
+        client,
+        source["id"],
+        profile_id,
+        _attempt(
+            docs[1]["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:01+00:00"
+        ),
+    )
+    _post(client, source["id"], profile_id, _completed())
+
+    resp = _start_replay(client, profile_id, source["id"])
+    assert resp.status_code == 201, resp.text
+    replay = resp.json()
+    assert replay["mode"] == "replay"
+    # bai-1 (wrong) and bai-2 (never attempted) -- never bai-0 (correct first try).
+    assert replay["problem_ids"] == [docs[1]["problem_id"], docs[2]["problem_id"]]
+
+
+def test_replay_zero_wrong_problems_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    source = _start(client, profile_id)
+    _post(
+        client,
+        source["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    _post(client, source["id"], profile_id, _completed())
+    resp = _start_replay(client, profile_id, source["id"])
+    _envelope(resp, 422, "REPLAY_NO_WRONG_PROBLEMS")
+
+
+def test_replay_source_session_wrong_profile_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    source = _start(client, profile_id)
+    _post(
+        client,
+        source["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    _post(client, source["id"], profile_id, _completed())
+    other_profile_id = str(uuid.uuid7())
+    with engine.begin() as conn:
+        conn.execute(
+            parent_profiles.insert().values(
+                id=other_profile_id,
+                name="Su",
+                avatar="dog",
+                grade=1,
+                created_at="2026-09-29T00:00:00+00:00",
+            )
+        )
+    resp = _start_replay(client, other_profile_id, source["id"])
+    _envelope(resp, 422, "REPLAY_SOURCE_NOT_FOUND")
+
+
+def test_replay_wrong_attempt_does_not_add_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """AD-6: a `replay`-mode Session's wrong attempts never re-add to the Retry Queue --
+    Hint/Solution staging (grading itself) is unaffected."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    source = _start(client, profile_id)
+    _post(
+        client,
+        source["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    _post(client, source["id"], profile_id, _completed())
+    replay = _start_replay(client, profile_id, source["id"]).json()
+
+    resp = _post(
+        client,
+        replay["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T11:00:00+00:00"
+        ),
+    )
+    out = resp.json()[0]
+    assert out["correct"] is False
+    assert out["hint"]  # grading/Hint staging itself is unaffected
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    # The ORIGINAL wrong attempt (in the source Session) already added one row; the
+    # replay's wrong attempt on the SAME Problem/Part must not add a second one.
+    assert len(rows) == 1
+
+
+def test_replay_self_marked_false_does_not_add_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    source = _start(client, profile_id)
+    _post(client, source["id"], profile_id, _completed())
+    # `source` has zero wrong Problems recorded via `attempt`/`self_marked`, but its own
+    # frozen `problem_ids` still includes the fallback Problem with no evidence at all --
+    # per `session_wrong_problem_ids()`, "never attempted" counts as NOT first-try-correct,
+    # so it IS a valid (non-empty) replay target.
+    replay = _start_replay(client, profile_id, source["id"]).json()
+    assert replay["problem_ids"] == [doc["problem_id"]]
+
+    resp = _post(
+        client,
+        replay["id"],
+        profile_id,
+        _fallback_event("self_marked", doc["problem_id"], {"correct": False}),
+    )
+    assert resp.status_code == 201, resp.text
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.profile_id == profile_id,
+                progress_retry_items.c.problem_id == doc["problem_id"],
+            )
+        ).all()
+    assert rows == []
+
+
+def test_replay_correct_attempt_still_resolves_existing_retry_item(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Documented implementer's decision: `_maybe_resolve_retry_item()` is NOT gated on
+    `mode` -- resolving a pre-existing open Retry Queue item via a replay attempt is a
+    reasonable side effect (AD-6's exclusion is about replay attempts never ADDING to
+    Stars/Retry/Streak, not about blocking a legitimate resolution)."""
+    # Single-Part doc (`make_multi_slot_doc` -- Part "a" only, slots s1/s2, answer 5/7):
+    # a real 2nd Part with no attempt at all would otherwise block resolution
+    # (`_maybe_resolve_retry_item()`'s "every OTHER Part" check), which isn't what this
+    # test is about.
+    doc = make_multi_slot_doc("bai-1")
+    Pub(engine)(doc)
+    practice = _start(client, profile_id)
+    _post(
+        client,
+        practice["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"],
+            "a",
+            [{"key": "s1", "value": "9"}, {"key": "s2", "value": "9"}],
+            "2026-09-29T10:00:00+00:00",
+        ),
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.problem_id == doc["problem_id"]
+            )
+        ).all()
+    assert len(rows) == 1 and rows[0].resolved_at is None
+
+    _post(client, practice["id"], profile_id, _completed())
+    replay = _start_replay(client, profile_id, practice["id"]).json()
+    _post(
+        client,
+        replay["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"],
+            "a",
+            [{"key": "s1", "value": "5"}, {"key": "s2", "value": "7"}],
+            "2026-09-29T11:00:00+00:00",
+        ),
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_retry_items).where(
+                progress_retry_items.c.problem_id == doc["problem_id"]
+            )
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resolved_at is not None
+
+
+def test_streak_excludes_replay_mode_sessions() -> None:
+    """`compute_streak()` directly (Story 2.10, AD-6): a day whose only completed Session
+    was `mode="replay"` does not count towards the Streak."""
+    from datetime import date
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import URL
+
+    from hoctap.db.engine import run_migrations
+    from hoctap.learning.summary import compute_streak
+
+    eng = create_engine(URL.create("sqlite", database=":memory:"))
+    run_migrations(eng)
+    profile_id = "p1"
+    with eng.begin() as conn:
+        conn.execute(
+            progress_sessions.insert().values(
+                id="s-practice",
+                profile_id=profile_id,
+                ref_kind="lesson",
+                ref_key="lesson:x:y:z",
+                mode="practice",
+                problem_ids_json="[]",
+                chunk_size=10,
+                started_at="2026-09-28T03:00:00+00:00",
+                completed_at="2026-09-28T03:00:00+00:00",
+            )
+        )
+        conn.execute(
+            progress_sessions.insert().values(
+                id="s-replay",
+                profile_id=profile_id,
+                ref_kind="replay",
+                ref_key="replay:s-practice",
+                mode="replay",
+                problem_ids_json="[]",
+                chunk_size=10,
+                started_at="2026-09-29T03:00:00+00:00",
+                completed_at="2026-09-29T03:00:00+00:00",
+            )
+        )
+    with eng.connect() as conn:
+        streak = compute_streak(conn, profile_id, date(2026, 9, 29))
+    # Only 2026-09-28 (practice) counts; 2026-09-29's only completed Session was replay,
+    # so it does not extend the Streak -- and per the "still alive" boundary, since today
+    # (09-29) itself has no completed non-replay Session, the walk starts at yesterday.
+    assert streak == 1
+
+
+def test_streak_consecutive_days_and_a_gap_day() -> None:
+    """`compute_streak()` directly: 3 consecutive completed days reads 3; a gap day (day 1
+    and day 3 completed, day 2 not) reads however the "still alive" boundary defines it --
+    here, walking backward from day 3 (today), the gap on day 2 stops the count at 1."""
+    from datetime import date
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import URL
+
+    from hoctap.db.engine import run_migrations
+    from hoctap.learning.summary import compute_streak
+
+    eng = create_engine(URL.create("sqlite", database=":memory:"))
+    run_migrations(eng)
+    profile_id = "p1"
+
+    def _row(session_id: str, day: str) -> dict[str, Any]:
+        return dict(
+            id=session_id,
+            profile_id=profile_id,
+            ref_kind="lesson",
+            ref_key="lesson:x:y:z",
+            mode="practice",
+            problem_ids_json="[]",
+            chunk_size=10,
+            started_at=f"{day}T03:00:00+00:00",
+            completed_at=f"{day}T03:00:00+00:00",
+        )
+
+    with eng.begin() as conn:
+        conn.execute(progress_sessions.insert().values(**_row("s1", "2026-09-01")))
+        conn.execute(progress_sessions.insert().values(**_row("s2", "2026-09-02")))
+        conn.execute(progress_sessions.insert().values(**_row("s3", "2026-09-03")))
+
+    with eng.connect() as conn:
+        three_in_a_row = compute_streak(conn, profile_id, date(2026, 9, 3))
+    assert three_in_a_row == 3
+
+    with eng.begin() as conn:
+        conn.execute(progress_sessions.insert().values(**_row("s5", "2026-09-05")))
+    with eng.connect() as conn:
+        gap_day_streak = compute_streak(conn, profile_id, date(2026, 9, 5))
+    assert gap_day_streak == 1  # day 4 missing breaks the chain; only day 5 itself counts
+
+
+def test_session_completed_second_distinct_event_does_not_overwrite_completed_at(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #1 (2026-09-29, high): the `already_stored` fast path in
+    `post_event()` only catches a literal RESEND of the SAME event id. A second, DISTINCT
+    `session_completed` event (a different UUIDv7 -- two open tabs, or a client retry
+    after a false-timeout) must still be stored durably (it's a valid event), but must NOT
+    overwrite `completed_at`, which the FIRST `session_completed` event to arrive already
+    set."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+
+    first_event = _completed("2026-09-29T10:00:01+00:00")
+    resp1 = _post(client, session["id"], profile_id, first_event)
+    assert resp1.status_code == 201, resp1.text
+    with engine.connect() as conn:
+        row1 = conn.execute(
+            select(progress_sessions).where(progress_sessions.c.id == session["id"])
+        ).one()
+    assert row1.completed_at is not None
+    first_completed_at = row1.completed_at
+
+    # A DIFFERENT event id (not a resend) -- must be stored, but must be a no-op for
+    # `completed_at`.
+    second_event = _completed("2026-09-29T12:00:00+00:00")
+    assert second_event["id"] != first_event["id"]
+    resp2 = _post(client, session["id"], profile_id, second_event)
+    assert resp2.status_code == 201, resp2.text
+
+    with engine.connect() as conn:
+        row2 = conn.execute(
+            select(progress_sessions).where(progress_sessions.c.id == session["id"])
+        ).one()
+        stored_kinds = conn.execute(
+            select(progress_events.c.id).where(
+                progress_events.c.session_id == session["id"],
+                progress_events.c.kind == "session_completed",
+            )
+        ).all()
+    assert row2.completed_at == first_completed_at  # unchanged by the second, later event
+    # Both distinct `session_completed` events are still durably stored -- a valid event
+    # is never rejected, it's simply a no-op for `completed_at`.
+    assert len(stored_kinds) == 2
+
+
+def test_replay_source_session_not_completed_422(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #2 (2026-09-29, medium): a client must not be able to start a
+    replay against a source Session that's still in progress (no `completed_at`) --
+    `session_wrong_problem_ids()`'s "never attempted" rule would otherwise make an
+    in-progress Session look like a valid, non-empty replay target."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    source = _start(client, profile_id)
+    _post(
+        client,
+        source["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    # No `session_completed` posted -- `source` is still in progress.
+    resp = _start_replay(client, profile_id, source["id"])
+    _envelope(resp, 422, "REPLAY_SOURCE_NOT_COMPLETED")
+
+
+def test_summary_wrong_problem_ids_empty_when_all_correct_first_try(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #4 (2026-09-29, low): a targeted assertion that
+    `wrong_problem_ids` is empty (the signal the frontend's "Luyện lại bài sai" button
+    hiding reads) when every Problem was answered correctly on the first try -- previously
+    only exercised incidentally as a byproduct of a different test's `first_try_correct`
+    assertion."""
+    docs = [make_doc(f"bai-{i}") for i in range(2)]
+    Pub(engine)(*docs)
+    session = _start(client, profile_id)
+    for i, doc in enumerate(docs):
+        _post(
+            client,
+            session["id"],
+            profile_id,
+            _attempt(
+                doc["problem_id"],
+                "a",
+                [{"key": "s1", "value": "5"}],
+                f"2026-09-29T10:00:0{i}+00:00",
+            ),
+        )
+    _post(client, session["id"], profile_id, _completed())
+    summary = _summary(client, session["id"], profile_id).json()
+    assert summary["wrong_problem_ids"] == []
+    assert summary["first_try_correct"] == summary["total"] == 2
+
+
+def test_streak_crosses_utc_local_calendar_day_boundary() -> None:
+    """Review Triage Log #3 (2026-09-29, low): every other streak test happens to use a
+    timestamp that falls on the SAME calendar day in both UTC and Asia/Ho_Chi_Minh
+    (UTC+7), so none of them actually exercise `_local_date()`'s `.astimezone(LOCAL_TZ)`
+    conversion at a real boundary -- a regression that dropped the `.astimezone()` call
+    entirely would still pass every existing streak test. `18:00:00+00:00` UTC is
+    `01:00` the next day in +07:00, so a completed Session stored with that `completed_at`
+    must count towards the LOCAL day after its UTC date, not the UTC date itself."""
+    from datetime import date
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import URL
+
+    from hoctap.db.engine import run_migrations
+    from hoctap.learning.summary import compute_streak
+
+    eng = create_engine(URL.create("sqlite", database=":memory:"))
+    run_migrations(eng)
+    profile_id = "p1"
+    with eng.begin() as conn:
+        conn.execute(
+            progress_sessions.insert().values(
+                id="s-boundary",
+                profile_id=profile_id,
+                ref_kind="lesson",
+                ref_key="lesson:x:y:z",
+                mode="practice",
+                problem_ids_json="[]",
+                chunk_size=10,
+                started_at="2026-09-28T18:00:00+00:00",
+                # UTC calendar date: 2026-09-28. Local (Asia/Ho_Chi_Minh, +07:00)
+                # calendar date: 2026-09-29 01:00 -> 2026-09-29.
+                completed_at="2026-09-28T18:00:00+00:00",
+            )
+        )
+    with eng.connect() as conn:
+        # `today` is the LOCAL date (2026-09-29) the completed_at converts to -- if
+        # `_local_date()` incorrectly used the UTC date (2026-09-28) instead, this Session
+        # would not be found "today" and the streak would read 0.
+        streak_today_local = compute_streak(conn, profile_id, date(2026, 9, 29))
+        # And it must NOT count towards the UTC date (2026-09-28) as "today" either --
+        # 2026-09-28 local has no completed Session (nor does 2026-09-27, its "yesterday"),
+        # so the streak from that vantage point is 0.
+        streak_utc_date_as_today = compute_streak(conn, profile_id, date(2026, 9, 28))
+    assert streak_today_local == 1
+    assert streak_utc_date_as_today == 0

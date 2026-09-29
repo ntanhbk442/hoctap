@@ -35,10 +35,13 @@ export type LibraryHomeOut = Schemas['LibraryHomeOut']
 export type HomeLessonOut = Schemas['HomeLessonOut']
 export type SessionOut = Schemas['SessionOut']
 export type LessonRefIn = Schemas['LessonRefIn']
+export type ReplayRefIn = Schemas['ReplayRefIn']
+export type StartSessionRefIn = LessonRefIn | ReplayRefIn
 export type BundleOut = Schemas['BundleOut']
 export type BundleProblemOut = Schemas['BundleProblemOut']
 export type EventIn = Schemas['EventIn']
 export type EventOut = Schemas['EventOut']
+export type SummaryOut = Schemas['SummaryOut']
 
 export const API_BASE = '/api/v1'
 
@@ -174,8 +177,26 @@ export function getLibraryHome(profileId: string, signal?: AbortSignal): Promise
 
 const SESSIONS = '/sessions'
 
-export function startSession(profileId: string, ref: LessonRefIn): Promise<SessionOut> {
-  return apiPost<SessionOut>(SESSIONS, { profile_id: profileId, ref })
+/** Starts a Session. `mode` (Story 2.10) defaults to `"practice"` server-side when
+ * omitted; the "Luyện lại bài sai" flow passes `{kind: "replay", source_session_id}` and
+ * `mode: "replay"` together. */
+export function startSession(
+  profileId: string,
+  ref: StartSessionRefIn,
+  mode?: 'practice' | 'replay',
+): Promise<SessionOut> {
+  return apiPost<SessionOut>(SESSIONS, { profile_id: profileId, ref, mode })
+}
+
+export function getSessionSummary(
+  sessionId: string,
+  profileId: string,
+  signal?: AbortSignal,
+): Promise<SummaryOut> {
+  return apiGet<SummaryOut>(
+    `${SESSIONS}/${enc(sessionId)}/summary?profile_id=${encodeURIComponent(profileId)}`,
+    { signal },
+  )
 }
 
 export function getSessionBundle(

@@ -514,6 +514,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{session_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Summary */
+        get: operations["get_session_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session_id}/events": {
         parameters: {
             query?: never;
@@ -1638,9 +1655,8 @@ export interface components {
         /** LessonRefIn */
         LessonRefIn: {
             /**
-             * Kind
-             * @default lesson
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "lesson";
             /** Book Id */
@@ -2279,6 +2295,20 @@ export interface components {
             /** Name Vi */
             name_vi: string;
         };
+        /**
+         * ReplayRefIn
+         * @description Story 2.10's "Luyện lại bài sai": a new Session made of one earlier ("source")
+         *     Session's own wrong Problem ids.
+         */
+        ReplayRefIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "replay";
+            /** Source Session Id */
+            source_session_id: string;
+        };
         /** ReportOut */
         ReportOut: {
             /** Id */
@@ -2655,7 +2685,27 @@ export interface components {
         StartSessionIn: {
             /** Profile Id */
             profile_id: string;
-            ref: components["schemas"]["LessonRefIn"];
+            /** Ref */
+            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"];
+            /**
+             * Mode
+             * @default practice
+             * @enum {string}
+             */
+            mode: "practice" | "replay";
+        };
+        /** SummaryOut */
+        SummaryOut: {
+            /** Session Id */
+            session_id: string;
+            /** First Try Correct */
+            first_try_correct: number;
+            /** Total */
+            total: number;
+            /** Wrong Problem Ids */
+            wrong_problem_ids: string[];
+            /** Streak */
+            streak: number;
         };
         /** TreeNode */
         TreeNode: {
@@ -4271,7 +4321,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Empty Problem set */
+            /** @description Empty Problem set, or (replay) an unknown/foreign/all-correct source Session */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4324,6 +4374,57 @@ export interface operations {
                 };
             };
             /** @description Chunk out of range */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_session_summary: {
+        parameters: {
+            query: {
+                profile_id: string;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
+                };
+            };
+            /** @description Profile doesn't own this Session */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown Session */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Session not yet completed */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -20,7 +20,8 @@ from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.content.schema import Solution
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
-from hoctap.learning.problem_sets import LessonRef
+from hoctap.learning.problem_sets import LessonRef, ReplayRef
+from hoctap.learning.summary import LOCAL_TZ
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -55,9 +56,22 @@ class LessonRefIn(BaseModel):
     lesson_key: str
 
 
+class ReplayRefIn(BaseModel):
+    """Story 2.10's "Luyện lại bài sai": a new Session made of one earlier ("source")
+    Session's own wrong Problem ids."""
+
+    kind: Literal["replay"] = "replay"
+    source_session_id: str
+
+
 class StartSessionIn(BaseModel):
     profile_id: str
-    ref: LessonRefIn
+    ref: LessonRefIn | ReplayRefIn = Field(discriminator="kind")
+    # Story 2.10, AD-6: defaults to `"practice"` (every Session before this story). The
+    # frontend's "Luyện lại bài sai" button passes `mode: "replay"` alongside a
+    # `ref.kind: "replay"` -- kept as an independent field (not derived from `ref.kind`)
+    # per this story's frozen Boundaries & Constraints wording.
+    mode: Literal["practice", "replay"] = "practice"
 
 
 class SessionOut(BaseModel):
@@ -89,15 +103,26 @@ def _session_out(s: service.SessionOut) -> SessionOut:
     operation_id="start_session",
     responses={
         404: {"model": ErrorResponse, "description": "Unknown profile"},
-        422: {"model": ErrorResponse, "description": "Empty Problem set"},
+        422: {
+            "model": ErrorResponse,
+            "description": (
+                "Empty Problem set, or (replay) an unknown/foreign/all-correct source Session"
+            ),
+        },
     },
 )
 def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> SessionOut:
-    ref = LessonRef(
-        book_id=body.ref.book_id, unit_key=body.ref.unit_key, lesson_key=body.ref.lesson_key
-    )
+    ref: LessonRef | ReplayRef
+    if body.ref.kind == "lesson":
+        ref = LessonRef(
+            book_id=body.ref.book_id, unit_key=body.ref.unit_key, lesson_key=body.ref.lesson_key
+        )
+    else:
+        ref = ReplayRef(source_session_id=body.ref.source_session_id)
     with engine.begin() as conn:
-        return _session_out(service.start_session(conn, now, body.profile_id, ref))
+        return _session_out(
+            service.start_session(conn, now, body.profile_id, ref, mode=body.mode)
+        )
 
 
 class BundleProblemOut(BaseModel):
@@ -153,6 +178,39 @@ def get_bundle(
 ) -> BundleOut:
     with engine.connect() as conn:
         return _bundle_out(service.get_bundle(conn, session_id, profile_id, chunk))
+
+
+class SummaryOut(BaseModel):
+    session_id: str
+    first_try_correct: int
+    total: int
+    wrong_problem_ids: list[str]
+    streak: int
+
+
+@router.get(
+    "/{session_id}/summary",
+    response_model=SummaryOut,
+    operation_id="get_session_summary",
+    responses={
+        403: {"model": ErrorResponse, "description": "Profile doesn't own this Session"},
+        404: {"model": ErrorResponse, "description": "Unknown Session"},
+        422: {"model": ErrorResponse, "description": "Session not yet completed"},
+    },
+)
+def get_summary(
+    session_id: str, profile_id: Annotated[str, Query()], engine: EngineDep, now: NowDep
+) -> SummaryOut:
+    today = now.astimezone(LOCAL_TZ).date()
+    with engine.connect() as conn:
+        summary = service.get_session_summary(conn, session_id, profile_id, today)
+    return SummaryOut(
+        session_id=session_id,
+        first_try_correct=summary.first_try_correct,
+        total=summary.total,
+        wrong_problem_ids=summary.wrong_problem_ids,
+        streak=summary.streak,
+    )
 
 
 class EventIn(BaseModel):

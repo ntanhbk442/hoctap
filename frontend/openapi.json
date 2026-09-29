@@ -1964,7 +1964,7 @@
             }
           },
           "422": {
-            "description": "Empty Problem set",
+            "description": "Empty Problem set, or (replay) an unknown/foreign/all-correct source Session",
             "content": {
               "application/json": {
                 "schema": {
@@ -2037,6 +2037,77 @@
           },
           "422": {
             "description": "Chunk out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Profile doesn't own this Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{session_id}/summary": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Get Summary",
+        "operationId": "get_session_summary",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Session not yet completed",
             "content": {
               "application/json": {
                 "schema": {
@@ -6807,6 +6878,26 @@
         ],
         "title": "RenameIn"
       },
+      "ReplayRefIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "replay",
+            "title": "Kind",
+            "default": "replay"
+          },
+          "source_session_id": {
+            "type": "string",
+            "title": "Source Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_session_id"
+        ],
+        "title": "ReplayRefIn",
+        "description": "Story 2.10's \"Luyện lại bài sai\": a new Session made of one earlier (\"source\")\nSession's own wrong Problem ids."
+      },
       "ReportOut": {
         "properties": {
           "id": {
@@ -7755,7 +7846,31 @@
             "title": "Profile Id"
           },
           "ref": {
-            "$ref": "#/components/schemas/LessonRefIn"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LessonRefIn"
+              },
+              {
+                "$ref": "#/components/schemas/ReplayRefIn"
+              }
+            ],
+            "title": "Ref",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "lesson": "#/components/schemas/LessonRefIn",
+                "replay": "#/components/schemas/ReplayRefIn"
+              }
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "practice",
+              "replay"
+            ],
+            "title": "Mode",
+            "default": "practice"
           }
         },
         "type": "object",
@@ -7764,6 +7879,42 @@
           "ref"
         ],
         "title": "StartSessionIn"
+      },
+      "SummaryOut": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "first_try_correct": {
+            "type": "integer",
+            "title": "First Try Correct"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "wrong_problem_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Wrong Problem Ids"
+          },
+          "streak": {
+            "type": "integer",
+            "title": "Streak"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "first_try_correct",
+          "total",
+          "wrong_problem_ids",
+          "streak"
+        ],
+        "title": "SummaryOut"
       },
       "TreeNode": {
         "properties": {

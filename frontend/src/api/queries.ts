@@ -16,12 +16,13 @@ import {
   getReviewProblems,
   getReviewQueue,
   getSessionBundle,
+  getSessionSummary,
   getSetupStatus,
   getSpotCheck,
-  type LessonRefIn,
   postSessionEvents,
   type ProblemFilter,
   startSession,
+  type StartSessionRefIn,
 } from './client'
 
 // A run polled while it is active (running/pausing); polling stops once it settles.
@@ -49,6 +50,8 @@ export const queryKeys = {
   libraryHome: (profileId: string) => ['library', 'home', profileId] as const,
   sessionBundle: (sessionId: string, profileId: string, chunk: number) =>
     ['sessions', sessionId, 'bundle', profileId, chunk] as const,
+  sessionSummary: (sessionId: string, profileId: string) =>
+    ['sessions', sessionId, 'summary', profileId] as const,
 }
 
 export function useHealth() {
@@ -180,11 +183,20 @@ export function useLibraryHome(profileId: string) {
 }
 
 /** Starts a Session (Story 2.4: `POST /sessions`) for a resolved `ProblemSetRef`, e.g. the
- * Lesson `useLibraryHome()` resolved. Callers navigate to the Session route on success. */
+ * Lesson `useLibraryHome()` resolved, or (Story 2.10) a `{kind: "replay",
+ * source_session_id}` ref for "Luyện lại bài sai" -- `mode` should then be passed as
+ * `"replay"`. Callers navigate to the Session route on success. */
 export function useStartSession() {
   return useMutation({
-    mutationFn: ({ profileId, ref }: { profileId: string; ref: LessonRefIn }) =>
-      startSession(profileId, ref),
+    mutationFn: ({
+      profileId,
+      ref,
+      mode,
+    }: {
+      profileId: string
+      ref: StartSessionRefIn
+      mode?: 'practice' | 'replay'
+    }) => startSession(profileId, ref, mode),
   })
 }
 
@@ -197,6 +209,19 @@ export function useSessionBundle(sessionId: string, profileId: string, chunk: nu
     queryKey: queryKeys.sessionBundle(sessionId, profileId, chunk),
     queryFn: ({ signal }) => getSessionBundle(sessionId, profileId, chunk, signal),
     enabled: sessionId !== '' && profileId !== '',
+  })
+}
+
+/** The true-end-of-Session summary (Story 2.10: `GET /sessions/{id}/summary`) --
+ * first-try-correct count, wrong Problem ids (for "Luyện lại bài sai"), and the Streak.
+ * Only meaningful once `session_completed` has been posted; `enabled` lets the caller
+ * defer the fetch until that post has landed. */
+export function useSessionSummary(sessionId: string, profileId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.sessionSummary(sessionId, profileId),
+    queryFn: ({ signal }) => getSessionSummary(sessionId, profileId, signal),
+    enabled: enabled && sessionId !== '' && profileId !== '',
+    retry: false,
   })
 }
 

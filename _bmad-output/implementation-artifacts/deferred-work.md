@@ -185,3 +185,32 @@
     `parent_profiles.auto_play` and `Profile.auto_play` are both ready for a future Parent
     Area story to add a switch that PATCHes it -- no new backend concept needed, just a
     write endpoint and a form control.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-10-session-summary-and-luyen-lai-bai-sai.md`
+  summary: |
+    A `fallback`-type Problem (Story 2.8's self-check) can never count as first-try-correct
+    in `learning.summary.session_wrong_problem_ids()` -- even when the child self-marked
+    "đúng" -- because that computation reads only `attempt` events, per this story's frozen
+    spec text and the Story 2.8 `deferred-work.md` entry it echoes (`self_marked`/
+    `fallback_revealed` must never be counted as a graded verdict). A fallback Problem
+    therefore always appears in a completed Session's `wrong_problem_ids` and is always
+    offered again via "Luyện lại bài sai", regardless of how the child actually self-marked
+    it.
+  evidence: |
+    See this story's Implementation Notes (2026-09-29) for the full reasoning; a future
+    story that wants first-try accuracy to treat a correct self-mark as "correct" needs to
+    either extend `session_wrong_problem_ids()` to read `self_marked` for Problems with zero
+    `attempt` events, or accept this as the permanent behaviour for fallback Problems and
+    update the frozen spec text accordingly -- either way it should be a deliberate,
+    reviewed change, not a silent one.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-10-session-summary-and-luyen-lai-bai-sai.md`
+  summary: A real Streak-display UI (calendar view, flame animation/asset, badges tied to Streak length).
+  evidence: |
+    Frozen Boundaries & Constraints explicitly scope this story to the plain `streak` count
+    `GET /sessions/{id}/summary` returns -- no calendar UI, no flame asset, no badges. The
+    PRD's UJ-1 "4-day Streak flame growing" is flavor text, not a literal required asset.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-10-session-summary-and-luyen-lai-bai-sai.md`
+  summary: Badges (any kind) -- still not built by any Epic 2 story through 2.10.
+  evidence: |
+    Every prior Epic 2 story (2.5 through 2.9) has deferred badges in turn; this story's own
+    frozen Boundaries repeat the deferral explicitly. No badge schema, computation, or UI
+    exists yet.
