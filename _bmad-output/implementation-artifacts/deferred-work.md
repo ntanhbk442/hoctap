@@ -137,3 +137,18 @@
     `progress_retry_items` rows are written and resolved correctly by this story, but
     nothing reads them yet -- `learning.problem_sets.resolve()`'s `retry` kind is still
     `UnsupportedProblemSetRef` (Story 2.4's own deferral, unchanged here).
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-the-other-grade-1-widgets.md`
+  summary: `expression_input` (EXPERIENCE.md's Problem Type interaction table lists it, but no Epic 2 story's acceptance criteria -- 2.6's basic 5 or this story's 7 -- ever names it).
+  evidence: |
+    This story's own Code Map explicitly asked to check this; confirmed not covered by
+    any Epic 2 story, in scope or acceptance criteria, so it is out of scope for all of
+    Epic 2 as it stands. No `expression_input` Part type even exists in
+    `content/schema.py`'s `Part` union, so there is nothing to wire a widget to yet either.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-the-other-grade-1-widgets.md`
+  summary: `spot_difference`'s child-facing View (`SpotDifferenceView`) needs to expose region/bbox hotspot data (mirroring `image_select`'s `Region` shape) -- or the grader needs a geometry-tolerant match -- before a real `spot_difference` Part can ever grade correct.
+  evidence: |
+    See this story's own Spec Change Log entry (2026-09-29) for the full analysis: the
+    client can only ever produce a coordinate-derived region key, which cannot match
+    `SpotDifferencePart.answer.regions`' author-assigned keys server-side. This story
+    ships the full tap/ring/counter/✔-gating UX per spec regardless, but grading a real
+    Part of this type will always come back incorrect until this is fixed.

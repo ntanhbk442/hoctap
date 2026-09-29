@@ -12,10 +12,17 @@ import NumberPad from '../components/NumberPad/NumberPad'
 import SolutionPanel from '../components/SolutionPanel/SolutionPanel'
 import StarBurst from '../components/StarBurst/StarBurst'
 import CompareWidget from '../components/widgets/CompareWidget'
+import ConnectDotsWidget from '../components/widgets/ConnectDotsWidget'
 import CountImageWidget from '../components/widgets/CountImageWidget'
+import DotDrawWidget from '../components/widgets/DotDrawWidget'
+import GridFillWidget from '../components/widgets/GridFillWidget'
+import ImageSelectWidget from '../components/widgets/ImageSelectWidget'
+import MatchWidget from '../components/widgets/MatchWidget'
 import MultipleChoiceWidget from '../components/widgets/MultipleChoiceWidget'
 import NumberInputWidget from '../components/widgets/NumberInputWidget'
 import NumberTreeWidget from '../components/widgets/NumberTreeWidget'
+import OrderWidget from '../components/widgets/OrderWidget'
+import SpotDifferenceWidget from '../components/widgets/SpotDifferenceWidget'
 import type { ChildPart } from '../components/widgets/types'
 import UnsupportedWidget from '../components/widgets/UnsupportedWidget'
 import { newEventId } from '../ids'
@@ -32,14 +39,26 @@ const PRAISE_KEYS = ['praise_1', 'praise_2', 'praise_3', 'praise_4', 'praise_5',
 
 type Phase = 'answering' | 'submitting' | 'correct' | 'wrong-shake' | 'wrong-hint' | 'wrong-solution'
 
-const NUMERIC_TYPES = new Set(['number_input', 'number_tree', 'count_image'])
+// `grid_fill` joins these three: it's the same tap-a-slot-then-`NumberPad` shape as
+// `number_input`/`number_tree`, just laid out as a grid (Story 2.7).
+const NUMERIC_TYPES = new Set(['number_input', 'number_tree', 'count_image', 'grid_fill'])
 const SUPPORTED_TYPES = new Set([
   'number_input',
   'compare',
   'multiple_choice',
   'number_tree',
   'count_image',
+  // Story 2.7's 7 additions.
+  'order',
+  'grid_fill',
+  'match',
+  'image_select',
+  'dot_draw',
+  'connect_dots',
+  'spot_difference',
 ])
+// All-or-nothing types (Story 2.7): `multiple_choice`/`image_select` share `selected`;
+// `order`/`match`/`connect_dots`/`spot_difference` each get their own lifted state below.
 
 export interface ProblemPlayerProps {
   sessionId: string
@@ -132,6 +151,13 @@ function PartPlayer({
   // only on a Part change -- bumped whenever a retry begins after a wrong attempt, and used
   // as `CountImageWidget`'s `key` below so a retry remounts it with empty dots.
   const [attemptSeq, setAttemptSeq] = useState(0)
+  // Story 2.7's per-type lifted state (these ARE the graded answer for their type, unlike
+  // `count_image`'s dots above, so they persist across a retry exactly like `values`/
+  // `selected` do -- no `attemptSeq` remount for any of these).
+  const [pairs, setPairs] = useState<Record<string, string>>({})
+  const [pickedItem, setPickedItem] = useState<string | null>(null)
+  const [sequence, setSequence] = useState<number[]>([])
+  const [foundRegions, setFoundRegions] = useState<string[]>([])
   // Synchronous double-tap guard: `disabled` (derived from `phase` state) can lag a render
   // behind two back-to-back taps on ✔, and `newEventId()` mints a fresh id every call so the
   // backend's same-id dedup can't catch a resulting double-post. This ref is checked-and-set
@@ -187,9 +213,11 @@ function PartPlayer({
   }
 
   function handleToggleOption(key: string) {
-    if (disabled || part.type !== 'multiple_choice') return
+    if (disabled || (part.type !== 'multiple_choice' && part.type !== 'image_select')) return
     retryIfSettled()
-    const multi = part.multi
+    // `'multi' in part` (not a `part.type` narrowing) since this now covers two Part
+    // types that both happen to carry the same `multi: boolean` field.
+    const multi = 'multi' in part && part.multi
     setSelected((prev) => {
       if (prev.includes(key)) return prev.filter((k) => k !== key)
       return multi ? [...prev, key] : [key]
@@ -202,6 +230,90 @@ function PartPlayer({
     setValues((prev) => ({ ...prev, [key]: value }))
   }
 
+  // `order`/`match`: pick up (or put back down) an item/tile -- the tap-alternative's
+  // first step, shared by both types (Boundaries & Constraints: never drag-only).
+  function handlePickItem(itemKey: string) {
+    if (disabled) return
+    retryIfSettled()
+    setPickedItem((prev) => (prev === itemKey ? null : itemKey))
+  }
+
+  // `order`: place the picked item (or an explicit drag-and-drop `itemKey`) into a position
+  // slot, first clearing it from wherever it was (a permutation, never in two slots at
+  // once). Tapping a FILLED slot with nothing picked instead picks that slot's item back up.
+  function handlePlaceItem(slotKey: string, itemKey?: string) {
+    if (disabled) return
+    retryIfSettled()
+    const item = itemKey ?? pickedItem
+    if (!item) {
+      const current = values[slotKey]
+      if (current) {
+        setValues((prev) => {
+          const next = { ...prev }
+          delete next[slotKey]
+          return next
+        })
+        setPickedItem(current)
+      }
+      return
+    }
+    setValues((prev) => {
+      const next = { ...prev }
+      for (const k of Object.keys(next)) {
+        if (next[k] === item) delete next[k]
+      }
+      next[slotKey] = item
+      return next
+    })
+    setPickedItem(null)
+  }
+
+  // `match`: pair the currently picked left item with this right item. No-op if nothing
+  // is picked (tapping a right item first, before any left item, per the I/O matrix).
+  function handlePairRight(rightKey: string) {
+    if (disabled || !pickedItem) return
+    retryIfSettled()
+    setPairs((prev) => ({ ...prev, [pickedItem]: rightKey }))
+    setPickedItem(null)
+  }
+
+  function handleRemovePair(leftKey: string) {
+    if (disabled) return
+    retryIfSettled()
+    setPairs((prev) => {
+      const next = { ...prev }
+      delete next[leftKey]
+      return next
+    })
+  }
+
+  // `dot_draw`: the box's resulting dot count is set directly (not via `NumberPad` digits).
+  function handleSetValue(key: string, value: string) {
+    if (disabled) return
+    retryIfSettled()
+    setValues((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // `connect_dots`: only the correct next dot is ever appended to `sequence` -- a tap out
+  // of order is rejected here, BEFORE any state change, so it can never itself become an
+  // Attempt (Boundaries & Constraints' explicit acceptance criterion for this type).
+  function handleTapDot(n: number): boolean {
+    if (disabled || n !== sequence.length + 1) return false
+    retryIfSettled()
+    setSequence((prev) => [...prev, n])
+    return true
+  }
+
+  // `spot_difference`: only a genuinely NEW found region is appended -- a duplicate tap
+  // (already found) is rejected here, before any state change, same "never itself an
+  // Attempt" rule as `connect_dots` above.
+  function handleFoundRegion(key: string): boolean {
+    if (disabled || foundRegions.includes(key)) return false
+    retryIfSettled()
+    setFoundRegions((prev) => [...prev, key])
+    return true
+  }
+
   function slotKeysFor(): string[] {
     if (part.type === 'number_input') return part.slots.map((s) => s.slot_key)
     if (part.type === 'number_tree') {
@@ -209,17 +321,35 @@ function PartPlayer({
     }
     if (part.type === 'compare') return part.rows.map((r) => r.slot_key)
     if (part.type === 'count_image') return part.slots.map((s) => s.slot_key)
+    if (part.type === 'order') return part.items.map((_, i) => `pos${i}`)
+    if (part.type === 'grid_fill') {
+      const keys: string[] = []
+      part.cells.forEach((row, i) => {
+        row.forEach((cell, j) => {
+          if (cell.given == null) keys.push(`r${i}c${j}`)
+        })
+      })
+      return keys
+    }
+    if (part.type === 'dot_draw') return part.boxes.map((b) => b.slot_key)
     return []
   }
 
   function isComplete(): boolean {
     if (!supported) return false
-    if (part.type === 'multiple_choice') return selected.length > 0
+    if (part.type === 'multiple_choice' || part.type === 'image_select') return selected.length > 0
+    if (part.type === 'match') return Object.keys(pairs).length === part.left.length
+    if (part.type === 'connect_dots') return sequence.length === part.dots.length
+    if (part.type === 'spot_difference') return foundRegions.length === part.count
     return slotKeysFor().every((key) => (values[key] ?? '').trim() !== '')
   }
 
   function buildValue(): unknown {
-    if (part.type === 'multiple_choice') return { selected }
+    if (part.type === 'multiple_choice' || part.type === 'image_select') return { selected }
+    if (part.type === 'order') return { order: part.items.map((_, i) => values[`pos${i}`] ?? '') }
+    if (part.type === 'match') return { pairs: Object.entries(pairs) }
+    if (part.type === 'connect_dots') return { sequence }
+    if (part.type === 'spot_difference') return { region_keys: foundRegions }
     return slotKeysFor().map((key) => ({ key, value: values[key] ?? '' }))
   }
 
@@ -297,6 +427,17 @@ function PartPlayer({
       slotState,
       disabled,
       imageUrl,
+      pairs,
+      pickedItem,
+      onPickItem: handlePickItem,
+      onPlaceItem: handlePlaceItem,
+      onPairRight: handlePairRight,
+      onRemovePair: handleRemovePair,
+      onSetValue: handleSetValue,
+      sequence,
+      onTapDot: handleTapDot,
+      foundRegions,
+      onFoundRegion: handleFoundRegion,
     }
     switch (part.type) {
       case 'number_input':
@@ -311,6 +452,20 @@ function PartPlayer({
         // `key={attemptSeq}` remounts the widget (clearing its local dots) on every retry
         // after a wrong attempt, not only on a Part change (finding #2).
         return <CountImageWidget key={attemptSeq} {...shared} part={part} />
+      case 'order':
+        return <OrderWidget {...shared} part={part} />
+      case 'grid_fill':
+        return <GridFillWidget {...shared} part={part} />
+      case 'match':
+        return <MatchWidget {...shared} part={part} />
+      case 'image_select':
+        return <ImageSelectWidget {...shared} part={part} />
+      case 'dot_draw':
+        return <DotDrawWidget {...shared} part={part} />
+      case 'connect_dots':
+        return <ConnectDotsWidget {...shared} part={part} />
+      case 'spot_difference':
+        return <SpotDifferenceWidget {...shared} part={part} />
       default:
         return <UnsupportedWidget type={part.type} />
     }

@@ -404,12 +404,424 @@ describe('ProblemPlayer: unsupported Part type', () => {
   it('shows a "chưa hỗ trợ" placeholder and a way forward, never a crash', () => {
     mockApi({})
     const onDone = vi.fn()
+    // `fallback` (the cropped-Problem-as-printed type, solution-only, never graded) is the
+    // one Part type this player deliberately never gets a widget for -- Story 2.7 gave
+    // every OTHER remaining type (including `order`, this test's fixture before Story 2.7)
+    // its own widget, so `order` can no longer stand in as "the unsupported one".
     renderPlayer(
-      bundleProblem([{ part_key: 'a', type: 'order', prompt: '', image_keys: [], items: [], direction: 'asc' }]),
+      bundleProblem([{ part_key: 'a', type: 'fallback', prompt: '', image_keys: ['img1'], image_key: 'img1' }]),
       onDone,
     )
     expect(screen.getByText(/chưa được hỗ trợ/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Tiếp ➜' }))
     expect(onDone).toHaveBeenCalledOnce()
+  })
+})
+
+describe('ProblemPlayer: order', () => {
+  const ORDER_PART = {
+    part_key: 'a',
+    type: 'order',
+    prompt: 'Sắp xếp từ bé đến lớn:',
+    image_keys: [],
+    items: [
+      { item_key: 'i1', text: '3' },
+      { item_key: 'i2', text: '1' },
+      { item_key: 'i3', text: '2' },
+    ],
+    direction: 'asc',
+  }
+
+  it('tap-alternative: tap a tile then a slot fills it; ✔ enables once every slot is filled', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([ORDER_PART]))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 2/ }))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '3' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 3/ }))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeEnabled()
+  })
+
+  it('tapping a filled slot with nothing picked picks that tile back up', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([ORDER_PART]))
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 1/ }))
+    expect(screen.getByLabelText('Vị trí 1: 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Vị trí 1: 1'))
+    // The tile is back in the tray (picked), the slot is empty again.
+    expect(screen.getByLabelText('Vị trí 1: trống')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('posts {order: [item_key, ...]} in slot order on ✔', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([ORDER_PART]))
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 2/ }))
+    fireEvent.click(screen.getByRole('button', { name: '3' }))
+    fireEvent.click(screen.getByRole('button', { name: /Vị trí 3/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({ part_key: 'a', value: { order: ['i2', 'i3', 'i1'] } })
+  })
+})
+
+describe('ProblemPlayer: grid_fill', () => {
+  const GRID_FILL_PART = {
+    part_key: 'a',
+    type: 'grid_fill',
+    prompt: '',
+    image_keys: [],
+    rows: 1,
+    cols: 2,
+    cells: [[{ given: '5' }, { given: null }]],
+  }
+
+  it('a locked (given) cell is not tappable; the empty cell fills via the shared NumberPad', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([GRID_FILL_PART]))
+    expect(screen.queryByRole('button', { name: /Ô r0c0/ })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Ô r0c0: 5')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /Ô r0c1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '7' }))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeEnabled()
+  })
+
+  it('posts [{key, value}] for the empty cell only, matching number_input\'s shape', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([GRID_FILL_PART]))
+    fireEvent.click(screen.getByRole('button', { name: /Ô r0c1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '7' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({ part_key: 'a', value: [{ key: 'r0c1', value: '7' }] })
+  })
+})
+
+describe('ProblemPlayer: match', () => {
+  const MATCH_PART = {
+    part_key: 'a',
+    type: 'match',
+    prompt: '',
+    image_keys: [],
+    left: [
+      { item_key: 'l1', text: '1' },
+      { item_key: 'l2', text: '2' },
+    ],
+    right: [
+      { item_key: 'r1', text: 'một' },
+      { item_key: 'r2', text: 'hai' },
+    ],
+  }
+
+  it('tap left then right draws a pair; ✔ enables once every left item is paired', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([MATCH_PART]))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'một' }))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'hai' }))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeEnabled()
+  })
+
+  it('tapping either paired endpoint un-pairs (tapping "the line")', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([MATCH_PART]))
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'một' }))
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'một' }))
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'một' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('tapping a second left item before any right tap switches the pick, not corrupting state', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([MATCH_PART]))
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '2' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'một' }))
+    expect(screen.getByRole('button', { name: '2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '1' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'một' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('posts {pairs: [[left_key, right_key], ...]} on ✔', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([MATCH_PART]))
+    fireEvent.click(screen.getByRole('button', { name: '1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'một' }))
+    fireEvent.click(screen.getByRole('button', { name: '2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'hai' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({
+      part_key: 'a',
+      value: { pairs: [['l1', 'r1'], ['l2', 'r2']] },
+    })
+  })
+})
+
+describe('ProblemPlayer: image_select', () => {
+  const IMAGE_SELECT_PART = {
+    part_key: 'a',
+    type: 'image_select',
+    prompt: 'Chọn hình tròn:',
+    image_keys: ['img1'],
+    image_key: 'img1',
+    regions: [
+      { region_key: 'reg1', bbox: [0, 0, 0.5, 0.5] },
+      { region_key: 'reg2', bbox: [0.5, 0.5, 1, 1] },
+    ],
+    multi: false,
+  }
+
+  it('tap a region hotspot selects it (not submitted until ✔), single-select by default', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([IMAGE_SELECT_PART]))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Vùng reg1' }))
+    expect(screen.getByRole('button', { name: 'Vùng reg1' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Vùng reg2' }))
+    expect(screen.getByRole('button', { name: 'Vùng reg1' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('multi: true allows several regions selected at once, posted as {selected: [...]}', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([{ ...IMAGE_SELECT_PART, multi: true }]))
+    fireEvent.click(screen.getByRole('button', { name: 'Vùng reg1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vùng reg2' }))
+    expect(screen.getByRole('button', { name: 'Vùng reg1' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Vùng reg2' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({ part_key: 'a', value: { selected: ['reg1', 'reg2'] } })
+  })
+})
+
+describe('ProblemPlayer: dot_draw', () => {
+  const DOT_DRAW_PART = {
+    part_key: 'a',
+    type: 'dot_draw',
+    prompt: 'Vẽ thêm 2 chấm:',
+    image_keys: [],
+    boxes: [{ slot_key: 'b1', label: 'Ô 1', given: 1 }],
+  }
+
+  // Same reasoning as `spot_difference`'s test: jsdom's default all-zero
+  // `getBoundingClientRect()` would make every tap's normalised (x, y) resolve to the same
+  // `Infinity`, indistinguishable from any other tap under the proximity-bucket dedup --
+  // a fixed, non-zero rect is needed for "two distinct taps" to be meaningful here.
+  let rectSpy: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 300,
+      height: 300,
+      top: 0,
+      left: 0,
+      right: 300,
+      bottom: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+  })
+  afterEach(() => {
+    rectSpy.mockRestore()
+  })
+
+  it('tapping the box adds a dot, updates the counter; tapping a dot removes it', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([DOT_DRAW_PART]))
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    const box = screen.getByRole('button', { name: /Ô 1/ })
+    fireEvent.click(box, { clientX: 10, clientY: 10 })
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeEnabled()
+    const addedDot = document.querySelector('.widget-dot-draw-dot-added')
+    expect(addedDot).not.toBeNull()
+    fireEvent.click(addedDot as Element)
+    expect(screen.getByText('1')).toBeInTheDocument()
+  })
+
+  it('a tap near an existing dot (not exactly on it) removes it instead of adding a second, overlapping dot', () => {
+    mockApi({})
+    renderPlayer(bundleProblem([DOT_DRAW_PART]))
+    const box = screen.getByRole('button', { name: /Ô 1/ })
+    fireEvent.click(box, { clientX: 10, clientY: 10 })
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(document.querySelectorAll('.widget-dot-draw-dot-added')).toHaveLength(1)
+    // A near, but not pixel-identical, re-tap -- same proximity bucket as the first dot.
+    fireEvent.click(box, { clientX: 15, clientY: 15 })
+    expect(screen.getByText('1')).toBeInTheDocument()
+    expect(document.querySelectorAll('.widget-dot-draw-dot-added')).toHaveLength(0)
+  })
+
+  it('posts [{key, value: count-as-string}] on ✔', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([DOT_DRAW_PART]))
+    const box = screen.getByRole('button', { name: /Ô 1/ })
+    fireEvent.click(box, { clientX: 10, clientY: 10 })
+    fireEvent.click(box, { clientX: 200, clientY: 200 })
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const call = fetchMock.mock.calls.find(([url]) => url.includes('/events'))
+    const body = JSON.parse((call![1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({ part_key: 'a', value: [{ key: 'b1', value: '3' }] })
+  })
+})
+
+describe('ProblemPlayer: connect_dots', () => {
+  const CONNECT_DOTS_PART = {
+    part_key: 'a',
+    type: 'connect_dots',
+    prompt: '',
+    image_keys: ['img1'],
+    image_key: 'img1',
+    dots: [
+      { n: 1, x: 0.1, y: 0.1 },
+      { n: 2, x: 0.5, y: 0.5 },
+      { n: 3, x: 0.9, y: 0.9 },
+    ],
+  }
+
+  it('tapping the wrong next dot does not advance the sequence and does not post an Attempt', () => {
+    const fetchMock = mockApi({})
+    renderPlayer(bundleProblem([CONNECT_DOTS_PART]))
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 2' }))
+    expect(screen.getByText('0/3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).includes('/events'))).toBe(false)
+  })
+
+  it('a backward tap after partial progress (1→2→1) is rejected like a genuinely wrong dot', () => {
+    const fetchMock = mockApi({})
+    renderPlayer(bundleProblem([CONNECT_DOTS_PART]))
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 2' }))
+    expect(screen.getByText('2/3')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 1' }))
+    expect(screen.getByText('2/3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kiểm tra' })).toBeDisabled()
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).includes('/events'))).toBe(false)
+  })
+
+  it('tapping dots in order enables ✔; only tapping ✔ posts one Attempt with {sequence}', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([CONNECT_DOTS_PART]))
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 1' }))
+    expect(screen.getByText('1/3')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Chấm số 3' }))
+    expect(screen.getByText('3/3')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).includes('/events'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const eventCalls = fetchMock.mock.calls.filter(([url]) => (url as string).includes('/events'))
+    expect(eventCalls).toHaveLength(1)
+    const body = JSON.parse((eventCalls[0][1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({ part_key: 'a', value: { sequence: [1, 2, 3] } })
+  })
+})
+
+describe('ProblemPlayer: spot_difference', () => {
+  const SPOT_DIFFERENCE_PART = {
+    part_key: 'a',
+    type: 'spot_difference',
+    prompt: '',
+    image_keys: ['img1', 'img2'],
+    image_left: 'img1',
+    image_right: 'img2',
+    count: 2,
+  }
+
+  // jsdom's `getBoundingClientRect()` returns an all-zero rect by default, which would
+  // make every tap's normalised (x, y) resolve to `Infinity`/`NaN` (division by a 0
+  // width/height) -- indistinguishable from any other tap, so the widget's bucket-based
+  // de-dup would (wrongly, only in this test environment) treat every second tap as a
+  // repeat of the first. A fixed, non-zero rect here is what makes "two distinct taps"
+  // meaningful at all under jsdom.
+  let rectSpy: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 300,
+      height: 300,
+      top: 0,
+      left: 0,
+      right: 300,
+      bottom: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+  })
+  afterEach(() => {
+    rectSpy.mockRestore()
+  })
+
+  it('a duplicate tap in an already-found spot does not increase the counter or post an Attempt', () => {
+    const fetchMock = mockApi({})
+    renderPlayer(bundleProblem([SPOT_DIFFERENCE_PART]))
+    const rightImage = screen.getByRole('button', { name: 'Tìm điểm khác nhau' })
+    fireEvent.click(rightImage, { clientX: 10, clientY: 10 })
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+    fireEvent.click(rightImage, { clientX: 11, clientY: 11 })
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).includes('/events'))).toBe(false)
+  })
+
+  it('finding `count` distinct spots enables ✔; only ✔ posts one Attempt with {region_keys}', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: true }))
+    renderPlayer(bundleProblem([SPOT_DIFFERENCE_PART]))
+    const rightImage = screen.getByRole('button', { name: 'Tìm điểm khác nhau' })
+    fireEvent.click(rightImage, { clientX: 10, clientY: 10 })
+    fireEvent.click(rightImage, { clientX: 200, clientY: 200 })
+    expect(screen.getByText('2/2')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => (url as string).includes('/events'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    const eventCalls = fetchMock.mock.calls.filter(([url]) => (url as string).includes('/events'))
+    expect(eventCalls).toHaveLength(1)
+    const body = JSON.parse((eventCalls[0][1] as RequestInit).body as string)
+    expect(body.events[0].payload).toEqual({
+      part_key: 'a',
+      value: { region_keys: ['d_0_0', 'd_5_5'] },
+    })
   })
 })

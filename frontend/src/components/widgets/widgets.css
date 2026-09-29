@@ -102,6 +102,258 @@
   gap: var(--space-2);
 }
 
+.widget-order {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  align-items: center;
+}
+
+.widget-order-tray,
+.widget-order-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.widget-grid-fill {
+  display: grid;
+  gap: var(--space-2);
+  justify-content: center;
+  align-items: center;
+}
+
+.widget-grid-fill-given {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  font-family: var(--font-answer-family);
+  font-size: var(--font-answer-size);
+  font-weight: var(--font-answer-weight);
+  color: var(--color-ink-secondary);
+  background: var(--color-surface-muted, #eee);
+  border-radius: var(--radius-md);
+}
+
+.widget-match {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-6);
+}
+
+.widget-match-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  z-index: 1;
+}
+
+.widget-match-item {
+  min-width: 64px;
+  min-height: 64px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-border, #ccc);
+  background: var(--color-surface, #fff);
+}
+
+.widget-match-item-picked {
+  border-color: var(--color-primary);
+}
+
+.widget-match-item-paired {
+  background: var(--color-primary-soft, #dbeafe);
+}
+
+.widget-match-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.widget-match-line {
+  stroke: var(--color-primary);
+  stroke-width: 3;
+}
+
+.widget-match-wrong .widget-match-line {
+  stroke: var(--color-retry);
+}
+
+.widget-match-correct .widget-match-line {
+  stroke: var(--color-success);
+}
+
+.widget-image-select-canvas,
+.widget-connect-dots-canvas,
+.widget-spot-difference-image-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.widget-image-select-canvas img,
+.widget-connect-dots-canvas img,
+.widget-spot-difference-image-wrap img {
+  max-width: 100%;
+  display: block;
+  border-radius: var(--radius-md);
+}
+
+.widget-image-select-region {
+  position: absolute;
+  border: 2px dashed transparent;
+  background: transparent;
+  min-width: 64px;
+  min-height: 64px;
+}
+
+.widget-image-select-region-selected {
+  border-color: var(--color-primary);
+  background: rgb(59 130 246 / 0.2);
+}
+
+.widget-image-select-region-correct {
+  border-color: var(--color-success);
+}
+
+.widget-image-select-region-wrong {
+  border-color: var(--color-retry);
+}
+
+.widget-dot-draw {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  justify-content: center;
+}
+
+.widget-dot-draw-box-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.widget-dot-draw-box {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  min-width: 64px;
+  min-height: 64px;
+  border: 2px solid var(--color-border, #ccc);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.widget-dot-draw-box-wrong {
+  border-color: var(--color-retry);
+}
+
+.widget-dot-draw-box-correct {
+  border-color: var(--color-success);
+}
+
+.widget-dot-draw-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+.widget-dot-draw-dot-added {
+  position: absolute;
+  margin: -7px 0 0 -7px;
+}
+
+.widget-connect-dots-dot {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: -16px 0 0 -16px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-primary);
+  background: var(--color-surface, #fff);
+}
+
+.widget-connect-dots-dot-done {
+  background: var(--color-primary);
+  color: var(--color-surface, #fff);
+}
+
+.widget-connect-dots-dot-wiggle {
+  animation: widget-wiggle 0.4s;
+}
+
+.widget-connect-dots-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.widget-connect-dots-lines polyline {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.widget-connect-dots-counter,
+.widget-spot-difference-counter {
+  text-align: center;
+  font-family: var(--font-answer-family);
+}
+
+.widget-spot-difference-images {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+}
+
+.widget-spot-difference-ring {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 3px solid var(--color-success);
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+
+.widget-spot-difference-flash {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 3px solid var(--color-retry);
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+
+@keyframes widget-wiggle {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
 .widget-unsupported {
   padding: var(--space-5);
   text-align: center;
