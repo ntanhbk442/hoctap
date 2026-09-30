@@ -500,4 +500,84 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
     expect(await screen.findByTestId('quiz-results', {}, { timeout: 3000 })).toBeInTheDocument()
   })
+
+  function postedKinds(fetchMock: ReturnType<typeof mockApi>): string[] {
+    return fetchMock.mock.calls
+      .filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+      .flatMap(([, init]) => JSON.parse((init as RequestInit).body as string).events)
+      .map((e: { kind: string }) => e.kind)
+  }
+
+  it('plays a fallback Part with only a plain continue button, posting no self-check events', async () => {
+    const fallbackProblem = {
+      ...PROBLEM,
+      parts: [{ part_key: 'p1', type: 'fallback', prompt: '', image_keys: [], image_key: 'img1' }],
+    }
+    const fetchMock = mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({
+          mode: 'quiz',
+          problems: [{ ...bundle().problems[0], problem: fallbackProblem }],
+        }),
+      },
+      'POST /api/v1/sessions/session-1/events': { status: 201, body: [QUIZ_EVENT] },
+      'GET /api/v1/sessions/session-1/summary': { status: 404 },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Xem đáp án/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Tiếp/ }))
+    expect(await screen.findByTestId('quiz-results', {}, { timeout: 3000 })).toBeInTheDocument()
+    const kinds = postedKinds(fetchMock)
+    expect(kinds).not.toContain('self_marked')
+    expect(kinds).not.toContain('fallback_revealed')
+  })
+
+  it('tells the child a retake earns no Stars', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ mode: 'quiz', problems: [{ ...bundle().problems[0], attempted: true }] }),
+      },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [{ ...QUIZ_EVENT, quiz_stars_awarded: false }],
+      },
+      'GET /api/v1/sessions/session-1/summary': { status: 404 },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(
+      await screen.findByText(/không có thêm ngôi sao/, {}, { timeout: 3000 }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows an error with retry when session_completed fails after a successful submit', async () => {
+    let posts = 0
+    const json = { 'Content-Type': 'application/json' }
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (method === 'GET' && url.startsWith('/api/v1/sessions/session-1/bundle')) {
+        const b = bundle({ mode: 'quiz', problems: [{ ...bundle().problems[0], attempted: true }] })
+        return new Response(JSON.stringify(b), { status: 200, headers: json })
+      }
+      if (method === 'POST') {
+        posts += 1
+        const kind = JSON.parse(init?.body as string).events[0].kind
+        if (kind === 'session_completed' && posts <= 2) {
+          return new Response(
+            JSON.stringify({ error: { code: 'BOOM', message: 'Có lỗi xảy ra.' } }),
+            { status: 500, headers: json },
+          )
+        }
+        return new Response(JSON.stringify([QUIZ_EVENT]), { status: 201, headers: json })
+      }
+      return new Response(null, { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByTestId('quiz-results', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/\S/)
+    expect(screen.getByRole('button', { name: 'Thử lại' })).toBeInTheDocument()
+  })
 })

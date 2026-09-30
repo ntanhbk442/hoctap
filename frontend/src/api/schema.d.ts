@@ -3160,12 +3160,8 @@ export interface components {
             profile_id: string;
             /** Ref */
             ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"] | components["schemas"]["RetryRefIn"];
-            /**
-             * Mode
-             * @default practice
-             * @enum {string}
-             */
-            mode: "practice" | "replay" | "retry";
+            /** Mode */
+            mode?: ("practice" | "replay" | "retry") | null;
             /** Assignment Id */
             assignment_id?: string | null;
         };
@@ -5361,7 +5357,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Empty Problem set, or (replay) an unknown/foreign/all-correct source Session */
+            /** @description Empty Problem set, MODE_REF_MISMATCH, or (replay) an unknown/foreign/all-correct source Session */
             422: {
                 headers: {
                     [name: string]: unknown;

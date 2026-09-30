@@ -274,3 +274,8 @@
     an already-correct Part is graded again, redundantly, never double-counted into a
     Star/Retry-Queue transition it wasn't already eligible for) -- a UX polish gap, not a
     correctness one.
+
+## Deferred from: code review of Epic 3 (2026-09-30)
+
+- Quiz resume position is computed only for the first chunk (`SessionPlayer.tsx`, `resumed` set once). Unverified, medium if true; confirm with a quiz sheet of more than 10 Problems reloaded into chunk 2.
+- "Học tiếp" can start a quiz-sheet Lesson as a no-feedback quiz with no signal to the child. Unverified; needs a look at Home's flow.

@@ -323,3 +323,56 @@ def test_library_marks_quiz_sheet(client: TestClient, engine: Engine, profile_id
         if lesson["lesson_key"] == LESSON
     ]
     assert lessons and lessons[0]["is_quiz_sheet"] is True
+
+
+def test_correct_quiz_retake_counts_toward_retry_exit_without_stars(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    _publish_quiz(engine, doc)
+    q1 = _start(client, profile_id).json()["id"]
+    _post(client, q1, profile_id, _attempt(doc["problem_id"], "a", WRONG, AT))
+    _post(client, q1, profile_id, _event("quiz_submitted"))  # first submit: queues it
+    assert _retry_rows(engine)[0].resolved_at is None
+    q2 = _start(client, profile_id).json()["id"]
+    _answer_all_right(client, q2, profile_id, doc)
+    out = _post(client, q2, profile_id, _event("quiz_submitted")).json()[0]
+    assert out["quiz_stars_awarded"] is False
+    assert _retry_rows(engine)[0].resolved_at is None  # one qualifying Session so far
+    q3 = _start(client, profile_id).json()["id"]
+    _answer_all_right(client, q3, profile_id, doc)
+    _post(client, q3, profile_id, _event("quiz_submitted"))
+    assert _retry_rows(engine)[0].resolved_at is not None
+    assert _stars(engine, q2) == [] and _stars(engine, q3) == []  # no Star rows for retakes
+
+
+def test_quiz_attempts_do_not_count_as_prior_wrong_in_practice(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")
+    _publish_quiz(engine, doc)
+    quiz = _start(client, profile_id).json()["id"]
+    _post(client, quiz, profile_id, _attempt(doc["problem_id"], "a", WRONG, AT))
+    with engine.begin() as conn:
+        conn.execute(update(content_catalog_lessons).values(is_quiz_sheet=0))
+    practice = _start(client, profile_id).json()
+    assert practice["mode"] == "practice"
+    first = _post(client, practice["id"], profile_id, _attempt(doc["problem_id"], "a", WRONG, AT))
+    assert first.json()[0]["solution"] is None  # the quiz miss did not release the Solution
+    second = _post(client, practice["id"], profile_id, _attempt(doc["problem_id"], "a", WRONG, AT))
+    assert second.json()[0]["solution"] is not None
+
+
+def test_partly_answered_multi_part_quiz_problem_is_not_attempted(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_doc("bai-1")  # two graded Parts: a and b
+    _publish_quiz(engine, doc)
+    sid = _start(client, profile_id).json()["id"]
+    params = {"profile_id": profile_id}
+    _post(client, sid, profile_id, _attempt(doc["problem_id"], "a", RIGHT_A, AT))
+    bundle = client.get(f"{API}/{sid}/bundle", params=params).json()
+    assert [p["attempted"] for p in bundle["problems"]] == [False]
+    _post(client, sid, profile_id, _attempt(doc["problem_id"], "b", RIGHT_B, AT))
+    bundle = client.get(f"{API}/{sid}/bundle", params=params).json()
+    assert [p["attempted"] for p in bundle["problems"]] == [True]

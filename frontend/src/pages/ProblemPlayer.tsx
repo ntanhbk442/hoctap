@@ -297,6 +297,14 @@ function PartPlayer({
   // backend's same-id dedup can't catch a resulting double-post. This ref is checked-and-set
   // before any state update, so a second tap within the same event-loop tick is a no-op.
   const submittingRef = useRef(false)
+  // The quiz "Đã lưu" advance timer; cleared on unmount so it cannot fire on stale state.
+  const savedTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current)
+    },
+    [],
+  )
 
   const postEvent = usePostEvent(sessionId)
   const supported = SUPPORTED_TYPES.has(part.type)
@@ -520,7 +528,7 @@ function PartPlayer({
       if (quiz) {
         // Story 3.4: the response carries no verdict; nothing is graded until submit.
         setPhase('saved')
-        window.setTimeout(onAdvance, QUIZ_SAVED_ADVANCE_DELAY_MS)
+        savedTimerRef.current = window.setTimeout(onAdvance, QUIZ_SAVED_ADVANCE_DELAY_MS)
         return
       }
       setAttemptResult(result)

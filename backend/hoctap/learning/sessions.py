@@ -27,7 +27,7 @@ from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_sessions
 from hoctap.learning.problem_sets import LessonRef, ProblemSetRef, ref_key, resolve
-from hoctap.learning.retry import add_retry_item, maybe_resolve_retry_item
+from hoctap.learning.retry import add_retry_item, device_time_iso, maybe_resolve_retry_item
 from hoctap.learning.scoring import (
     award_quiz_stars,
     compute_quiz_stars,
@@ -247,6 +247,18 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
     slice_ids = problem_ids[(chunk - 1) * CHUNK_SIZE : chunk * CHUNK_SIZE]
 
     attempted_ids: set[str] = set()
+    graded_keys: dict[str, set[str]] = {}
+    if slice_ids and session.mode == "quiz":
+        # A multi-Part quiz Problem is answered only once EVERY graded Part has an attempt.
+        for problem_id in slice_ids:
+            try:
+                doc = load_one(conn, problem_id).doc
+            except ProblemNotFound:
+                continue
+            if doc is not None:
+                graded_keys[problem_id] = {
+                    p.part_key for p in doc.parts if not isinstance(p, FallbackPart)
+                }
     if slice_ids:
         conditions = [
             progress_events.c.profile_id == session.profile_id,
@@ -257,8 +269,25 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
             # Story 3.4: a quiz resumes from its own answers; an earlier Session's attempts
             # at the same Problems must not make a retake look already answered.
             conditions.append(progress_events.c.session_id == session_id)
-        rows = conn.execute(select(progress_events.c.problem_id).where(*conditions).distinct())
-        attempted_ids = {r.problem_id for r in rows}
+        if session.mode == "quiz":
+            rows = conn.execute(
+                select(progress_events.c.problem_id, progress_events.c.payload_json).where(
+                    *conditions
+                )
+            )
+            answered: dict[str, set[str]] = {}
+            for r in rows:
+                key = json.loads(r.payload_json).get("part_key")
+                if isinstance(key, str):
+                    answered.setdefault(r.problem_id, set()).add(key)
+            attempted_ids = {
+                pid for pid, keys in answered.items() if graded_keys.get(pid, keys) <= keys
+            }
+        else:
+            rows = conn.execute(
+                select(progress_events.c.problem_id).where(*conditions).distinct()
+            )
+            attempted_ids = {r.problem_id for r in rows}
 
     problems: list[BundleProblem] = []
     for problem_id in slice_ids:
@@ -409,12 +438,16 @@ def _find_part(parts: list[Part], part_key: Any) -> Part:
 def _count_prior_wrong(conn: Any, profile_id: str, problem_id: str, part_key: str) -> int:
     """Prior wrong `attempt` events for this Part, across ALL Sessions (Profile-wide, per
     AD-6/this story's frozen intent) -- staged help is derived by counting the append-only
-    log, not a separate mutable counter."""
+    log, not a separate mutable counter. Attempts made in `quiz` Sessions are ignored: a
+    quiz miss must not release the Solution immediately in a later practice Session."""
     rows = conn.execute(
-        select(progress_events.c.payload_json).where(
+        select(progress_events.c.payload_json)
+        .join(progress_sessions, progress_sessions.c.id == progress_events.c.session_id)
+        .where(
             progress_events.c.profile_id == profile_id,
             progress_events.c.problem_id == problem_id,
             progress_events.c.kind == "attempt",
+            progress_sessions.c.mode != "quiz",
         )
     )
     count = 0
@@ -512,7 +545,7 @@ def _grade_and_stage(
     profile_id: str,
     problem_id: str | None,
     payload: dict[str, Any],
-    received_at: str,
+    wrong_at: str,
     mode: str,
 ) -> dict[str, Any]:
     """The `attempt`-kind core: loads the effective Problem the same defensive way the
@@ -520,7 +553,8 @@ def _grade_and_stage(
     Part, augments and returns `payload` with the verdict, and stages Hint/Solution
     release + the Retry Queue transition (AD-6's staged-help rule, this story's Boundaries
     & Constraints step 4). `mode` (Story 2.10) gates only the ADD side of that Retry Queue
-    transition -- see the `mode != "replay"` check below and `post_event()`'s docstring."""
+    transition -- see the `mode != "replay"` check below and `post_event()`'s docstring.
+    `wrong_at` is the event's device time (UTC ISO), stored as the Retry item's clock."""
     if problem_id is None:
         raise AppError(422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm.")
     try:
@@ -554,7 +588,7 @@ def _grade_and_stage(
         # Retry Queue. Story 3.3: EVERY other wrong attempt (not just the first) calls
         # `add_retry_item()`, which opens the row or refreshes `last_wrong_at`.
         if mode != "replay":
-            add_retry_item(conn, profile_id, problem_id, received_at)
+            add_retry_item(conn, profile_id, problem_id, wrong_at)
         if prior_wrong != 0:
             solution = part.solution.model_dump(mode="json")
     payload["hint"] = hint
@@ -577,10 +611,18 @@ def _quiz_submitted(conn: Any, session_id: str) -> bool:
 
 
 def _grade_quiz(
-    conn: Any, received_at: str, session_id: str, profile_id: str, problem_ids: list[str]
+    conn: Any,
+    received_at: str,
+    submitted_at: str,
+    session_id: str,
+    profile_id: str,
+    problem_ids: list[str],
 ) -> dict[str, Any]:
     """Story 3.4: grades a whole quiz Session at `quiz_submitted`, inside `post_event()`'s
-    SAVEPOINT. Returns the payload stored on the event (and replayed on any resend)."""
+    SAVEPOINT. Returns the payload stored on the event (and replayed on any resend).
+    `submitted_at` is the `quiz_submitted` event's device time, the Retry clock for misses;
+    Retry EXIT for the correct Problems is evaluated by `post_event()` after the event row
+    (whose stored results `maybe_resolve_retry_item()` reads) exists."""
     verdicts: dict[str, dict[str, Any]] = {}
     for problem_id in problem_ids:
         try:
@@ -618,10 +660,8 @@ def _grade_quiz(
     stars, awarded = award_quiz_stars(conn, received_at, session_id, profile_id, list(verdicts))
     results: list[dict[str, Any]] = []
     for problem_id, v in verdicts.items():
-        if v["correct"]:
-            maybe_resolve_retry_item(conn, received_at, profile_id, problem_id)
-        elif not v["fallback"]:
-            add_retry_item(conn, profile_id, problem_id, received_at)
+        if not v["correct"] and not v["fallback"]:
+            add_retry_item(conn, profile_id, problem_id, submitted_at)
         results.append(
             {
                 "problem_id": problem_id,
@@ -721,19 +761,20 @@ def post_event(
             return _row_to_event_out(first_submit)
 
     received_at = to_iso(now)
+    device_at = device_time_iso(event.occurred_at, received_at)
     try:
         with conn.begin_nested():
             payload = event.payload
             if event.kind == "attempt":
                 payload = _grade_and_stage(
-                    conn, profile_id, event.problem_id, payload, received_at, mode
+                    conn, profile_id, event.problem_id, payload, device_at, mode
                 )
             elif event.kind == "self_marked":
                 correct = _validate_self_marked(conn, event)
                 # Story 3.3: a "đúng" self-mark no longer resolves immediately; exit is
                 # evaluated by `maybe_resolve_retry_item()` after the event is stored.
                 if not correct and mode != "replay":
-                    add_retry_item(conn, profile_id, event.problem_id, received_at)
+                    add_retry_item(conn, profile_id, event.problem_id, device_at)
             elif event.kind == "fallback_revealed":
                 payload = dict(payload)
                 payload["solution"] = _fallback_solution(
@@ -743,6 +784,7 @@ def post_event(
                 payload = _grade_quiz(
                     conn,
                     received_at,
+                    device_at,
                     session_id,
                     profile_id,
                     json.loads(session.problem_ids_json),
@@ -799,6 +841,13 @@ def post_event(
             # qualifying Star rows / are excluded from the self-mark count.
             if event.kind in ("attempt", "self_marked") and event.problem_id is not None:
                 maybe_resolve_retry_item(conn, received_at, profile_id, event.problem_id)
+            if event.kind == "quiz_submitted":
+                # Retry exit for the correct Problems, now that the stored results exist.
+                for result in payload["results"]:
+                    if result["correct"]:
+                        maybe_resolve_retry_item(
+                            conn, received_at, profile_id, result["problem_id"]
+                        )
             # Story 3.2, AD-6: badge checks run after EVERY event kind (not gated to
             # `attempt`/`self_marked` like Stars above) -- `week1`/`streak7` only ever
             # become true once `session_completed`'s own handling (above) has set

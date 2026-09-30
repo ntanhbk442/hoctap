@@ -18,7 +18,7 @@ wrong list.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal
 
 from sqlalchemy import Connection, select
@@ -159,7 +159,9 @@ def resolve(
     if ref.kind == "retry":
         from hoctap.learning.retry import due_problem_ids
 
-        today = (now or datetime.now(UTC)).astimezone(LOCAL_TZ).date()
+        if now is None:
+            raise ValueError("resolve() needs `now` for a retry ref (no wall-clock fallback)")
+        today = now.astimezone(LOCAL_TZ).date()
         due = due_problem_ids(conn, profile_id, today)
         if not due:
             raise AppError(

@@ -235,8 +235,27 @@ export default function SessionPlayer() {
             </div>
           ) : trueEnd ? (
             <>
+              {isQuiz && quizSubmitted && submitError && !completedPosted && (
+                // `quiz_submitted` went through but `session_completed` failed for a
+                // non-offline reason: say so, and let the child re-arm the post.
+                <div className="session-done">
+                  <p role="alert" className="form-error">
+                    {submitError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubmitError(null)
+                      setRetryTick((t) => t + 1)
+                    }}
+                  >
+                    Thử lại
+                  </button>
+                </div>
+              )}
               {isQuiz && quizSubmitted && <QuizResultsScreen submitted={quizSubmitted} />}
               <SessionSummaryScreen
+                autoPlay={autoPlay}
                 summary={summary}
                 onReplay={handleReplay}
                 replayPending={startReplay.isPending}
@@ -289,6 +308,7 @@ export default function SessionPlayer() {
 }
 
 interface SessionSummaryScreenProps {
+  autoPlay: boolean
   summary: UseQueryResult<SummaryOut, unknown>
   onReplay: () => void
   replayPending: boolean
@@ -300,17 +320,24 @@ interface SessionSummaryScreenProps {
  * count, not the in-Session Star tally `ProblemPlayer` already showed), the Streak, and
  * "Luyện lại bài sai" -- hidden entirely when there are zero wrong Problems (per this
  * story's frozen Boundaries: never shown for nothing to replay). */
-function SessionSummaryScreen({ summary, onReplay, replayPending }: SessionSummaryScreenProps) {
+function SessionSummaryScreen({
+  autoPlay,
+  summary,
+  onReplay,
+  replayPending,
+}: SessionSummaryScreenProps) {
   const newBadges = summary.data?.new_badges ?? []
   // Story 3.2: fanfare + 🔊 the moment the summary resolves with 1+ newly earned badges
   // -- runs once per Session summary (keyed by the joined badge list, which only ever
   // changes when a genuinely different summary loads).
   const newBadgesKey = newBadges.join(',')
   useEffect(() => {
-    if (newBadges.length === 0) return
-    void speak(phrase('new_badge_earned')).then(() => {
-      for (const key of newBadges) void speak(badgeName(key))
-    })
+    if (newBadges.length === 0 || !autoPlay) return
+    speak(phrase('new_badge_earned'))
+      .then(() => {
+        for (const key of newBadges) void speak(badgeName(key)).catch(() => {})
+      })
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newBadgesKey])
 

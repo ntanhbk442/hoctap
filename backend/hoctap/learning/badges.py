@@ -117,12 +117,12 @@ def maybe_award_badges(
 
 
 def recent_badges(conn: Any, profile_id: str, limit: int = 3) -> list[str]:
-    """The Profile's latest `limit` earned `badge_key`s by `earned_at` DESC --
-    `GET /library/home/{profile_id}`'s `recent_badges`."""
+    """The Profile's latest `limit` earned `badge_key`s by `earned_at` DESC (`id` DESC breaks
+    ties) -- `GET /library/home/{profile_id}`'s `recent_badges`."""
     rows = conn.execute(
         select(progress_badges.c.badge_key)
         .where(progress_badges.c.profile_id == profile_id)
-        .order_by(progress_badges.c.earned_at.desc())
+        .order_by(progress_badges.c.earned_at.desc(), progress_badges.c.id.desc())
         .limit(limit)
     )
     return [row.badge_key for row in rows]

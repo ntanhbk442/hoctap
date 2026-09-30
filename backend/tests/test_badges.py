@@ -524,3 +524,17 @@ def test_home_recent_badges_and_huy_hieu_screen_with_two_earned(
     assert states["stars100"]["earned"] is True
     assert states["streak7"]["earned"] is False
     assert states["streak7"]["earned_at"] is None
+
+
+def test_recent_badges_orders_ties_by_id_desc() -> None:
+    eng = _bare_engine()
+    at = "2026-09-29T03:00:00+00:00"
+    with eng.begin() as conn:
+        for key in ("streak7", "week1", "stars100"):  # ids ascend in this insertion order
+            conn.execute(
+                progress_badges.insert().values(
+                    id=str(uuid.uuid7()), profile_id="p1", badge_key=key, earned_at=at
+                )
+            )
+    with eng.connect() as conn:
+        assert badges_service.recent_badges(conn, "p1") == ["stars100", "week1", "streak7"]

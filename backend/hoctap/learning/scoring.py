@@ -73,7 +73,9 @@ def _fallback_stars(conn: Any, session_id: str, problem_id: str) -> int | None:
     """A `fallback` Problem's single `self_marked` outcome maps directly: "đúng" -> 1,
     "chưa đúng" -> 0. If `self_marked` was posted more than once for this Problem+Session
     (a genuine change of mind, not a resend -- a resend shares the same event id and never
-    reaches here twice), the LATEST one (Session insertion order, i.e. `rowid`) wins."""
+    reaches here twice), this reads the LATEST one, but `maybe_award_stars()` writes the row
+    only once per (Session, Problem): the FIRST Star row wins and a later self-mark does not
+    change it."""
     rows = conn.execute(
         select(progress_events.c.payload_json)
         .where(
@@ -290,8 +292,9 @@ def session_stars_earned(conn: Any, session_id: str) -> int:
 def total_stars(conn: Any, profile_id: str) -> int:
     """All-time `SUM(stars)` for a Profile -- the Home-facing total. Every
     `progress_stars` row already belongs to a Star-awarding-mode Session
-    (`maybe_award_stars()`'s own mode gate keeps a `replay`/`quiz` Session from ever
-    writing one), so no extra mode filter is needed here."""
+    (`maybe_award_stars()`'s own mode gate keeps a `replay` Session from ever writing one;
+    a `quiz` Session DOES write rows, via `award_quiz_stars()`, except on a retake), so no
+    extra mode filter is needed here."""
     result = conn.execute(
         select(func.coalesce(func.sum(progress_stars.c.stars), 0)).where(
             progress_stars.c.profile_id == profile_id

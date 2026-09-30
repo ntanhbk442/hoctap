@@ -2626,7 +2626,7 @@
             }
           },
           "422": {
-            "description": "Empty Problem set, or (replay) an unknown/foreign/all-correct source Session",
+            "description": "Empty Problem set, MODE_REF_MISMATCH, or (replay) an unknown/foreign/all-correct source Session",
             "content": {
               "application/json": {
                 "schema": {
@@ -9389,14 +9389,20 @@
             }
           },
           "mode": {
-            "type": "string",
-            "enum": [
-              "practice",
-              "replay",
-              "retry"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "practice",
+                  "replay",
+                  "retry"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Mode",
-            "default": "practice"
+            "title": "Mode"
           },
           "assignment_id": {
             "anyOf": [

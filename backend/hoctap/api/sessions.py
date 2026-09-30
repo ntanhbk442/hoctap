@@ -75,11 +75,11 @@ class RetryRefIn(BaseModel):
 class StartSessionIn(BaseModel):
     profile_id: str
     ref: LessonRefIn | ReplayRefIn | RetryRefIn = Field(discriminator="kind")
-    # Story 2.10, AD-6: defaults to `"practice"` (every Session before this story). The
-    # frontend's "Luyện lại bài sai" button passes `mode: "replay"` alongside a
-    # `ref.kind: "replay"` -- kept as an independent field (not derived from `ref.kind`)
-    # per this story's frozen Boundaries & Constraints wording.
-    mode: Literal["practice", "replay", "retry"] = "practice"
+    # Epic 3 review: the Session mode is DERIVED from `ref.kind` on the server (lesson ->
+    # practice, or quiz for a quiz-sheet Lesson; replay -> replay; retry -> retry). The field
+    # stays optional for compatibility, but a value that disagrees with the derived mode is
+    # rejected (422 `MODE_REF_MISMATCH`). This reverses Story 2.10's "independent field".
+    mode: Literal["practice", "replay", "retry"] | None = None
     # Story 4.3: the Assignment this Session is started from (Home's "Bài hôm nay" card).
     assignment_id: str | None = None
 
@@ -117,14 +117,14 @@ def _session_out(s: service.SessionOut) -> SessionOut:
         422: {
             "model": ErrorResponse,
             "description": (
-                "Empty Problem set, or (replay) an unknown/foreign/all-correct source Session"
+                "Empty Problem set, MODE_REF_MISMATCH, or (replay) an unknown/foreign/"
+                "all-correct source Session"
             ),
         },
     },
 )
 def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> SessionOut:
     ref: LessonRef | ReplayRef | RetryRef
-    mode = body.mode
     if body.ref.kind == "retry":
         ref = RetryRef()
         mode = "retry"
@@ -132,11 +132,19 @@ def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> Sessi
         ref = LessonRef(
             book_id=body.ref.book_id, unit_key=body.ref.unit_key, lesson_key=body.ref.lesson_key
         )
+        mode = "practice"
     else:
         ref = ReplayRef(source_session_id=body.ref.source_session_id)
+        mode = "replay"
+    if body.mode is not None and body.mode != mode:
+        raise AppError(
+            422,
+            "MODE_REF_MISMATCH",
+            "Chế độ học không khớp với loại bài được chọn.",
+        )
     with engine.begin() as conn:
         # Story 3.4: the mode of a quiz-sheet Lesson is decided here, never by the client
-        # (`StartSessionIn.mode` has no `quiz` value), mirroring `retry` above.
+        # (`StartSessionIn.mode` has no `quiz` value); a client-sent "practice" is accepted.
         if isinstance(ref, LessonRef) and content_library.lesson_is_quiz_sheet(
             conn, ref.book_id, ref.unit_key, ref.lesson_key
         ):
