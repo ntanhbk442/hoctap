@@ -35,6 +35,8 @@ from pydantic import (
     model_validator,
 )
 
+from hoctap.content.arith import evaluate
+
 SCHEMA_VERSION = "v1"
 
 KEY_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,15}$"
@@ -287,6 +289,30 @@ class NumberInputView(PartViewBase):
         return self
 
 
+class ExpressionInputView(PartViewBase):
+    type: Literal["expression_input"] = _tag("expression_input")
+    template: NonEmptyText = Field(description="text with [[slot_key]] markers")
+    slots: list[Slot] = Field(min_length=1)
+    mode: Literal["value", "exact"] = Field(
+        default="value",
+        description="value: any expression with the key's exact value is correct; "
+        "exact: only when the book demands a specific form (the same expression as the key)",
+    )
+
+    @model_validator(mode="after")
+    def _markers(self) -> ExpressionInputView:
+        where = f"part {self.part_key!r}"
+        keys = [s.slot_key for s in self.slots]
+        _unique(keys, "slot_key", where)
+        markers = SLOT_MARKER.findall(self.template)
+        _unique(markers, "[[slot]] marker", where)
+        if set(markers) != set(keys):
+            raise ValueError(
+                f"{where}: template markers {sorted(markers)} must match slots {sorted(keys)}"
+            )
+        return self
+
+
 class CompareView(PartViewBase):
     type: Literal["compare"] = _tag("compare")
     rows: list[CompareRow] = Field(min_length=1)
@@ -500,13 +526,33 @@ class CountEntry(_Model):
     value: CountString
 
 
+EXPRESSION_MAX = 100
+
+
+class ExpressionEntry(_Model):
+    """One expression answer: `key` is a slot_key, `value` an arithmetic expression
+    ("36", "(4 × 3) × 3", "3,5", "1/2")."""
+
+    key: Key
+    value: Annotated[
+        str, AfterValidator(_nfc), StringConstraints(min_length=1, max_length=EXPRESSION_MAX)
+    ]
+
+    @model_validator(mode="after")
+    def _evaluable(self) -> ExpressionEntry:
+        if evaluate(self.value) is None:
+            raise ValueError(f"{self.value!r} is not an arithmetic expression")
+        return self
+
+
 class CompareEntry(_Model):
     key: Key = Field(description="a row's slot_key")
     value: Literal["<", ">", "="]
 
 
 def _entry_keys(
-    entries: list[NumericEntry] | list[CountEntry] | list[CompareEntry], part_key: str
+    entries: list[NumericEntry] | list[CountEntry] | list[CompareEntry] | list[ExpressionEntry],
+    part_key: str,
 ) -> list[str]:
     keys = [e.key for e in entries]
     _unique(keys, "answer key", f"part {part_key!r}")
@@ -538,6 +584,22 @@ class NumberInputPart(AnswerBearing, NumberInputView):
 
     @model_validator(mode="after")
     def _answer(self) -> NumberInputPart:
+        _covers(
+            _entry_keys(self.answer, self.part_key),
+            [s.slot_key for s in self.slots],
+            "slots",
+            self.part_key,
+        )
+        return self
+
+
+class ExpressionInputPart(AnswerBearing, ExpressionInputView):
+    answer: list[ExpressionEntry] = Field(
+        description="[{key, value}], one per slot_key; value is an arithmetic expression"
+    )
+
+    @model_validator(mode="after")
+    def _answer(self) -> ExpressionInputPart:
         _covers(
             _entry_keys(self.answer, self.part_key),
             [s.slot_key for s in self.slots],
@@ -708,6 +770,7 @@ class FallbackPart(AnswerBearing, FallbackView):
 
 Part = Annotated[
     NumberInputPart
+    | ExpressionInputPart
     | ComparePart
     | MultipleChoicePart
     | ImageSelectPart
@@ -725,6 +788,7 @@ Part = Annotated[
 
 PROBLEM_TYPES: tuple[str, ...] = (
     "number_input",
+    "expression_input",
     "compare",
     "multiple_choice",
     "image_select",
@@ -839,6 +903,7 @@ def problemdoc_json_schema() -> dict[str, Any]:
 
 KEYED_ANSWER_TYPES = (
     NumberInputPart,
+    ExpressionInputPart,
     ComparePart,
     NumberTreePart,
     GridFillPart,

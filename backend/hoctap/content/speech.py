@@ -79,6 +79,7 @@ _OPERATOR_WORDS: tuple[tuple[str, str], ...] = (
     ("=", "bằng"),
     ("+", "cộng"),
     ("-", "trừ"),
+    ("−", "trừ"),  # U+2212 minus
     ("×", "nhân"),
     ("*", "nhân"),
     ("÷", "chia"),
@@ -92,6 +93,15 @@ _OPERATOR_WORDS: tuple[tuple[str, str], ...] = (
 # and re-spelled by the other regex — see the module docstring's "known v1 limitations".
 _OVERLINE_RE = re.compile(r"\\overline\{([0-9A-Za-z]*)\}")
 _FRAC_RE = re.compile(r"\\frac\{([0-9A-Za-z]*)\}\{([0-9A-Za-z]*)\}")
+
+
+# Expression notation (grades 3-5), applied only in a maths context so prose such as
+# "Tính:" or "(1 điểm)" keeps its old spoken text: a colon between two operands is
+# division, a parenthesis next to a digit, minus or another parenthesis is read out.
+_COLON_RE = re.compile(r"(?<=[\d)])\s*:\s*(?=[\d(\-−])")
+_MATHS = r"[\s\d+\-−×xX*:/÷(),.]"
+_OPEN_RE = re.compile(rf"\((?=\s*[\d\-−(]{_MATHS}*\))")
+_CLOSE_RE = re.compile(r"(?<=[\d)])\s*\)")
 
 
 def _spell(chars: str) -> str:
@@ -114,6 +124,9 @@ def speech_text(text: str) -> str:
     value = unicodedata.normalize("NFC", text)
     value = _OVERLINE_RE.sub(_replace_overline, value)
     value = _FRAC_RE.sub(_replace_frac, value)
+    value = _COLON_RE.sub(" chia ", value)
+    value = _OPEN_RE.sub(" mở ngoặc ", value)
+    value = _CLOSE_RE.sub(" đóng ngoặc ", value)
     for char, word in _OPERATOR_WORDS:
         if char in value:
             value = value.replace(char, f" {word} ")

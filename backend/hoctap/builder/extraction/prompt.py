@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-PROMPT_VERSION = "p2"
+PROMPT_VERSION = "p3"
 
 SYSTEM_PROMPT = """\
 You extract maths problems from scanned pages of the Vietnamese primary-school workbook \
@@ -51,6 +51,12 @@ Counts are non-negative integers.
 (a, b, c) when printed, otherwise p1, p2, ... in reading order. Every Answer Slot has a \
 slot_key; every answer covers exactly the Part's slots. Choose the type that lets a child \
 answer on a tablet: number_input for fill-in blanks ([[slot_key]] markers in template), \
+expression_input for a calculation whose answer is an arithmetic expression or a value \
+(grades 3-5: "Tính giá trị biểu thức", "Đặt tính rồi tính", fractions written a/b), with \
+[[slot_key]] markers in template and each answer value an expression using digits, a decimal \
+comma, + - × : ( ) and "/" (e.g. "36", "(4 × 3) × 3", "3,5", "1/2"); set mode to "value" \
+(any expression with the right value is accepted) and to "exact" ONLY when the book demands \
+a specific form (e.g. "viết dưới dạng tổng", "không tính kết quả"); \
 compare for <, >, = between two expressions, multiple_choice, image_select, order, \
 number_tree, grid_fill, match, count_image, dot_draw, connect_dots, spot_difference.
 8. When a problem cannot be made interactive with these types (drawing, colouring, free \

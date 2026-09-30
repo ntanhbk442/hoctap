@@ -23,6 +23,7 @@ from hoctap.builder.extraction.models import drop_titles
 from hoctap.content.schema import (
     CompareEntry,
     CountEntry,
+    ExpressionEntry,
     Key,
     MatchAnswer,
     NumericEntry,
@@ -58,6 +59,13 @@ class _VerifyPart(_Model):
 class NumberInputSecond(_VerifyPart):
     type: Literal["number_input"] = _tag("number_input")
     answer: list[NumericEntry] = Field(description="[{key, value}], one per slot_key")
+
+
+class ExpressionInputSecond(_VerifyPart):
+    type: Literal["expression_input"] = _tag("expression_input")
+    answer: list[ExpressionEntry] = Field(
+        description="[{key, value}], one per slot_key; value is an arithmetic expression"
+    )
 
 
 class CompareSecond(_VerifyPart):
@@ -124,6 +132,7 @@ class FallbackSecond(_VerifyPart):
 
 SecondPart = Annotated[
     NumberInputSecond
+    | ExpressionInputSecond
     | CompareSecond
     | MultipleChoiceSecond
     | ImageSelectSecond

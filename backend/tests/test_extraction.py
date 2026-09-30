@@ -236,8 +236,8 @@ def test_page_extraction_schema_keeps_every_answer_shape() -> None:
         else:
             assert not _collapsed(answer, defs), tag
     # Within the structured-output limits (24 optional, 16 unions): the ProblemDoc's
-    # 9 optional / 8 unions, plus the two nullable headings and next_page_bbox.
-    assert _count(schema) == (9, 11)
+    # 10 optional / 8 unions, plus the two nullable headings and next_page_bbox.
+    assert _count(schema) == (10, 11)
 
 
 def test_committed_extraction_schema_is_current(tmp_path: Path) -> None:

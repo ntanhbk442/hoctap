@@ -37,6 +37,7 @@ const OPERATOR_WORDS: ReadonlyArray<readonly [string, string]> = [
   ['=', 'bằng'],
   ['+', 'cộng'],
   ['-', 'trừ'],
+  ['−', 'trừ'], // U+2212 minus
   ['×', 'nhân'],
   ['*', 'nhân'],
   ['÷', 'chia'],
@@ -45,6 +46,13 @@ const OPERATOR_WORDS: ReadonlyArray<readonly [string, string]> = [
 
 const OVERLINE_RE = /\\overline\{([0-9A-Za-z]*)\}/g
 const FRAC_RE = /\\frac\{([0-9A-Za-z]*)\}\{([0-9A-Za-z]*)\}/g
+
+// Expression notation (Story 6.1), mirroring `_COLON_RE`/`_OPEN_RE`/`_CLOSE_RE` in
+// `speech.py`: read only in a maths context, so prose such as "Tính:" is unchanged.
+const MATHS = '[\\s\\d+\\-−×xX*:/÷(),.]'
+const COLON_RE = /(?<=[\d)])\s*:\s*(?=[\d(\-−])/g
+const OPEN_RE = new RegExp(`\\((?=\\s*[\\d\\-−(]${MATHS}*\\))`, 'g')
+const CLOSE_RE = /(?<=[\d)])\s*\)/g
 
 function spell(chars: string): string {
   return chars
@@ -59,6 +67,9 @@ export function speechText(text: string): string {
   let value = text.normalize('NFC')
   value = value.replace(OVERLINE_RE, (_m, body: string) => `số ${spell(body)}`)
   value = value.replace(FRAC_RE, (_m, num: string, den: string) => `${spell(num)} phần ${spell(den)}`)
+  value = value.replace(COLON_RE, ' chia ')
+  value = value.replace(OPEN_RE, ' mở ngoặc ')
+  value = value.replace(CLOSE_RE, ' đóng ngoặc ')
   for (const [char, word] of OPERATOR_WORDS) {
     if (value.includes(char)) value = value.split(char).join(` ${word} `)
   }

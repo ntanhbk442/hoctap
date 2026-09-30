@@ -173,3 +173,11 @@ def test_problem_speech_refs_handles_zero_parts() -> None:
     refs = problem_speech_refs(_Stub(), "vi-VN-HoaiMyNeural")  # type: ignore[arg-type]
     texts = {r.text for r in refs}
     assert texts == {"Nghe và trả lời.", "Khởi động"}
+
+
+def test_expression_symbols_are_read_in_a_maths_context() -> None:
+    assert speech_text("12 : 3") == "12 chia 3"
+    assert speech_text("(4 × 3) × 3 − 2") == "mở ngoặc 4 nhân 3 đóng ngoặc nhân 3 trừ 2"
+    # Prose keeps its old spoken text.
+    assert speech_text("Tính:") == "Tính:"
+    assert speech_text("(1 điểm)") == "(1 điểm)"

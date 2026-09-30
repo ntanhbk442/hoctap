@@ -34,12 +34,14 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from hoctap.builder.arith import evaluate, format_number
 from hoctap.builder.verify.models import VerifyProblem
+from hoctap.content.arith import evaluate, format_number
 from hoctap.content.schema import (
     KEYED_ANSWER_TYPES,
     ComparePart,
     CountEntry,
+    ExpressionEntry,
+    ExpressionInputPart,
     MultipleChoicePart,
     NumberInputPart,
     NumericEntry,
@@ -158,7 +160,7 @@ def code_answers(part: Any) -> dict[str, str]:
     number_input `<expr> = [[slot]]` or `[[slot]] = <expr>`: the slot's value; compare rows
     whose two sides both evaluate: `<`, `>` or `=`. Anything else is skipped.
     """
-    if isinstance(part, NumberInputPart):
+    if isinstance(part, NumberInputPart | ExpressionInputPart):
         text = unicodedata.normalize("NFC", part.template)
         match = _EXPR_EQ_SLOT.fullmatch(text) or _SLOT_EQ_EXPR.fullmatch(text)
         if match is None:
@@ -179,6 +181,21 @@ def _same(a: str | None, b: str | None) -> bool:
     if a is None or b is None:
         return a is b
     return _norm(a) == _norm(b)
+
+
+def _same_value(a: str | None, b: str | None) -> bool:
+    """`expression_input` answers agree when the two expressions have the same exact value
+    (`3+4` and `7`); a text that is not an expression only equals itself."""
+    if a is None or b is None:
+        return a is b
+    left, right = evaluate(a, dot_decimal=True), evaluate(b, dot_decimal=True)
+    if left is None or right is None:
+        return _nfc(a) == _nfc(b)
+    return left == right
+
+
+def _same_fn(part: Any) -> Any:
+    return _same_value if isinstance(part, ExpressionInputPart) else _same
 
 
 # --------------------------------------------------------------------------- regions
@@ -219,12 +236,13 @@ def _keyed_reasons(part: Any, second: Any) -> list[Reason]:
     extracted = answer_map(part)
     theirs = {e.key: e.value for e in second.answer}
     code = code_answers(part)
+    same = _same_fn(part)
     reasons = []
     for key in sorted(set(extracted) | set(theirs) | set(code)):
         mine, other, computed = extracted.get(key), theirs.get(key), code.get(key)
-        if computed is not None and not _same(computed, mine):
+        if computed is not None and not same(computed, mine):
             kind = ARITH
-        elif not _same(mine, other):
+        elif not same(mine, other):
             kind = ANSWER if computed is None else CODE_CONFIRMS
         else:
             continue
@@ -255,10 +273,11 @@ def _code_only_reasons(part: Any) -> list[Reason]:
     if not isinstance(part, KEYED_ANSWER_TYPES):
         return []
     extracted = answer_map(part)
+    same = _same_fn(part)
     return [
         Reason(part.part_key, ARITH, extracted.get(key), None, value, key)
         for key, value in sorted(code_answers(part).items())
-        if not _same(value, extracted.get(key))
+        if not same(value, extracted.get(key))
     ]
 
 
@@ -318,8 +337,12 @@ def hint_leaks(part: Any) -> list[Reason]:
     elif isinstance(part, KEYED_ANSWER_TYPES):
         numbers = hint_numbers(hint)
         for entry in part.answer:
-            if isinstance(entry, NumericEntry | CountEntry):
-                value = _number(entry.value)
+            if isinstance(entry, NumericEntry | CountEntry | ExpressionEntry):
+                value = (
+                    evaluate(entry.value)
+                    if isinstance(entry, ExpressionEntry)
+                    else _number(entry.value)
+                )
                 if value is not None and value in numbers:
                     reasons.append(
                         Reason(part.part_key, HINT_LEAK, entry.value, hint, None, entry.key)

@@ -16,6 +16,7 @@ from hoctap.content.schema import (
     ConnectDotsView,
     CountImageView,
     DotDrawView,
+    ExpressionInputView,
     FallbackView,
     GridFillView,
     ImageSelectView,
@@ -31,6 +32,7 @@ from hoctap.content.schema import (
 
 ChildPart = Annotated[
     NumberInputView
+    | ExpressionInputView
     | CompareView
     | MultipleChoiceView
     | ImageSelectView

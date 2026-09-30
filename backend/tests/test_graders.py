@@ -303,6 +303,7 @@ def test_grade_part_dispatches_every_non_fallback_type_without_error() -> None:
     grader -- exercised once per fixture file, correct submission, no exception."""
     cases: list[tuple[str, Any]] = [
         ("number_input.json", [{"key": "s1", "value": "5"}]),
+        ("expression_input.json", [{"key": "s1", "value": "36"}]),
         ("compare.json", None),  # filled below from the fixture's own answer
         ("multiple_choice.json", {"selected": ["b"]}),
         ("image_select.json", {"selected": ["t1", "t3"]}),
@@ -328,3 +329,85 @@ def test_grade_part_dispatches_every_non_fallback_type_without_error() -> None:
             submitted = [{"key": e.key, "value": e.value} for e in part.answer]  # type: ignore[union-attr]
         result = grade_part(part, submitted)
         assert result.correct is True, f"{filename}: expected correct, got {result}"
+
+
+# --- expression_input ------------------------------------------------------------------
+
+
+def _expr(mode: str, key: str) -> Any:
+    part = load_part("expression_input.json", "a").model_copy(deep=True)
+    object.__setattr__(part, "mode", mode)
+    part.answer[0].value = key
+    return part
+
+
+def _got(value: str) -> list[dict[str, str]]:
+    return [{"key": "s1", "value": value}]
+
+
+@pytest.mark.parametrize("child", ["36", "(4×3)×3", "12 x 3", "3 * 12", "036", "72 : 2", "40 - 4"])
+def test_expression_value_mode_accepts_any_equivalent_form(child: str) -> None:
+    assert grade_part(_expr("value", "12 × 3"), _got(child)) == GradeResult(True, [])
+
+
+def test_expression_value_mode_accepts_sum_for_number() -> None:
+    assert grade_part(_expr("value", "7"), _got("3+4")).correct
+
+
+@pytest.mark.parametrize("child", ["3.5", "3,5", "03,50", "7/2", "14:4"])
+def test_expression_decimal_comma_and_dot(child: str) -> None:
+    assert grade_part(_expr("value", "3,5"), _got(child)).correct
+
+
+def test_expression_wrong_value() -> None:
+    assert grade_part(_expr("value", "36"), _got("35")) == GradeResult(False, ["s1"])
+
+
+def test_expression_exact_mode_requires_the_same_form() -> None:
+    part = _expr("exact", "2 × 3 + 4")
+    assert not grade_part(part, _got("10")).correct
+    assert not grade_part(part, _got("4+2×3")).correct
+    assert grade_part(part, _got("2 × 3 + 4")).correct
+
+
+def test_expression_exact_mode_normalises_whitespace_and_aliases() -> None:
+    part = _expr("exact", "2×3")
+    assert grade_part(part, _got(" 2 x 3 ")).correct
+    assert grade_part(part, _got("2*3")).correct
+    assert not grade_part(_expr("exact", "6 : 2"), _got("6 × 2")).correct
+    assert grade_part(_expr("exact", "6 : 2"), _got("6/2")).correct
+
+
+@pytest.mark.parametrize(
+    "child", ["3+", "abc", "", "   ", "5:0", "(", "2 3", "7" * 5000, "1+" * 300]
+)
+def test_expression_not_an_expression_is_wrong_without_raising(child: str) -> None:
+    for mode in ("value", "exact"):
+        assert grade_part(_expr(mode, "7"), _got(child)) == GradeResult(False, ["s1"])
+
+
+@pytest.mark.parametrize(
+    "submitted",
+    [None, "7", {"s1": "7"}, [1], [{"key": "s1"}], [{"key": "s1", "value": 7}]],
+)
+def test_expression_malformed_submission_is_wrong(submitted: Any) -> None:
+    assert grade_part(_expr("value", "7"), submitted) == GradeResult(False, ["s1"])
+
+
+def test_expression_multi_slot_reports_the_wrong_slot() -> None:
+    raw = json.loads((FIXTURES / "expression_input.json").read_text("utf-8"))
+    part = raw["parts"][0]
+    part["template"] = "[[s1]] và [[s2]]"
+    part["slots"] = [{"slot_key": "s1"}, {"slot_key": "s2"}]
+    part["answer"] = [{"key": "s1", "value": "6"}, {"key": "s2", "value": "8"}]
+    doc = ProblemDoc.model_validate(raw)
+    got = [{"key": "s1", "value": "2×3"}, {"key": "s2", "value": "9"}]
+    assert grade_part(doc.parts[0], got) == GradeResult(False, ["s2"])
+    assert grade_part(doc.parts[0], got[:1]) == GradeResult(False, ["s2"])
+
+
+def test_number_input_grade_4_5_comma_equals_dot() -> None:
+    part = load_part("number_input.json", "a").model_copy(deep=True)
+    part.answer[0].value = "3,5"
+    assert grade_part(part, [{"key": "s1", "value": "3.5"}]).correct
+    assert grade_part(part, [{"key": "s1", "value": "3,5"}]).correct

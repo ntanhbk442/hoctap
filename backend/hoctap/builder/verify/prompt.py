@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-VERIFY_PROMPT_VERSION = "v2"
+VERIFY_PROMPT_VERSION = "v3"
 
 PROBLEMS_BEGIN = "<problems>"
 PROBLEMS_END = "</problems>"
@@ -37,6 +37,9 @@ Rules:
 not copy handwritten marks from the scan.
 2. Answer every Answer Slot of every Part, using the keys given in the JSON:
    - number_input: [{key, value}] for each slot_key in the template's [[slot_key]] markers.
+   - expression_input: [{key, value}] for each slot_key; value is an arithmetic expression \
+using digits, a decimal COMMA, + - × : ( ) and "/" for a fraction ("36", "(4 × 3) × 3", "3,5", \
+"1/2"); give the simplest correct value, or the exact form when the problem demands one.
    - compare: [{key, value}] for each row slot_key, value one of "<", ">", "=".
    - number_tree: [{key, value}] for each node without a given value (key = node_key).
    - grid_fill: [{key, value}] for each empty cell, key r{i}c{j} (0-based row i, column j).

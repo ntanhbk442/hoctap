@@ -1,0 +1,82 @@
+{
+  "schema_version": "v1",
+  "problem_id": "toan4-2020-q1.tuan-2.tiet-1.bai-2",
+  "book_id": "toan4-2020-q1",
+  "unit_key": "tuan-2",
+  "lesson_key": "tiet-1",
+  "problem_label": "bai-2",
+  "display_label": "Bài 2",
+  "instruction": "Tính giá trị của biểu thức:",
+  "layout": "sequence",
+  "source_pages": [
+    {
+      "page": 9,
+      "bbox": [
+        0.08,
+        0.2,
+        0.92,
+        0.45
+      ]
+    }
+  ],
+  "images": [],
+  "concept_ids": [],
+  "concept_proposals": [
+    "Tính giá trị biểu thức có dấu ngoặc"
+  ],
+  "parts": [
+    {
+      "part_key": "a",
+      "type": "expression_input",
+      "prompt": "",
+      "image_keys": [],
+      "template": "(4 + 8) × 3 = [[s1]]",
+      "slots": [
+        {
+          "slot_key": "s1"
+        }
+      ],
+      "mode": "value",
+      "answer": [
+        {
+          "key": "s1",
+          "value": "36"
+        }
+      ],
+      "hint": "Con tính phần trong ngoặc trước nhé.",
+      "solution": {
+        "steps": [
+          "Tính trong ngoặc: 4 + 8 = 12.",
+          "Nhân với 3: 12 × 3 = 36."
+        ],
+        "final": "(4 + 8) × 3 = 36"
+      }
+    },
+    {
+      "part_key": "b",
+      "type": "expression_input",
+      "prompt": "Viết biểu thức: lấy 12 nhân 3.",
+      "image_keys": [],
+      "template": "[[s1]]",
+      "slots": [
+        {
+          "slot_key": "s1"
+        }
+      ],
+      "mode": "exact",
+      "answer": [
+        {
+          "key": "s1",
+          "value": "12 × 3"
+        }
+      ],
+      "hint": "Viết số thứ nhất, dấu nhân, rồi số thứ hai.",
+      "solution": {
+        "steps": [
+          "Lấy 12 nhân 3 thì viết là 12 × 3."
+        ],
+        "final": "12 × 3"
+      }
+    }
+  ]
+}

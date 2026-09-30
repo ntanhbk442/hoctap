@@ -4698,6 +4698,9 @@
                   "$ref": "#/components/schemas/NumberInputView"
                 },
                 {
+                  "$ref": "#/components/schemas/ExpressionInputView"
+                },
+                {
                   "$ref": "#/components/schemas/CompareView"
                 },
                 {
@@ -4741,6 +4744,7 @@
                   "connect_dots": "#/components/schemas/ConnectDotsView",
                   "count_image": "#/components/schemas/CountImageView",
                   "dot_draw": "#/components/schemas/DotDrawView",
+                  "expression_input": "#/components/schemas/ExpressionInputView",
                   "fallback": "#/components/schemas/FallbackView",
                   "grid_fill": "#/components/schemas/GridFillView",
                   "image_select": "#/components/schemas/ImageSelectView",
@@ -6161,6 +6165,178 @@
           "received_at"
         ],
         "title": "EventOut"
+      },
+      "ExpressionEntry": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Key"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "ExpressionEntry",
+        "description": "One expression answer: `key` is a slot_key, `value` an arithmetic expression\n(\"36\", \"(4 × 3) × 3\", \"3,5\", \"1/2\")."
+      },
+      "ExpressionInputPart": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "expression_input"
+            ],
+            "title": "Type",
+            "description": "Problem Type: expression_input"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template",
+            "description": "text with [[slot_key]] markers"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/Slot"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Slots"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "value",
+              "exact"
+            ],
+            "title": "Mode",
+            "description": "value: any expression with the key's exact value is correct; exact: only when the book demands a specific form (the same expression as the key)",
+            "default": "value"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint",
+            "description": "one hint for the child; never contains the answer"
+          },
+          "solution": {
+            "$ref": "#/components/schemas/Solution"
+          },
+          "answer": {
+            "items": {
+              "$ref": "#/components/schemas/ExpressionEntry"
+            },
+            "type": "array",
+            "title": "Answer",
+            "description": "[{key, value}], one per slot_key; value is an arithmetic expression"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "template",
+          "slots",
+          "hint",
+          "solution",
+          "answer"
+        ],
+        "title": "ExpressionInputPart"
+      },
+      "ExpressionInputView": {
+        "properties": {
+          "part_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "title": "Part Key",
+            "description": "the book's own label (a, b, c) or p1, p2... in reading order"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "expression_input"
+            ],
+            "title": "Type",
+            "description": "Problem Type: expression_input"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "description": "the Part's own text; may be empty"
+          },
+          "image_keys": {
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$"
+            },
+            "type": "array",
+            "title": "Image Keys"
+          },
+          "template": {
+            "type": "string",
+            "title": "Template",
+            "description": "text with [[slot_key]] markers"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/Slot"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Slots"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "value",
+              "exact"
+            ],
+            "title": "Mode",
+            "description": "value: any expression with the key's exact value is correct; exact: only when the book demands a specific form (the same expression as the key)",
+            "default": "value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part_key",
+          "type",
+          "prompt",
+          "image_keys",
+          "template",
+          "slots"
+        ],
+        "title": "ExpressionInputView"
       },
       "FailedPage": {
         "properties": {
@@ -8641,6 +8817,9 @@
                   "$ref": "#/components/schemas/NumberInputPart"
                 },
                 {
+                  "$ref": "#/components/schemas/ExpressionInputPart"
+                },
+                {
                   "$ref": "#/components/schemas/ComparePart"
                 },
                 {
@@ -8684,6 +8863,7 @@
                   "connect_dots": "#/components/schemas/ConnectDotsPart",
                   "count_image": "#/components/schemas/CountImagePart",
                   "dot_draw": "#/components/schemas/DotDrawPart",
+                  "expression_input": "#/components/schemas/ExpressionInputPart",
                   "fallback": "#/components/schemas/FallbackPart",
                   "grid_fill": "#/components/schemas/GridFillPart",
                   "image_select": "#/components/schemas/ImageSelectPart",

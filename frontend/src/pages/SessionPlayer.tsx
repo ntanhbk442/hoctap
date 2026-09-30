@@ -335,6 +335,7 @@ function SessionPlayerInner() {
                 autoPlay={autoPlay}
                 onOffline={() => setOffline(true)}
                 quiz={isQuiz}
+                grade={profiles.data?.find((p) => p.id === profileId)?.grade ?? 0}
               />
             </>
           )}

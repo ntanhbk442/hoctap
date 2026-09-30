@@ -40,4 +40,17 @@ describe('NumberPad', () => {
       expect(button.style.height).toBe('80px')
     }
   })
+
+  it('the expression pad adds + − × : ( ) / keys, all 80px, and emits the symbol', () => {
+    const onSymbol = vi.fn()
+    render(<NumberPad onDigit={vi.fn()} onBackspace={vi.fn()} expression onSymbol={onSymbol} />)
+    for (const name of ['Cộng', 'Trừ', 'Nhân', 'Chia', 'Mở ngoặc', 'Đóng ngoặc', 'Gạch phân số']) {
+      fireEvent.click(screen.getByRole('button', { name }))
+    }
+    expect(onSymbol.mock.calls.map((c) => c[0])).toEqual(['+', '−', '×', ':', '(', ')', '/'])
+    expect(screen.getByRole('button', { name: 'Dấu phẩy' })).toBeInTheDocument()
+    for (const button of screen.getAllByRole('button')) {
+      expect(button.style.width).toBe('80px')
+    }
+  })
 })

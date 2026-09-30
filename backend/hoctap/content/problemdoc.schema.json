@@ -453,6 +453,113 @@
       "title": "DotDrawPart",
       "type": "object"
     },
+    "ExpressionEntry": {
+      "additionalProperties": false,
+      "description": "One expression answer: `key` is a slot_key, `value` an arithmetic expression\n(\"36\", \"(4 × 3) × 3\", \"3,5\", \"1/2\").",
+      "properties": {
+        "key": {
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "ExpressionEntry",
+      "type": "object"
+    },
+    "ExpressionInputPart": {
+      "additionalProperties": false,
+      "properties": {
+        "part_key": {
+          "description": "the book's own label (a, b, c) or p1, p2... in reading order",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+          "title": "Part Key",
+          "type": "string"
+        },
+        "type": {
+          "description": "Problem Type: expression_input",
+          "enum": [
+            "expression_input"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "the Part's own text; may be empty",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "image_keys": {
+          "items": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,15}$",
+            "type": "string"
+          },
+          "title": "Image Keys",
+          "type": "array"
+        },
+        "template": {
+          "description": "text with [[slot_key]] markers",
+          "title": "Template",
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "minItems": 1,
+          "title": "Slots",
+          "type": "array"
+        },
+        "mode": {
+          "default": "value",
+          "description": "value: any expression with the key's exact value is correct; exact: only when the book demands a specific form (the same expression as the key)",
+          "enum": [
+            "value",
+            "exact"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "hint": {
+          "description": "one hint for the child; never contains the answer",
+          "title": "Hint",
+          "type": "string"
+        },
+        "solution": {
+          "$ref": "#/$defs/Solution"
+        },
+        "answer": {
+          "description": "[{key, value}], one per slot_key; value is an arithmetic expression",
+          "items": {
+            "$ref": "#/$defs/ExpressionEntry"
+          },
+          "title": "Answer",
+          "type": "array"
+        }
+      },
+      "required": [
+        "part_key",
+        "type",
+        "prompt",
+        "image_keys",
+        "template",
+        "slots",
+        "hint",
+        "solution",
+        "answer"
+      ],
+      "title": "ExpressionInputPart",
+      "type": "object"
+    },
     "FallbackPart": {
       "additionalProperties": false,
       "properties": {
@@ -1588,6 +1695,7 @@
             "connect_dots": "#/$defs/ConnectDotsPart",
             "count_image": "#/$defs/CountImagePart",
             "dot_draw": "#/$defs/DotDrawPart",
+            "expression_input": "#/$defs/ExpressionInputPart",
             "fallback": "#/$defs/FallbackPart",
             "grid_fill": "#/$defs/GridFillPart",
             "image_select": "#/$defs/ImageSelectPart",
@@ -1603,6 +1711,9 @@
         "oneOf": [
           {
             "$ref": "#/$defs/NumberInputPart"
+          },
+          {
+            "$ref": "#/$defs/ExpressionInputPart"
           },
           {
             "$ref": "#/$defs/ComparePart"

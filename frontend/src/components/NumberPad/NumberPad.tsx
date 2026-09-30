@@ -10,7 +10,26 @@ export interface NumberPadProps {
   /** Additive (Story 2.6 finding #4): inert-looking while a submit is in flight or feedback
    * is settling. Optional and defaults to enabled so every existing call site is unchanged. */
   disabled?: boolean
+  /** Story 6.1: the `expression_input` keypad -- the number pad plus + − × : ( ) and `/`
+   * (same 80 px keys, one extra grid column each side). The comma key is always shown then.
+   * `onSymbol` receives the typed character. Additive: absent, the pad is unchanged. */
+  expression?: boolean
+  onSymbol?: (symbol: string) => void
 }
+
+/** Operator/parenthesis keys of the expression pad: [symbol, aria-label]. Column 4 then
+ * column 5 of the 5-column grid, top to bottom. */
+const OPERATOR_COLUMN: [string, string][] = [
+  ['+', 'Cộng'],
+  ['−', 'Trừ'],
+  ['×', 'Nhân'],
+  [':', 'Chia'],
+]
+const GROUP_COLUMN: [string, string][] = [
+  ['(', 'Mở ngoặc'],
+  [')', 'Đóng ngoặc'],
+  ['/', 'Gạch phân số'],
+]
 
 const DIGIT_ROWS = [
   ['1', '2', '3'],
@@ -51,7 +70,47 @@ export default function NumberPad({
   onComma,
   showComma = true,
   disabled = false,
+  expression = false,
+  onSymbol,
 }: NumberPadProps) {
+  if (expression) {
+    const sym = (entry: [string, string]) => (
+      <Key
+        key={entry[0]}
+        label={entry[0]}
+        ariaLabel={entry[1]}
+        disabled={disabled}
+        onClick={() => onSymbol?.(entry[0])}
+      />
+    )
+    const digit = (d: string) => (
+      <Key key={d} label={d} disabled={disabled} onClick={() => onDigit(d)} />
+    )
+    return (
+      <div className="numpad numpad-expression" role="group" aria-label="Bàn phím biểu thức">
+        {digit('1')}
+        {digit('2')}
+        {digit('3')}
+        {sym(OPERATOR_COLUMN[0])}
+        {sym(GROUP_COLUMN[0])}
+        {digit('4')}
+        {digit('5')}
+        {digit('6')}
+        {sym(OPERATOR_COLUMN[1])}
+        {sym(GROUP_COLUMN[1])}
+        {digit('7')}
+        {digit('8')}
+        {digit('9')}
+        {sym(OPERATOR_COLUMN[2])}
+        {sym(GROUP_COLUMN[2])}
+        <Key label="," ariaLabel="Dấu phẩy" disabled={disabled} onClick={() => onComma?.()} />
+        {digit('0')}
+        <Key label="⌫" ariaLabel="Xoá" disabled={disabled} onClick={onBackspace} />
+        {sym(OPERATOR_COLUMN[3])}
+        <span className="numpad-filler" aria-hidden="true" />
+      </div>
+    )
+  }
   return (
     <div className="numpad" role="group" aria-label="Bàn phím số">
       {DIGIT_ROWS.map((row) =>

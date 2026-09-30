@@ -1199,7 +1199,7 @@ export interface components {
              */
             concept_proposals: string[];
             /** Parts */
-            parts: (components["schemas"]["NumberInputView"] | components["schemas"]["CompareView"] | components["schemas"]["MultipleChoiceView"] | components["schemas"]["ImageSelectView"] | components["schemas"]["OrderView"] | components["schemas"]["NumberTreeView"] | components["schemas"]["GridFillView"] | components["schemas"]["MatchView"] | components["schemas"]["CountImageView"] | components["schemas"]["DotDrawView"] | components["schemas"]["ConnectDotsView"] | components["schemas"]["SpotDifferenceView"] | components["schemas"]["FallbackView"])[];
+            parts: (components["schemas"]["NumberInputView"] | components["schemas"]["ExpressionInputView"] | components["schemas"]["CompareView"] | components["schemas"]["MultipleChoiceView"] | components["schemas"]["ImageSelectView"] | components["schemas"]["OrderView"] | components["schemas"]["NumberTreeView"] | components["schemas"]["GridFillView"] | components["schemas"]["MatchView"] | components["schemas"]["CountImageView"] | components["schemas"]["DotDrawView"] | components["schemas"]["ConnectDotsView"] | components["schemas"]["SpotDifferenceView"] | components["schemas"]["FallbackView"])[];
         };
         /** ChoiceOption */
         ChoiceOption: {
@@ -1759,6 +1759,96 @@ export interface components {
             quiz_results?: components["schemas"]["QuizResultOut"][] | null;
             /** Quiz Stars Awarded */
             quiz_stars_awarded?: boolean | null;
+        };
+        /**
+         * ExpressionEntry
+         * @description One expression answer: `key` is a slot_key, `value` an arithmetic expression
+         *     ("36", "(4 × 3) × 3", "3,5", "1/2").
+         */
+        ExpressionEntry: {
+            /** Key */
+            key: string;
+            /** Value */
+            value: string;
+        };
+        /** ExpressionInputPart */
+        ExpressionInputPart: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: expression_input (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "expression_input";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /**
+             * Template
+             * @description text with [[slot_key]] markers
+             */
+            template: string;
+            /** Slots */
+            slots: components["schemas"]["Slot"][];
+            /**
+             * Mode
+             * @description value: any expression with the key's exact value is correct; exact: only when the book demands a specific form (the same expression as the key)
+             * @default value
+             * @enum {string}
+             */
+            mode: "value" | "exact";
+            /**
+             * Hint
+             * @description one hint for the child; never contains the answer
+             */
+            hint: string;
+            solution: components["schemas"]["Solution"];
+            /**
+             * Answer
+             * @description [{key, value}], one per slot_key; value is an arithmetic expression
+             */
+            answer: components["schemas"]["ExpressionEntry"][];
+        };
+        /** ExpressionInputView */
+        ExpressionInputView: {
+            /**
+             * Part Key
+             * @description the book's own label (a, b, c) or p1, p2... in reading order
+             */
+            part_key: string;
+            /**
+             * @description Problem Type: expression_input (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "expression_input";
+            /**
+             * Prompt
+             * @description the Part's own text; may be empty
+             */
+            prompt: string;
+            /** Image Keys */
+            image_keys: string[];
+            /**
+             * Template
+             * @description text with [[slot_key]] markers
+             */
+            template: string;
+            /** Slots */
+            slots: components["schemas"]["Slot"][];
+            /**
+             * Mode
+             * @description value: any expression with the key's exact value is correct; exact: only when the book demands a specific form (the same expression as the key)
+             * @default value
+             * @enum {string}
+             */
+            mode: "value" | "exact";
         };
         /** FailedPage */
         FailedPage: {
@@ -2806,7 +2896,7 @@ export interface components {
              */
             concept_proposals: string[];
             /** Parts */
-            parts: (components["schemas"]["NumberInputPart"] | components["schemas"]["ComparePart"] | components["schemas"]["MultipleChoicePart"] | components["schemas"]["ImageSelectPart"] | components["schemas"]["OrderPart"] | components["schemas"]["NumberTreePart"] | components["schemas"]["GridFillPart"] | components["schemas"]["MatchPart"] | components["schemas"]["CountImagePart"] | components["schemas"]["DotDrawPart"] | components["schemas"]["ConnectDotsPart"] | components["schemas"]["SpotDifferencePart"] | components["schemas"]["FallbackPart"])[];
+            parts: (components["schemas"]["NumberInputPart"] | components["schemas"]["ExpressionInputPart"] | components["schemas"]["ComparePart"] | components["schemas"]["MultipleChoicePart"] | components["schemas"]["ImageSelectPart"] | components["schemas"]["OrderPart"] | components["schemas"]["NumberTreePart"] | components["schemas"]["GridFillPart"] | components["schemas"]["MatchPart"] | components["schemas"]["CountImagePart"] | components["schemas"]["DotDrawPart"] | components["schemas"]["ConnectDotsPart"] | components["schemas"]["SpotDifferencePart"] | components["schemas"]["FallbackPart"])[];
         };
         /** ProblemPage */
         ProblemPage: {

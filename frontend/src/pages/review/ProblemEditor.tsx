@@ -23,6 +23,7 @@ import ReportProblem from './ReportProblem'
 // Answers edited as one input per key.
 const KEYED_TYPES = new Set([
   'number_input',
+  'expression_input',
   'compare',
   'number_tree',
   'grid_fill',

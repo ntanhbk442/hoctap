@@ -18,7 +18,8 @@ function textOf(items: Labeled[], key: string): string {
  */
 export function answerLines(part: ProblemPart): string[] {
   switch (part.type) {
-    case 'number_input': {
+    case 'number_input':
+    case 'expression_input': {
       let text = part.template
       for (const e of part.answer) text = text.split(`[[${e.key}]]`).join(e.value)
       return [text]

@@ -4,6 +4,10 @@
   gap: var(--space-3);
 }
 
+.numpad-expression {
+  grid-template-columns: repeat(5, var(--space-key));
+}
+
 .numpad-key {
   border: none;
   border-radius: var(--radius-md);

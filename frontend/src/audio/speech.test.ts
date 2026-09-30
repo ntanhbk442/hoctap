@@ -61,6 +61,17 @@ describe('speechKey (ported from content.speech.speech_key)', () => {
     expect(await speechKey(text, 'vi-VN-HoaiMyNeural')).toBe(expected)
   })
 
+  // Expression notation (Story 6.1): hashes from the Python `speech_key()`.
+  it.each([
+    ['(4 × 3) × 3 − 2', '134abb8f60879a11'],
+    ['Tính: 12 : 3 = 4', '44964006017ba2e0'],
+    ['(1 điểm)', 'fc0d4c46502a165d'],
+    ['((1+2)×3)', '30436d64da58ef1a'],
+    ['1 : (2 - 1)', 'ed2403a214bf886e'],
+  ])('matches the backend hash for expression text %s', async (text, expected) => {
+    expect(await speechKey(text, 'vi-VN-HoaiMyNeural')).toBe(expected)
+  })
+
   it('is stable for the same input', async () => {
     const a = await speechKey('3 < 5', 'vi-VN-HoaiMyNeural')
     const b = await speechKey('3 < 5', 'vi-VN-HoaiMyNeural')

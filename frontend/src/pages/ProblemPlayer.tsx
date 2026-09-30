@@ -28,6 +28,7 @@ import GridFillWidget from '../components/widgets/GridFillWidget'
 import ImageSelectWidget from '../components/widgets/ImageSelectWidget'
 import MatchWidget from '../components/widgets/MatchWidget'
 import MultipleChoiceWidget from '../components/widgets/MultipleChoiceWidget'
+import ExpressionInputWidget from '../components/widgets/ExpressionInputWidget'
 import NumberInputWidget from '../components/widgets/NumberInputWidget'
 import NumberTreeWidget from '../components/widgets/NumberTreeWidget'
 import OrderWidget from '../components/widgets/OrderWidget'
@@ -62,9 +63,17 @@ type Phase =
 
 // `grid_fill` joins these three: it's the same tap-a-slot-then-`NumberPad` shape as
 // `number_input`/`number_tree`, just laid out as a grid (Story 2.7).
-const NUMERIC_TYPES = new Set(['number_input', 'number_tree', 'count_image', 'grid_fill'])
+const NUMERIC_TYPES = new Set([
+  'number_input',
+  'number_tree',
+  'count_image',
+  'grid_fill',
+  // Story 6.1: the expression pad is the number pad plus operator keys.
+  'expression_input',
+])
 const SUPPORTED_TYPES = new Set([
   'number_input',
+  'expression_input',
   'compare',
   'multiple_choice',
   'number_tree',
@@ -102,6 +111,9 @@ export interface ProblemPlayerProps {
   /** Story 3.4: quiz play -- no Hint, banner, StarBurst or verdict; a check only shows
    * "Đã lưu" and advances. Server-decided (the Session's `mode`), never a client choice. */
   quiz?: boolean
+  /** The Child Profile's grade (Story 6.1): grades 4-5 get the comma key on `number_input`.
+   * Unknown (0/absent) keeps the grade 1-3 pad. */
+  grade?: number
 }
 
 /** One Problem's worth of the real player (Story 2.6): owns only which Part of the Problem
@@ -123,6 +135,7 @@ export default function ProblemPlayer({
   autoPlay = true,
   onOffline = () => {},
   quiz = false,
+  grade = 0,
 }: ProblemPlayerProps) {
   const problem = bundleProblem.problem
   const [partIndex, setPartIndex] = useState(0)
@@ -199,6 +212,7 @@ export default function ProblemPlayer({
       onAdvance={advance}
       onOffline={onOffline}
       quiz={quiz}
+      grade={grade}
     />
   )
 }
@@ -280,6 +294,7 @@ interface PartPlayerProps {
   onAdvance: () => void
   onOffline: () => void
   quiz: boolean
+  grade: number
 }
 
 function PartPlayer({
@@ -293,6 +308,7 @@ function PartPlayer({
   onAdvance,
   onOffline,
   quiz,
+  grade,
 }: PartPlayerProps) {
   const [values, setValues] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string[]>([])
@@ -380,6 +396,12 @@ function PartPlayer({
       ...prev,
       [activeSlot]: (prev[activeSlot] ?? '') + digit,
     }))
+  }
+
+  // `expression_input`: an operator/parenthesis/comma key appends its character. Each slot
+  // holds the raw typed text; the server evaluates it (the client never grades).
+  function handleSymbol(symbol: string) {
+    handleDigit(symbol)
   }
 
   function handleBackspace() {
@@ -494,7 +516,9 @@ function PartPlayer({
   }
 
   function slotKeysFor(): string[] {
-    if (part.type === 'number_input') return part.slots.map((s) => s.slot_key)
+    if (part.type === 'number_input' || part.type === 'expression_input') {
+      return part.slots.map((s) => s.slot_key)
+    }
     if (part.type === 'number_tree') {
       return part.nodes.filter((n) => n.given == null).map((n) => n.node_key)
     }
@@ -638,6 +662,8 @@ function PartPlayer({
     switch (part.type) {
       case 'number_input':
         return <NumberInputWidget {...shared} part={part} />
+      case 'expression_input':
+        return <ExpressionInputWidget {...shared} part={part} />
       case 'compare':
         return <CompareWidget {...shared} part={part} />
       case 'multiple_choice':
@@ -736,7 +762,10 @@ function PartPlayer({
               <NumberPad
                 onDigit={handleDigit}
                 onBackspace={handleBackspace}
-                showComma={false}
+                onComma={() => handleSymbol(',')}
+                onSymbol={handleSymbol}
+                expression={part.type === 'expression_input'}
+                showComma={part.type === 'number_input' && grade >= 4}
                 disabled={disabled}
               />
             )}

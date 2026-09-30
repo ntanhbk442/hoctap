@@ -54,7 +54,7 @@ def strings(node: Any) -> list[str]:
 
 def test_one_fixture_per_problem_type() -> None:
     assert sorted(p.stem for p in FIXTURES.glob("*.json")) == sorted(PROBLEM_TYPES)
-    assert len(PROBLEM_TYPES) == 13
+    assert len(PROBLEM_TYPES) == 14
     for problem_type in PROBLEM_TYPES:
         assert problem_type in {part["type"] for part in load(problem_type)["parts"]}
 
@@ -363,9 +363,9 @@ def test_transform_schema_accepts_problemdoc() -> None:
     assert tags == {(t,) for t in PROBLEM_TYPES}
     assert schema["properties"]["schema_version"]["enum"] == ["v1"]
     # Pinned so a change is noticed against the structured-output limits (24 optional,
-    # 16 unions): 9 optional = 7 `?` fields + FallbackPart.answer + DotBox.given;
+    # 16 unions): 10 optional = 7 `?` fields + FallbackPart.answer + DotBox.given + expression mode;
     # 8 unions = the 7 nullable `?` fields + the Part union. Recorded in the spec.
-    assert _count(schema) == (9, 8)
+    assert _count(schema) == (10, 8)
 
 
 def _collapsed(node: Any, defs: dict[str, Any]) -> bool:
@@ -608,3 +608,31 @@ def test_spot_difference_needs_two_images() -> None:
     raw = load("spot_difference")
     raw["parts"][0]["image_right"] = "tranh-trai"
     rejects(raw, "must differ")
+
+
+def test_expression_input_child_view_has_mode_but_no_answer() -> None:
+    view = child_view(ProblemDoc.model_validate(load("expression_input")))
+    assert [p.mode for p in view.parts] == ["value", "exact"]
+    assert "36" not in view.model_dump_json().replace("12 × 3", "")
+
+
+@pytest.mark.parametrize("value", ["", "3+", "abc", "x" * 101])
+def test_expression_input_answer_must_be_an_expression(value: str) -> None:
+    raw = load("expression_input")
+    raw["parts"][0]["answer"][0]["value"] = value
+    with pytest.raises(ValidationError):
+        ProblemDoc.model_validate(raw)
+
+
+def test_expression_input_answer_must_cover_slots_and_mode_is_closed() -> None:
+    raw = load("expression_input")
+    raw["parts"][0]["answer"][0]["key"] = "zz"
+    with pytest.raises(ValidationError):
+        ProblemDoc.model_validate(raw)
+    raw = load("expression_input")
+    raw["parts"][0]["mode"] = "fuzzy"
+    with pytest.raises(ValidationError):
+        ProblemDoc.model_validate(raw)
+    raw = load("expression_input")
+    del raw["parts"][0]["mode"]
+    assert ProblemDoc.model_validate(raw).parts[0].mode == "value"

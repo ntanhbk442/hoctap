@@ -32,6 +32,7 @@ here and in the story's Implementation Notes):
   keyed, numeric): `list[{"key": str, "value": str}]` -- one entry per slot, mirroring
   `NumericEntry`/`CountEntry`'s own shape exactly, so no shape translation is needed
   before grading.
+- `expression_input`: the same `list[{"key", "value"}]` shape, `value` the typed expression.
 - `compare` (multi-slot, keyed, non-numeric): `list[{"key": str, "value": "<"|">"|"="}]`
   -- the same list-of-entries shape, mirroring `CompareEntry`.
 - `multiple_choice` / `image_select` (all-or-nothing): `{"selected": list[str]}`.
@@ -47,15 +48,18 @@ here and in the story's Implementation Notes):
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from hoctap.content.arith import evaluate
 from hoctap.content.schema import (
     ComparePart,
     ConnectDotsPart,
     CountImagePart,
     DotDrawPart,
+    ExpressionInputPart,
     FallbackPart,
     GridFillPart,
     ImageSelectPart,
@@ -159,6 +163,55 @@ def grade_dot_draw(part: DotDrawPart, submitted: Any) -> GradeResult:
     return _grade_keyed(answer_map(part), submitted, numeric=True)
 
 
+_EXACT_ALIASES = {
+    "x": "×",
+    "X": "×",
+    "*": "×",
+    "\\times": "×",
+    "÷": ":",
+    "/": ":",
+    "−": "-",
+}
+_EXACT_TOKEN = re.compile(r"\\times|[xX*÷/−]")
+_EXACT_DOT = re.compile(r"(?<=\d)\.(?=\d)")
+
+
+def _exact_form(text: str) -> str:
+    """The text with whitespace removed, operator aliases unified and a `.` decimal
+    written as a comma, for the `exact` mode."""
+    text = unicodedata.normalize("NFC", text)
+    text = "".join(text.split())
+    text = _EXACT_DOT.sub(",", text)
+    return _EXACT_TOKEN.sub(lambda m: _EXACT_ALIASES[m.group(0)], text)
+
+
+def _expression_correct(want: str, got: str, exact: bool) -> bool:
+    want_v, got_v = evaluate(want, dot_decimal=True), evaluate(got, dot_decimal=True)
+    if want_v is None or got_v is None:  # an unparsable child text (or key) is never correct
+        return False
+    if exact:
+        return _exact_form(want) == _exact_form(got)
+    return want_v == got_v
+
+
+def grade_expression_input(part: ExpressionInputPart, submitted: Any) -> GradeResult:
+    """Every slot graded independently: by exact value (`mode` "value"), or by the same
+    form as the key (`mode` "exact"). Unparsable, empty or zero-division input is wrong."""
+    answer = answer_map(part)
+    submitted_map = _keyed_submitted_map(submitted)
+    if submitted_map is None:
+        return GradeResult(False, sorted(answer))
+    exact = part.mode == "exact"
+    wrong = [
+        key
+        for key in sorted(set(answer) | set(submitted_map))
+        if key not in answer
+        or key not in submitted_map
+        or not _expression_correct(answer[key], submitted_map[key], exact)
+    ]
+    return GradeResult(not wrong, wrong)
+
+
 def grade_compare(part: ComparePart, submitted: Any) -> GradeResult:
     return _grade_keyed(answer_map(part), submitted, numeric=False)
 
@@ -238,6 +291,7 @@ def grade_spot_difference(part: SpotDifferencePart, submitted: Any) -> GradeResu
 
 _GRADERS: dict[type, Any] = {
     NumberInputPart: grade_number_input,
+    ExpressionInputPart: grade_expression_input,
     ComparePart: grade_compare,
     MultipleChoicePart: grade_multiple_choice,
     ImageSelectPart: grade_image_select,

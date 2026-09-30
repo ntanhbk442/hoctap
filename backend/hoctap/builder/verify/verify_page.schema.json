@@ -169,6 +169,58 @@
         "answer"
       ]
     },
+    "ExpressionEntry": {
+      "type": "object",
+      "description": "One expression answer: `key` is a slot_key, `value` an arithmetic expression\n(\"36\", \"(4 × 3) × 3\", \"3,5\", \"1/2\").",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "value": {
+          "type": "string",
+          "description": "{maxLength: 100, minLength: 1}"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value"
+      ]
+    },
+    "ExpressionInputSecond": {
+      "type": "object",
+      "properties": {
+        "part_key": {
+          "type": "string",
+          "description": "the Part's part_key, exactly as given\n\n{pattern: ^[a-z0-9][a-z0-9_-]{0,15}$}"
+        },
+        "unsure": {
+          "type": "boolean",
+          "description": "true when you cannot solve the Part with confidence (instead of guessing)\n\n{default: False}"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "expression_input"
+          ],
+          "description": "the Part's type: expression_input"
+        },
+        "answer": {
+          "type": "array",
+          "description": "[{key, value}], one per slot_key; value is an arithmetic expression",
+          "items": {
+            "$ref": "#/$defs/ExpressionEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "part_key",
+        "type",
+        "answer"
+      ]
+    },
     "FallbackSecond": {
       "type": "object",
       "properties": {
@@ -586,6 +638,9 @@
                 "$ref": "#/$defs/NumberInputSecond"
               },
               {
+                "$ref": "#/$defs/ExpressionInputSecond"
+              },
+              {
                 "$ref": "#/$defs/CompareSecond"
               },
               {
@@ -622,7 +677,7 @@
                 "$ref": "#/$defs/FallbackSecond"
               }
             ],
-            "description": "{discriminator: {'mapping': {'compare': '#/$defs/CompareSecond', 'connect_dots': '#/$defs/ConnectDotsSecond', 'count_image': '#/$defs/CountImageSecond', 'dot_draw': '#/$defs/DotDrawSecond', 'fallback': '#/$defs/FallbackSecond', 'grid_fill': '#/$defs/GridFillSecond', 'image_select': '#/$defs/ImageSelectSecond', 'match': '#/$defs/MatchSecond', 'multiple_choice': '#/$defs/MultipleChoiceSecond', 'number_input': '#/$defs/NumberInputSecond', 'number_tree': '#/$defs/NumberTreeSecond', 'order': '#/$defs/OrderSecond', 'spot_difference': '#/$defs/SpotDifferenceSecond'}, 'propertyName': 'type'}}"
+            "description": "{discriminator: {'mapping': {'compare': '#/$defs/CompareSecond', 'connect_dots': '#/$defs/ConnectDotsSecond', 'count_image': '#/$defs/CountImageSecond', 'dot_draw': '#/$defs/DotDrawSecond', 'expression_input': '#/$defs/ExpressionInputSecond', 'fallback': '#/$defs/FallbackSecond', 'grid_fill': '#/$defs/GridFillSecond', 'image_select': '#/$defs/ImageSelectSecond', 'match': '#/$defs/MatchSecond', 'multiple_choice': '#/$defs/MultipleChoiceSecond', 'number_input': '#/$defs/NumberInputSecond', 'number_tree': '#/$defs/NumberTreeSecond', 'order': '#/$defs/OrderSecond', 'spot_difference': '#/$defs/SpotDifferenceSecond'}, 'propertyName': 'type'}}"
           }
         }
       },

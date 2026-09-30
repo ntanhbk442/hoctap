@@ -307,6 +307,24 @@ def test_match_pairs_are_a_set_and_sequence_is_a_list() -> None:
     assert verdict(doc, second_with(doc, "p1", order)).status == DISAGREE
 
 
+def test_expression_input_agrees_by_value_and_code_check() -> None:
+    doc = load("expression_input")
+    # The second answer may use another form with the same value.
+    v = verdict(doc, second_with(doc, "a", [{"key": "s1", "value": "12 × 3"}]))
+    assert v.status == AGREE, v.reasons
+    # A different value disagrees.
+    v = verdict(doc, second_with(doc, "a", [{"key": "s1", "value": "35"}]))
+    assert v.status == AGREE and kinds(v) == ["code_confirms"]
+    # The extracted key disagrees with the code arithmetic of the template.
+    wrong = load("expression_input")
+    wrong["parts"][0]["answer"][0]["value"] = "35"
+    v = verdict(wrong, second_with(wrong, "a", [{"key": "s1", "value": "35"}]))
+    assert v.status == DISAGREE and "arith" in kinds(v)
+    # A non-expression in the second answer is invalid output.
+    bad = second_with(doc, "a", [{"key": "s1", "value": "abc"}])
+    assert kinds(verdict(doc, bad)) == ["invalid_output"]
+
+
 def test_fallback_always_agrees() -> None:
     assert verdict(load("fallback")).status == AGREE
 
@@ -353,7 +371,7 @@ def test_verify_schema_keeps_every_answer_shape() -> None:
         else:
             assert not _collapsed(answer, defs), tag
     # Within the structured-output limits (24 optional, 16 unions): `unsure` per Part type.
-    assert _count(schema) == (13, 1)
+    assert _count(schema) == (14, 1)
 
 
 def test_committed_verify_schema_is_current(tmp_path: Path) -> None:
