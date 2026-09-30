@@ -1019,6 +1019,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parent/worksheet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Worksheet
+         * @description A Lesson (`book_id`+`unit_key`+`lesson_key`) or a Concept (`concept_id`+`profile_id`)
+         *     Problem Set, in `resolve()` order, with Answer Keys.
+         */
+        get: operations["get_worksheet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3741,6 +3762,32 @@ export interface components {
             self_check: number;
             /** Accuracy */
             accuracy: number | null;
+        };
+        /** WorksheetOut */
+        WorksheetOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "lesson" | "concept";
+            /** Title */
+            title: string;
+            /** Subtitle */
+            subtitle: string;
+            /** Problems */
+            problems: components["schemas"]["WorksheetProblem"][];
+        };
+        /** WorksheetProblem */
+        WorksheetProblem: {
+            /** Problem Id */
+            problem_id: string;
+            doc: components["schemas"]["ProblemDoc"];
+            /** Crop Url */
+            crop_url: string | null;
+            /** Image Urls */
+            image_urls: {
+                [key: string]: string;
+            };
         };
         /** ApproveIn */
         hoctap__builder__gate__ApproveIn: {
@@ -7240,6 +7287,68 @@ export interface operations {
                 };
             };
             /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_worksheet: {
+        parameters: {
+            query?: {
+                book_id?: string | null;
+                unit_key?: string | null;
+                lesson_key?: string | null;
+                concept_id?: string | null;
+                profile_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorksheetOut"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description PROFILE_NOT_FOUND or CONCEPT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description WORKSHEET_REF_INVALID */
             422: {
                 headers: {
                     [name: string]: unknown;

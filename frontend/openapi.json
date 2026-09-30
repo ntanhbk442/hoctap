@@ -4392,6 +4392,150 @@
           }
         }
       }
+    },
+    "/api/v1/parent/worksheet": {
+      "get": {
+        "tags": [
+          "worksheets"
+        ],
+        "summary": "Get Worksheet",
+        "description": "A Lesson (`book_id`+`unit_key`+`lesson_key`) or a Concept (`concept_id`+`profile_id`)\nProblem Set, in `resolve()` order, with Answer Keys.",
+        "operationId": "get_worksheet",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Book Id"
+            }
+          },
+          {
+            "name": "unit_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Unit Key"
+            }
+          },
+          {
+            "name": "lesson_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lesson Key"
+            }
+          },
+          {
+            "name": "concept_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Concept Id"
+            }
+          },
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorksheetOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PROFILE_NOT_FOUND or CONCEPT_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "WORKSHEET_REF_INVALID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11152,6 +11296,80 @@
           "accuracy"
         ],
         "title": "WeekOut"
+      },
+      "WorksheetOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "lesson",
+              "concept"
+            ],
+            "title": "Kind"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "subtitle": {
+            "type": "string",
+            "title": "Subtitle"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/WorksheetProblem"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "title",
+          "subtitle",
+          "problems"
+        ],
+        "title": "WorksheetOut"
+      },
+      "WorksheetProblem": {
+        "properties": {
+          "problem_id": {
+            "type": "string",
+            "title": "Problem Id"
+          },
+          "doc": {
+            "$ref": "#/components/schemas/ProblemDoc"
+          },
+          "crop_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Url"
+          },
+          "image_urls": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Image Urls"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "problem_id",
+          "doc",
+          "crop_url",
+          "image_urls"
+        ],
+        "title": "WorksheetProblem"
       },
       "hoctap__builder__gate__ApproveIn": {
         "properties": {

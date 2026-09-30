@@ -58,6 +58,8 @@ export type DashboardOut = Schemas['DashboardOut']
 export type AssignmentOut = Schemas['AssignmentOut']
 export type AssignmentIn = Schemas['AssignmentIn']
 export type HomeAssignmentOut = Schemas['HomeAssignmentOut']
+export type WorksheetOut = Schemas['WorksheetOut']
+export type WorksheetProblem = Schemas['WorksheetProblem']
 
 export const API_BASE = '/api/v1'
 
@@ -517,4 +519,19 @@ export function startFullRun(
     max_total_usd: maxTotalUsd,
     yes_spend: yesSpend,
   })
+}
+
+// --- Printable worksheets (Story 7.1): parent-only, carries the Answer Keys -------------
+
+export type WorksheetRef =
+  | { bookId: string; unitKey: string; lessonKey: string }
+  | { conceptId: string; profileId: string }
+
+export function getWorksheet(ref: WorksheetRef, signal?: AbortSignal): Promise<WorksheetOut> {
+  const params = new URLSearchParams(
+    'conceptId' in ref
+      ? { concept_id: ref.conceptId, profile_id: ref.profileId }
+      : { book_id: ref.bookId, unit_key: ref.unitKey, lesson_key: ref.lessonKey },
+  )
+  return apiGet<WorksheetOut>(`/parent/worksheet?${params.toString()}`, { signal })
 }

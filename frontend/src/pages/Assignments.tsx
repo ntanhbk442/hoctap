@@ -9,6 +9,7 @@ import {
   useParentSession,
   useProfiles,
 } from '../api/queries'
+import { printLink } from '../print/printLink'
 import { statusText, tomorrowLocal } from './assignmentUtils'
 
 function Picker({ profileId, grade }: { profileId: string; grade: number }) {
@@ -134,6 +135,11 @@ function AssignmentList({ profileId }: { profileId: string }) {
             {a.assigned_date} · {a.book_title_vi} · {a.unit_label} {a.lesson_label} —{' '}
             <strong>{statusText(a)}</strong>
             {a.carried_over && ' (Hôm qua)'}{' '}
+            <Link
+              to={printLink({ bookId: a.book_id, unitKey: a.unit_key, lessonKey: a.lesson_key })}
+            >
+              In phiếu
+            </Link>{' '}
             {a.status !== 'done' && (
               <button type="button" onClick={() => remove.mutate(a.id)} disabled={remove.isPending}>
                 Xóa

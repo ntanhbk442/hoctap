@@ -32,6 +32,8 @@ import {
   getSessionSummary,
   getSetupStatus,
   getSpotCheck,
+  getWorksheet,
+  type WorksheetRef,
   type ProblemFilter,
   startSession,
   type StartSessionRefIn,
@@ -398,5 +400,16 @@ export function useCurrentRun() {
       const status = query.state.data?.status
       return status && ACTIVE_RUN_STATUSES.has(status) ? 2000 : false
     },
+  })
+}
+
+/** Story 7.1: the worksheet of a Lesson or Concept Problem Set (parent-only, with answers). */
+export function useWorksheet(ref: WorksheetRef | null) {
+  return useQuery({
+    queryKey: ['worksheet', ref] as const,
+    queryFn: ({ signal }) => getWorksheet(ref as WorksheetRef, signal),
+    enabled: ref !== null,
+    // The answers are never cached beyond the preview.
+    gcTime: 0,
   })
 }

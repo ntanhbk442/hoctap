@@ -18,6 +18,7 @@ import SessionPlayer from './pages/SessionPlayer.tsx'
 import Settings from './pages/Settings.tsx'
 import Setup from './pages/Setup.tsx'
 import PWABadge from './PWABadge.tsx'
+import WorksheetPage from './print/WorksheetPage.tsx'
 
 const routes = [
   { path: '/', element: <Home /> },
@@ -34,6 +35,7 @@ const routes = [
   { path: '/parent/review', element: <ReviewPage /> },
   { path: '/parent/review/problems/:problemId', element: <ProblemEditor /> },
   { path: '/parent/problems/:problemId', element: <ProblemPreview /> },
+  { path: '/parent/print', element: <WorksheetPage /> },
   { path: '/parent/extraction', element: <ExtractionPage /> },
   // Unknown client routes fall back to Home until later stories add screens.
   { path: '*', element: <Home /> },

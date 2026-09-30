@@ -4,6 +4,7 @@ import { parentLogout } from '../api/client'
 import { authRedirect, errorMessage } from '../api/errors'
 import { queryKeys, useParentSession } from '../api/queries'
 import GateCard from './GateCard'
+import PrintPicker from './PrintPicker'
 
 export default function ParentHome() {
   const navigate = useNavigate()
@@ -61,6 +62,10 @@ export default function ParentHome() {
           <section aria-labelledby="gate-heading">
             <h2 id="gate-heading">Chạy thử &amp; đánh giá</h2>
             <GateCard />
+          </section>
+          <section aria-labelledby="print-heading">
+            <h2 id="print-heading">In phiếu</h2>
+            <PrintPicker />
           </section>
           {logout.isError && (
             <p role="alert" className="form-error">

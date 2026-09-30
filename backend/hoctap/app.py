@@ -21,6 +21,7 @@ from hoctap.api import (
     review,
     sessions,
     setup,
+    worksheets,
 )
 from hoctap.api.assets import build_assets_router
 from hoctap.api.errors import ErrorResponse, install_error_handlers
@@ -56,6 +57,7 @@ def build_api_router() -> APIRouter:
     api.include_router(flags.router)
     api.include_router(sessions.router)
     api.include_router(build.router)
+    api.include_router(worksheets.router)
     return api
 
 

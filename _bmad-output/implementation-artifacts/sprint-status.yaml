@@ -87,7 +87,7 @@ development_status:
   6-2-full-corpus-run: review
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1-printable-worksheets: backlog
+  epic-7: in-progress
+  7-1-printable-worksheets: review
   7-2-backup-and-restore: backlog
   epic-7-retrospective: optional

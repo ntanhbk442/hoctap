@@ -102,4 +102,16 @@ describe('Assignments page', () => {
     expect(await screen.findByTestId('assignment-a1')).toHaveTextContent('Đã xong')
     expect(screen.queryByRole('button', { name: 'Xóa' })).not.toBeInTheDocument()
   })
+
+  it('links an Assignment to the print preview of its Lesson', async () => {
+    mockApi({
+      'GET /api/v1/parent/session': { status: 200, body: { authenticated: true } },
+      'GET /api/v1/profiles': { status: 200, body: PROFILES },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: BOOKS },
+      'GET /api/v1/parent/assignments': { status: 200, body: [ASSIGNED] },
+    })
+    renderAt('/parent/assignments', <Assignments />)
+    const link = await screen.findByRole('link', { name: 'In phiếu' })
+    expect(link).toHaveAttribute('href', '/parent/print?book_id=b1&unit_key=u1&lesson_key=l1')
+  })
 })

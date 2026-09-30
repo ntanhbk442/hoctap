@@ -21,6 +21,7 @@ describe('ParentHome', () => {
     expect(await screen.findByRole('button', { name: 'Duyệt chạy toàn bộ' })).toBeDisabled()
     expect(await screen.findByRole('link', { name: 'Giao bài' })).toHaveAttribute('href', '/parent/assignments')
     expect(await screen.findByRole('link', { name: 'Cài đặt' })).toHaveAttribute('href', '/parent/settings')
+    expect(await screen.findByRole('heading', { name: 'In phiếu' })).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }))
     expect(await screen.findByText('login screen')).toBeInTheDocument()
   })
