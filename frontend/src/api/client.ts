@@ -42,7 +42,10 @@ export type SessionOut = Schemas['SessionOut']
 export type LessonRefIn = Schemas['LessonRefIn']
 export type ReplayRefIn = Schemas['ReplayRefIn']
 export type RetryRefIn = Schemas['RetryRefIn']
-export type StartSessionRefIn = LessonRefIn | ReplayRefIn | RetryRefIn
+export type ConceptRefIn = Schemas['ConceptRefIn']
+export type LibraryConcept = Schemas['LibraryConcept']
+export type ConceptDetailOut = Schemas['ConceptDetailOut']
+export type StartSessionRefIn = LessonRefIn | ReplayRefIn | RetryRefIn | ConceptRefIn
 export type BundleOut = Schemas['BundleOut']
 export type BundleProblemOut = Schemas['BundleProblemOut']
 export type EventIn = Schemas['EventIn']
@@ -253,6 +256,19 @@ export function getLibraryLesson(
   )
 }
 
+export function getLibraryConcepts(grade: number, signal?: AbortSignal): Promise<LibraryConcept[]> {
+  return apiGet<LibraryConcept[]>(`${LIBRARY}/concepts?grade=${grade}`, { signal })
+}
+
+export function getLibraryConcept(
+  conceptId: string,
+  signal?: AbortSignal,
+): Promise<ConceptDetailOut> {
+  return apiGet<ConceptDetailOut>(`${LIBRARY}/concepts/${encodeURIComponent(conceptId)}`, {
+    signal,
+  })
+}
+
 export function getLibraryHome(profileId: string, signal?: AbortSignal): Promise<LibraryHomeOut> {
   return apiGet<LibraryHomeOut>(`${LIBRARY}/home/${encodeURIComponent(profileId)}`, { signal })
 }
@@ -267,7 +283,7 @@ const SESSIONS = '/sessions'
 export function startSession(
   profileId: string,
   ref: StartSessionRefIn,
-  mode?: 'practice' | 'replay' | 'retry',
+  mode?: 'practice' | 'replay' | 'retry' | 'concept',
   assignmentId?: string,
 ): Promise<SessionOut> {
   return apiPost<SessionOut>(SESSIONS, {

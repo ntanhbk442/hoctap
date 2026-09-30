@@ -105,11 +105,11 @@ def test_resolve_unknown_lesson_is_empty(engine: Engine) -> None:
     assert ids == []
 
 
-def test_resolve_concept_kind_raises_clear_not_yet_supported() -> None:
+def test_resolve_unknown_kind_raises_clear_not_supported() -> None:
     ref = LessonRef.__new__(LessonRef)
     object.__setattr__(ref, "book_id", "")
     object.__setattr__(ref, "unit_key", "")
     object.__setattr__(ref, "lesson_key", "")
-    object.__setattr__(ref, "kind", "concept")
-    with pytest.raises(UnsupportedProblemSetRef, match="concept"):
+    object.__setattr__(ref, "kind", "bogus")
+    with pytest.raises(UnsupportedProblemSetRef, match="bogus"):
         resolve(None, ref, profile_id="whoever")  # type: ignore[arg-type]

@@ -15,6 +15,8 @@ import {
   getGate,
   getHealth,
   getLibraryBooks,
+  getLibraryConcept,
+  getLibraryConcepts,
   getLibraryHome,
   getLibraryLesson,
   getParentDashboard,
@@ -62,6 +64,8 @@ export const queryKeys = {
     ['library', 'books', grade, profileId] as const,
   libraryLesson: (bookId: string, unitKey: string, lessonKey: string) =>
     ['library', 'lesson', bookId, unitKey, lessonKey] as const,
+  libraryConcepts: (grade: number) => ['library', 'concepts', grade] as const,
+  libraryConcept: (conceptId: string) => ['library', 'concept', conceptId] as const,
   libraryHome: (profileId: string) => ['library', 'home', profileId] as const,
   sessionBundle: (sessionId: string, profileId: string, chunk: number) =>
     ['sessions', sessionId, 'bundle', profileId, chunk] as const,
@@ -215,6 +219,24 @@ export function useLibraryBooks(
   })
 }
 
+/** The child's Concept list for a Grade with visible-Problem counts (Story 5.2). */
+export function useLibraryConcepts(grade: number, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.libraryConcepts(grade),
+    queryFn: ({ signal }) => getLibraryConcepts(grade, signal),
+    enabled: options.enabled ?? true,
+  })
+}
+
+/** One Concept and its approved Guide (`guide` is null when none is approved). */
+export function useLibraryConcept(conceptId: string, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.libraryConcept(conceptId),
+    queryFn: ({ signal }) => getLibraryConcept(conceptId, signal),
+    enabled: (options.enabled ?? true) && conceptId !== '',
+  })
+}
+
 export function useLibraryLesson(
   bookId: string,
   unitKey: string,
@@ -301,7 +323,7 @@ export function useStartSession() {
     }: {
       profileId: string
       ref: StartSessionRefIn
-      mode?: 'practice' | 'replay' | 'retry'
+      mode?: 'practice' | 'replay' | 'retry' | 'concept'
       assignmentId?: string
     }) => startSession(profileId, ref, mode, assignmentId),
   })

@@ -649,6 +649,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/library/concepts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Concepts
+         * @description The curated Concepts of a Grade with their visible-Problem counts (Story 5.2).
+         */
+        get: operations["list_library_concepts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/concepts/{concept_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Concept
+         * @description One Concept and its Guide, only when approved (Story 5.2).
+         */
+        get: operations["get_library_concept"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/problems/{problem_id}/flag": {
         parameters: {
             query?: never;
@@ -1247,6 +1287,18 @@ export interface components {
             /** Rows */
             rows: components["schemas"]["CompareRow"][];
         };
+        /** ConceptDetailOut */
+        ConceptDetailOut: {
+            /** Concept Id */
+            concept_id: string;
+            /** Name Vi */
+            name_vi: string;
+            /** Grade */
+            grade: number;
+            /** Problem Count */
+            problem_count: number;
+            guide?: components["schemas"]["ConceptGuideDoc"] | null;
+        };
         /**
          * ConceptGuideDoc
          * @description A Concept Guide: a short explanation plus one worked example (Story 5.1). The one
@@ -1287,6 +1339,19 @@ export interface components {
              * @description approved for the current effective text
              */
             guide_approved: boolean;
+        };
+        /**
+         * ConceptRefIn
+         * @description Story 5.2: practice of one Concept; the created Session's mode is always `concept`.
+         */
+        ConceptRefIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "concept";
+            /** Concept Id */
+            concept_id: string;
         };
         /** ConceptsOut */
         ConceptsOut: {
@@ -2187,6 +2252,17 @@ export interface components {
             title_vi: string;
             /** Units */
             units: components["schemas"]["LibraryUnit"][];
+        };
+        /** LibraryConcept */
+        LibraryConcept: {
+            /** Concept Id */
+            concept_id: string;
+            /** Name Vi */
+            name_vi: string;
+            /** Grade */
+            grade: number;
+            /** Problem Count */
+            problem_count: number;
         };
         /** LibraryHomeOut */
         LibraryHomeOut: {
@@ -3299,9 +3375,9 @@ export interface components {
             /** Profile Id */
             profile_id: string;
             /** Ref */
-            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"] | components["schemas"]["RetryRefIn"];
+            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"] | components["schemas"]["RetryRefIn"] | components["schemas"]["ConceptRefIn"];
             /** Mode */
-            mode?: ("practice" | "replay" | "retry") | null;
+            mode?: ("practice" | "replay" | "retry" | "concept") | null;
             /** Assignment Id */
             assignment_id?: string | null;
         };
@@ -5636,6 +5712,86 @@ export interface operations {
                 };
             };
             /** @description Unknown profile */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_library_concepts: {
+        parameters: {
+            query: {
+                grade: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryConcept"][];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_library_concept: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                concept_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConceptDetailOut"];
+                };
+            };
+            /** @description CONCEPT_NOT_FOUND */
             404: {
                 headers: {
                     [name: string]: unknown;

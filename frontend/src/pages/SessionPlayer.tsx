@@ -23,6 +23,7 @@ import { cacheBundleAssets } from '../offline/assetCache'
 import OfflineScreen from '../offline/OfflineScreen'
 import { defaultOutboxStore, flushOutbox, QueuedOfflineError } from '../offline/outbox'
 import { getCurrentProfileId } from '../profile'
+import ConceptGuide from '../components/ConceptGuide/ConceptGuide'
 import FlagButton from '../components/FlagButton/FlagButton'
 import ProblemPlayer from './ProblemPlayer'
 
@@ -42,6 +43,13 @@ import ProblemPlayer from './ProblemPlayer'
  */
 export default function SessionPlayer() {
   const { sessionId = '' } = useParams()
+  // Keyed by Session so navigating straight to another Session (e.g. "Luyện tập" from a
+  // Concept Guide) starts from clean state.
+  return <SessionPlayerInner key={sessionId} />
+}
+
+function SessionPlayerInner() {
+  const { sessionId = '' } = useParams()
   const navigate = useNavigate()
   const [chunk, setChunk] = useState(1)
   const [problemIndex, setProblemIndex] = useState(0)
@@ -54,6 +62,8 @@ export default function SessionPlayer() {
   // Home "Tiếp tục": any mode resumes at the first Problem not yet finished IN THIS Session
   // (the bundle's Session-scoped `done_in_session`), skipping whole finished chunks.
   const [resumed, setResumed] = useState(false)
+  // Story 5.2: the Concept Guide overlay (📖), above the still-mounted ProblemPlayer.
+  const [guideOpen, setGuideOpen] = useState(false)
   // Story 2.11: true once ANY event (an attempt/self_marked/fallback_revealed/
   // session_completed, from anywhere below) got queued to the offline outbox instead of
   // reaching the server -- replaces the whole Session view with `OfflineScreen` (no local
@@ -295,6 +305,25 @@ export default function SessionPlayer() {
                 problemId={problems[problemIndex].problem.problem_id}
                 profileId={profileId}
               />
+              {!isQuiz && problems[problemIndex].problem.concept_ids.length > 0 && (
+                <button
+                  type="button"
+                  className="concept-guide-open"
+                  aria-label="Xem hướng dẫn"
+                  onClick={() => setGuideOpen(true)}
+                >
+                  📖
+                </button>
+              )}
+              {guideOpen && !isQuiz && (
+                <ConceptGuide
+                  key={`guide-${problems[problemIndex].problem.problem_id}`}
+                  conceptIds={problems[problemIndex].problem.concept_ids}
+                  grade={profiles.data?.find((p) => p.id === profileId)?.grade ?? 0}
+                  profileId={profileId}
+                  onClose={() => setGuideOpen(false)}
+                />
+              )}
               <ProblemPlayer
                 key={problems[problemIndex].problem.problem_id}
                 sessionId={sessionId}

@@ -9,10 +9,8 @@ on what "the Problems of this Lesson" means -- no ordering is reimplemented here
 `kind: "replay"` (Story 2.10, AD-9/AD-6) resolves directly to a source Session's own
 wrong-Problem ids -- see this module's `resolve()` docstring.
 
-`kind: "concept" | "retry"` (AD-9) remain documented, not-yet-supported extension points:
-Concepts and the Retry Queue as a startable Problem set don't exist yet, so resolving one of
-these kinds raises `UnsupportedProblemSetRef` loudly rather than silently returning the
-wrong list.
+`kind: "concept"` (Story 5.2): up to `CONCEPT_SET_SIZE` visible Problems linked to a Concept,
+those the Profile has not yet solved correctly on the first try first, then Book order.
 """
 
 from __future__ import annotations
@@ -65,19 +63,27 @@ class RetryRef:
     kind: Literal["retry"] = "retry"
 
 
-# Extension point: `ProblemSetRef = LessonRef | ConceptRef | RetryRef | ReplayRef`.
-ProblemSetRef = LessonRef | ReplayRef | RetryRef
+@dataclass(frozen=True)
+class ConceptRef:
+    """`kind: "concept"` (Story 5.2): practice of one Concept (`g1.so-sanh-so`)."""
+
+    concept_id: str
+    kind: Literal["concept"] = "concept"
+
+
+# Max Problems of a Concept practice Session.
+CONCEPT_SET_SIZE = 10
+
+ProblemSetRef = LessonRef | ReplayRef | RetryRef | ConceptRef
 
 
 class UnsupportedProblemSetRef(NotImplementedError):
-    """Raised for `kind: concept|retry|replay` -- not yet implemented, not silently wrong."""
+    """Raised for an unknown `kind` -- not implemented, not silently wrong."""
 
     def __init__(self, kind: str) -> None:
         self.kind = kind
         super().__init__(
-            f"ProblemSetRef kind={kind!r} chưa được hỗ trợ (cần Concept/Retry Queue/lịch sử "
-            "làm lại, những thứ chưa tồn tại). / not yet supported (needs Concepts/Retry "
-            "Queue/replay history, which don't exist yet -- see Story 2.5+)."
+            f"ProblemSetRef kind={kind!r} chưa được hỗ trợ. / not supported."
         )
 
 
@@ -96,6 +102,8 @@ def ref_key(ref: ProblemSetRef) -> str:
         return f"replay:{ref.source_session_id}"
     if ref.kind == "retry":
         return "retry"
+    if ref.kind == "concept":
+        return f"concept:{ref.concept_id}"
     raise UnsupportedProblemSetRef(ref.kind)
 
 
@@ -159,6 +167,33 @@ def resolve(
                 "Lượt học này không có bài nào làm sai để luyện lại.",
             )
         return wrong_ids
+    if ref.kind == "concept":
+        from hoctap.content import effective
+        from hoctap.content.review.models import (
+            content_review_concepts,
+            content_review_problem_concepts,
+        )
+        from hoctap.learning.summary import first_try_solved_problem_ids
+
+        found = conn.execute(
+            select(content_review_concepts.c.concept_id).where(
+                content_review_concepts.c.concept_id == ref.concept_id
+            )
+        ).scalar_one_or_none()
+        if found is None:
+            raise AppError(404, "CONCEPT_NOT_FOUND", "Không tìm thấy khái niệm này.")
+        linked = list(
+            conn.execute(
+                select(content_review_problem_concepts.c.problem_id).where(
+                    content_review_problem_concepts.c.concept_id == ref.concept_id
+                )
+            ).scalars()
+        )
+        # Book order (book, position) comes from `visible_to_child()`.
+        visible = [v.problem_id for v in effective.visible_to_child(conn, linked)]
+        solved = first_try_solved_problem_ids(conn, profile_id, visible)
+        ordered = [p for p in visible if p not in solved] + [p for p in visible if p in solved]
+        return ordered[:CONCEPT_SET_SIZE]
     if ref.kind == "retry":
         from hoctap.learning.retry import due_problem_ids
 

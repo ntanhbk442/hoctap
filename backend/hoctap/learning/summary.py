@@ -160,6 +160,60 @@ def session_wrong_problem_ids(conn: Any, session_id: str) -> list[str]:
     return wrong
 
 
+def first_try_solved_problem_ids(
+    conn: Any, profile_id: str, problem_ids: list[str]
+) -> set[str]:
+    """Of `problem_ids`, those the Profile solved correctly on the first try in some earlier
+    `practice`/`retry`/`concept` Session (`quiz` and `replay` Sessions do not count). Same
+    rule as `session_wrong_problem_ids()` (earliest `attempt` per Part by rowid, every Part
+    correct; a Problem with no `attempt` uses its earliest `self_marked`), evaluated per
+    Session in ONE query over the Profile's events."""
+    if not problem_ids:
+        return set()
+    wanted = set(problem_ids)
+    rows = conn.execute(
+        select(
+            progress_events.c.session_id,
+            progress_events.c.problem_id,
+            progress_events.c.kind,
+            progress_events.c.payload_json,
+        )
+        .select_from(
+            progress_events.join(
+                progress_sessions, progress_sessions.c.id == progress_events.c.session_id
+            )
+        )
+        .where(
+            progress_sessions.c.profile_id == profile_id,
+            progress_sessions.c.mode.notin_(["quiz", "replay"]),
+            progress_events.c.kind.in_(["attempt", "self_marked"]),
+            progress_events.c.problem_id.in_(list(wanted)),
+        )
+        .order_by(text("progress_events.rowid ASC"))
+    ).all()
+    attempts: dict[tuple[str, str], dict[str, bool]] = {}
+    marks: dict[tuple[str, str], bool] = {}
+    for row in rows:
+        key = (row.session_id, row.problem_id)
+        payload = json.loads(row.payload_json)
+        if row.kind == "attempt":
+            part_key = payload.get("part_key")
+            if part_key is None:
+                continue
+            parts = attempts.setdefault(key, {})
+            parts.setdefault(part_key, bool(payload.get("correct")))
+        elif key not in marks:
+            marks[key] = payload.get("correct") is True
+    solved: set[str] = set()
+    for key, parts in attempts.items():
+        if parts and all(parts.values()):
+            solved.add(key[1])
+    for key, ok in marks.items():
+        if key not in attempts and ok:
+            solved.add(key[1])
+    return solved
+
+
 def compute_streak(conn: Any, profile_id: str, today: date) -> int:
     """Days in a row (Asia/Ho_Chi_Minh calendar dates), ending today or yesterday, with at
     least one completed, non-`replay`-mode Session (AD-6 excludes `replay` from every

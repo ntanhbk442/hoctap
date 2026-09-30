@@ -21,7 +21,7 @@ from hoctap.content import library as content_library
 from hoctap.content.schema import Solution
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
-from hoctap.learning.problem_sets import LessonRef, ReplayRef, RetryRef
+from hoctap.learning.problem_sets import ConceptRef, LessonRef, ReplayRef, RetryRef
 from hoctap.learning.summary import LOCAL_TZ
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -72,14 +72,21 @@ class RetryRefIn(BaseModel):
     kind: Literal["retry"] = "retry"
 
 
+class ConceptRefIn(BaseModel):
+    """Story 5.2: practice of one Concept; the created Session's mode is always `concept`."""
+
+    kind: Literal["concept"] = "concept"
+    concept_id: str
+
+
 class StartSessionIn(BaseModel):
     profile_id: str
-    ref: LessonRefIn | ReplayRefIn | RetryRefIn = Field(discriminator="kind")
+    ref: LessonRefIn | ReplayRefIn | RetryRefIn | ConceptRefIn = Field(discriminator="kind")
     # Epic 3 review: the Session mode is DERIVED from `ref.kind` on the server (lesson ->
     # practice, or quiz for a quiz-sheet Lesson; replay -> replay; retry -> retry). The field
     # stays optional for compatibility, but a value that disagrees with the derived mode is
     # rejected (422 `MODE_REF_MISMATCH`). This reverses Story 2.10's "independent field".
-    mode: Literal["practice", "replay", "retry"] | None = None
+    mode: Literal["practice", "replay", "retry", "concept"] | None = None
     # Story 4.3: the Assignment this Session is started from (Home's "Bài hôm nay" card).
     assignment_id: str | None = None
 
@@ -124,8 +131,11 @@ def _session_out(s: service.SessionOut) -> SessionOut:
     },
 )
 def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> SessionOut:
-    ref: LessonRef | ReplayRef | RetryRef
-    if body.ref.kind == "retry":
+    ref: LessonRef | ReplayRef | RetryRef | ConceptRef
+    if body.ref.kind == "concept":
+        ref = ConceptRef(concept_id=body.ref.concept_id)
+        mode = "concept"
+    elif body.ref.kind == "retry":
         ref = RetryRef()
         mode = "retry"
     elif body.ref.kind == "lesson":

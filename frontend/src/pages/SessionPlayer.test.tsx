@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { _resetDefaultOutboxStoreForTests } from '../offline/outbox'
 import { setCurrentProfileId } from '../profile'
@@ -98,6 +98,45 @@ describe('SessionPlayer', () => {
         init?.method === 'POST' && url === `/api/v1/problems/${PROBLEM.problem_id}/flag`,
     )
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ profile_id: PROFILE_ID })
+  })
+
+  it('opens the Concept Guide from 📖, keeps the typed answer on close, and hides 📖 in quizzes', async () => {
+    const withConcept = { ...PROBLEM, concept_ids: ['g1.a'] as never[] }
+    const b = bundle()
+    b.problems[0].problem = withConcept
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: b },
+      'GET /api/v1/library/concepts/g1.a': {
+        status: 200,
+        body: {
+          concept_id: 'g1.a',
+          name_vi: 'So sánh số',
+          grade: 1,
+          problem_count: 3,
+          guide: {
+            explanation: 'Giải thích ngắn.',
+            example: { question: 'Câu hỏi mẫu', steps: ['Bước một'], answer: 'Đáp số' },
+          },
+        },
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    fireEvent.click(await screen.findByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    expect(screen.getByRole('button', { name: /Ô s1.*5/ })).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Xem hướng dẫn' }))
+    expect(await screen.findByText('Giải thích ngắn.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }))
+    await waitFor(() => expect(screen.queryByText('Giải thích ngắn.')).not.toBeInTheDocument())
+    expect(screen.getByText('Bài 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Ô s1.*5/ })).toBeInTheDocument()
+  })
+
+  it('shows no 📖 for a Problem without Concepts or in a quiz Session', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    await screen.findByText('Bài 1')
+    expect(screen.queryByRole('button', { name: 'Xem hướng dẫn' })).not.toBeInTheDocument()
   })
 
   it('shows a friendly message, not a crash, when every Problem in the chunk was skipped', async () => {

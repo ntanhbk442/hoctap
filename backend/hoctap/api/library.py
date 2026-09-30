@@ -10,11 +10,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import Engine, select
+from sqlalchemy import Connection, Engine, select
 
 from hoctap.api.deps import get_engine, get_now
 from hoctap.api.errors import AppError, ErrorResponse
-from hoctap.content import library
+from hoctap.content import effective, library
+from hoctap.content.review.models import content_review_concepts, content_review_problem_concepts
+from hoctap.content.schema import ConceptGuideDoc
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import assignments as learning_assignments
 from hoctap.learning import badges as learning_badges
@@ -258,4 +260,74 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
                 session_id=due.session_id,
                 carried_over=due.carried_over,
             ),
+        )
+
+
+class LibraryConcept(BaseModel):
+    concept_id: str
+    name_vi: str
+    grade: int
+    problem_count: int
+
+
+class ConceptDetailOut(LibraryConcept):
+    # Only an approved Guide (Story 5.1's `EffectiveGuide.approved`); null otherwise, so a
+    # draft's existence is never hinted at.
+    guide: ConceptGuideDoc | None = None
+
+
+def _visible_concept_counts(conn: Connection, concept_ids: list[str]) -> dict[str, int]:
+    if not concept_ids:
+        return {}
+    link = content_review_problem_concepts
+    links: dict[str, list[str]] = {}
+    for row in conn.execute(select(link).where(link.c.concept_id.in_(concept_ids))):
+        links.setdefault(row.concept_id, []).append(row.problem_id)
+    all_ids = sorted({p for ids in links.values() for p in ids})
+    visible = {v.problem_id for v in effective.visible_to_child(conn, all_ids)}
+    return {c: sum(1 for p in ids if p in visible) for c, ids in links.items()}
+
+
+@router.get(
+    "/concepts",
+    response_model=list[LibraryConcept],
+    operation_id="list_library_concepts",
+)
+def list_concepts(grade: Annotated[int, Query()], engine: EngineDep) -> list[LibraryConcept]:
+    """The curated Concepts of a Grade with their visible-Problem counts (Story 5.2)."""
+    c = content_review_concepts
+    with engine.connect() as conn:
+        rows = conn.execute(select(c).where(c.c.grade == grade).order_by(c.c.concept_id)).all()
+        counts = _visible_concept_counts(conn, [r.concept_id for r in rows])
+        return [
+            LibraryConcept(
+                concept_id=r.concept_id,
+                name_vi=r.name_vi,
+                grade=r.grade,
+                problem_count=counts.get(r.concept_id, 0),
+            )
+            for r in rows
+        ]
+
+
+@router.get(
+    "/concepts/{concept_id}",
+    response_model=ConceptDetailOut,
+    operation_id="get_library_concept",
+    responses={404: {"model": ErrorResponse, "description": "CONCEPT_NOT_FOUND"}},
+)
+def get_concept(concept_id: str, engine: EngineDep) -> ConceptDetailOut:
+    """One Concept and its Guide, only when approved (Story 5.2)."""
+    c = content_review_concepts
+    with engine.connect() as conn:
+        row = conn.execute(select(c).where(c.c.concept_id == concept_id)).one_or_none()
+        if row is None:
+            raise AppError(404, "CONCEPT_NOT_FOUND", "Không tìm thấy khái niệm này.")
+        guide = effective.effective_concept_guide(conn, concept_id)
+        return ConceptDetailOut(
+            concept_id=row.concept_id,
+            name_vi=row.name_vi,
+            grade=row.grade,
+            problem_count=_visible_concept_counts(conn, [concept_id]).get(concept_id, 0),
+            guide=guide.doc if guide is not None and guide.approved else None,
         )

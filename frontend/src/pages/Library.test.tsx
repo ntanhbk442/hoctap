@@ -73,6 +73,26 @@ describe('Library', () => {
     expect(await screen.findByText('2/3 ✓')).toBeInTheDocument()
   })
 
+  it('Khái niệm tab lists Concepts with counts and opens the Guide', async () => {
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: BOOKS },
+      'GET /api/v1/library/concepts': {
+        status: 200,
+        body: [{ concept_id: 'g1.a', name_vi: 'So sánh số', grade: 1, problem_count: 4 }],
+      },
+      'GET /api/v1/library/concepts/g1.a': {
+        status: 200,
+        body: { concept_id: 'g1.a', name_vi: 'So sánh số', grade: 1, problem_count: 4, guide: null },
+      },
+    })
+    renderAt('/library', <Library />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Khái niệm' }))
+    fireEvent.click(await screen.findByRole('button', { name: /So sánh số/ }))
+    expect(await screen.findByText('Chưa có hướng dẫn cho khái niệm này')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Luyện tập' })).toBeInTheDocument()
+  })
+
   it('tapping a Lesson opens its Lesson detail route', async () => {
     mockApi({
       'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },

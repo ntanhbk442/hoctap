@@ -2850,6 +2850,116 @@
         }
       }
     },
+    "/api/v1/library/concepts": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "List Concepts",
+        "description": "The curated Concepts of a Grade with their visible-Problem counts (Story 5.2).",
+        "operationId": "list_library_concepts",
+        "parameters": [
+          {
+            "name": "grade",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Grade"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryConcept"
+                  },
+                  "title": "Response List Library Concepts"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library/concepts/{concept_id}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Get Concept",
+        "description": "One Concept and its Guide, only when approved (Story 5.2).",
+        "operationId": "get_library_concept",
+        "parameters": [
+          {
+            "name": "concept_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Concept Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConceptDetailOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CONCEPT_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/problems/{problem_id}/flag": {
       "post": {
         "tags": [
@@ -4875,6 +4985,44 @@
         ],
         "title": "CompareView"
       },
+      "ConceptDetailOut": {
+        "properties": {
+          "concept_id": {
+            "type": "string",
+            "title": "Concept Id"
+          },
+          "name_vi": {
+            "type": "string",
+            "title": "Name Vi"
+          },
+          "grade": {
+            "type": "integer",
+            "title": "Grade"
+          },
+          "problem_count": {
+            "type": "integer",
+            "title": "Problem Count"
+          },
+          "guide": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConceptGuideDoc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_id",
+          "name_vi",
+          "grade",
+          "problem_count"
+        ],
+        "title": "ConceptDetailOut"
+      },
       "ConceptGuideDoc": {
         "properties": {
           "explanation": {
@@ -4957,6 +5105,26 @@
           "guide_approved"
         ],
         "title": "ConceptOut"
+      },
+      "ConceptRefIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "concept",
+            "title": "Kind",
+            "default": "concept"
+          },
+          "concept_id": {
+            "type": "string",
+            "title": "Concept Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_id"
+        ],
+        "title": "ConceptRefIn",
+        "description": "Story 5.2: practice of one Concept; the created Session's mode is always `concept`."
       },
       "ConceptsOut": {
         "properties": {
@@ -7151,6 +7319,34 @@
           "units"
         ],
         "title": "LibraryBook"
+      },
+      "LibraryConcept": {
+        "properties": {
+          "concept_id": {
+            "type": "string",
+            "title": "Concept Id"
+          },
+          "name_vi": {
+            "type": "string",
+            "title": "Name Vi"
+          },
+          "grade": {
+            "type": "integer",
+            "title": "Grade"
+          },
+          "problem_count": {
+            "type": "integer",
+            "title": "Problem Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_id",
+          "name_vi",
+          "grade",
+          "problem_count"
+        ],
+        "title": "LibraryConcept"
       },
       "LibraryHomeOut": {
         "properties": {
@@ -9936,12 +10132,16 @@
               },
               {
                 "$ref": "#/components/schemas/RetryRefIn"
+              },
+              {
+                "$ref": "#/components/schemas/ConceptRefIn"
               }
             ],
             "title": "Ref",
             "discriminator": {
               "propertyName": "kind",
               "mapping": {
+                "concept": "#/components/schemas/ConceptRefIn",
                 "lesson": "#/components/schemas/LessonRefIn",
                 "replay": "#/components/schemas/ReplayRefIn",
                 "retry": "#/components/schemas/RetryRefIn"
@@ -9955,7 +10155,8 @@
                 "enum": [
                   "practice",
                   "replay",
-                  "retry"
+                  "retry",
+                  "concept"
                 ]
               },
               {
