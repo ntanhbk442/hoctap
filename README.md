@@ -29,8 +29,9 @@ Sach_Arch/         source PDFs, read-only
 Optional. Copy `hoctap.toml.example` to `hoctap.toml` (gitignored). `HOCTAP_DATA_DIR`,
 `HOCTAP_HOST`, `HOCTAP_PORT`, `HOCTAP_LOG_LEVEL`, `HOCTAP_FRONTEND_DIST`,
 `HOCTAP_SOURCE_DIR` (source PDFs, default `Sach_Arch/`), `HOCTAP_TLS_PORT` and
-`HOCTAP_TLS_CERT_DIR` override the file; `HOCTAP_CONFIG` selects another file. Secrets such
-as `ANTHROPIC_API_KEY` come from the environment only.
+`HOCTAP_TLS_CERT_DIR` override the file; `HOCTAP_CONFIG` selects another file. Secrets
+(e.g. cloud TTS keys) come from the environment only. Extraction uses the Claude Code CLI
+(`claude`, logged in with `claude login`), not the Anthropic API, so no API key is needed.
 
 For HTTPS on the home LAN (so the tablet gets full PWA install/offline features) and
 running the server natively on Windows, see

@@ -4,8 +4,9 @@ Precedence (highest first): environment variables, `hoctap.toml`, defaults.
 The config file is `$HOCTAP_CONFIG` if set, otherwise `<repo root>/hoctap.toml`.
 Relative paths in the file are resolved against the file's folder; relative paths
 from the environment or defaults are resolved against the repo root.
-Secrets (ANTHROPIC_API_KEY, TTS keys) are read from the environment by the
-modules that need them and are never stored here or in the database.
+Secrets (TTS keys) are read from the environment by the modules that need them and are
+never stored here or in the database. Claude calls go through the `claude` CLI, which
+uses its own login, so no Anthropic API key is needed.
 """
 
 from __future__ import annotations
