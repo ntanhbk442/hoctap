@@ -5,6 +5,8 @@
   structural keys of the ProblemDoc (`publish_problems()`).
 - `content_catalog_problems`: the published ProblemDocs (`publish_problems()`). A Problem
   is never deleted: one that vanished from a re-extracted Lesson gets `retired_at`.
+- `content_catalog_concept_guides`: the generated Concept Guide per `concept_id` (Story 5.1,
+  `upsert_concept_guide()`); Anh's edits are `content_review_guide_overrides`.
 """
 
 from __future__ import annotations
@@ -94,4 +96,18 @@ content_catalog_problems = Table(
         name="ck_content_catalog_problems_verify_status",
     ),
     Index("ix_content_catalog_problems_lesson", "book_id", "unit_key", "lesson_key"),
+)
+
+content_catalog_concept_guides = Table(
+    "content_catalog_concept_guides",
+    metadata,
+    Column("concept_id", Text, primary_key=True),  # a curated Concept; never changes
+    Column("body_json", Text, nullable=False),  # canonical ConceptGuideDoc JSON
+    Column("source", Text, nullable=False),  # book | problems
+    Column("input_hash", Text, nullable=False),  # the generation input; same input, no call
+    Column("model", Text, nullable=False),
+    Column("generated_at", Text, nullable=False),
+    CheckConstraint(
+        "source IN ('book', 'problems')", name="ck_content_catalog_concept_guides_source"
+    ),
 )

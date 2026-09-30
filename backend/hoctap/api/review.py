@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import Engine
@@ -17,6 +17,8 @@ from hoctap.content.review.schemas import (
     AcceptIn,
     ApproveIn,
     ConceptsOut,
+    GuideDetail,
+    GuideOverridesIn,
     MergeIn,
     OverridesIn,
     ProblemDetail,
@@ -194,6 +196,62 @@ def rename(body: RenameIn, engine: EngineDep) -> ConceptsOut:
     with engine.begin() as conn:
         service.rename_concept(conn, body.concept_id, body.name_vi)
         return service.concepts_out(conn)
+
+
+_GUIDE_404 = {404: {"model": ErrorResponse, "description": "CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND"}}
+
+
+@router.get(
+    "/concepts/{concept_id}/guide",
+    response_model=GuideDetail,
+    operation_id="get_concept_guide",
+    responses=_GUIDE_404,
+)
+def get_guide(concept_id: str, engine: EngineDep) -> GuideDetail:
+    with engine.connect() as conn:
+        return service.guide_detail(conn, concept_id)
+
+
+@router.put(
+    "/concepts/{concept_id}/guide",
+    response_model=GuideDetail,
+    operation_id="save_concept_guide",
+    responses=_GUIDE_404,
+)
+def save_guide(
+    concept_id: str, body: GuideOverridesIn, engine: EngineDep, now: NowDep
+) -> GuideDetail:
+    edits = [service.Edit(e.field, e.value) for e in body.edits]
+    with engine.begin() as conn:
+        service.save_guide_overrides(conn, concept_id, edits, now)
+        return service.guide_detail(conn, concept_id)
+
+
+@router.delete(
+    "/concepts/{concept_id}/guide",
+    response_model=GuideDetail,
+    operation_id="reset_concept_guide",
+    responses=_GUIDE_404,
+)
+def reset_guide(
+    concept_id: str, engine: EngineDep, field: Literal["explanation", "example"] | None = None
+) -> GuideDetail:
+    """Bỏ sửa: removes the override of one field (or all); back to the generated text."""
+    with engine.begin() as conn:
+        service.delete_guide_override(conn, concept_id, field)
+        return service.guide_detail(conn, concept_id)
+
+
+@router.post(
+    "/concepts/{concept_id}/guide/approve",
+    response_model=GuideDetail,
+    operation_id="approve_concept_guide",
+    responses=_GUIDE_404,
+)
+def approve_guide(concept_id: str, body: ApproveIn, engine: EngineDep, now: NowDep) -> GuideDetail:
+    with engine.begin() as conn:
+        service.approve_guide(conn, concept_id, body.content_hash, now)
+        return service.guide_detail(conn, concept_id)
 
 
 @router.get("/spot-check", response_model=SpotCheckOut, operation_id="get_spot_check")

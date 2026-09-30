@@ -32,17 +32,23 @@ from hoctap.content.catalog.models import (
 )
 from hoctap.content.effective import (
     CONFLICT_BASE_CHANGED,
+    GUIDE_FIELDS,
     PART_FIELDS,
     TOP_FIELDS,
+    EffectiveGuide,
     EffectiveProblem,
+    GuideOverride,
     InvalidEffectiveDoc,
     Override,
     ProblemNotFound,
     build_effective,
+    effective_concept_guide,
     extracted_value,
     load_concept_links,
+    load_guides,
     load_one,
     merge,
+    merge_guide,
     validate_doc,
     value_hash,
 )
@@ -50,6 +56,8 @@ from hoctap.content.review.models import (
     content_review_concept_proposals,
     content_review_concepts,
     content_review_error_reports,
+    content_review_guide_overrides,
+    content_review_guide_status,
     content_review_overrides,
     content_review_problem_concepts,
     content_review_problem_proposals,
@@ -59,6 +67,8 @@ from hoctap.content.review.schemas import (
     ConceptOut,
     ConceptsOut,
     ConflictOut,
+    GuideDetail,
+    GuideOverrideOut,
     OverrideOut,
     ProblemDetail,
     ProblemPage,
@@ -70,7 +80,7 @@ from hoctap.content.review.schemas import (
     ReviewStatusOut,
     ReviewUnit,
 )
-from hoctap.content.schema import CONCEPT_ID_PATTERN, PROBLEM_TYPES
+from hoctap.content.schema import CONCEPT_ID_PATTERN, PROBLEM_TYPES, ConceptGuideDoc
 from hoctap.ids import new_id, to_iso, utc_now
 
 PROPOSED = "proposed"
@@ -975,8 +985,17 @@ def report_out(conn: Connection, report_id: str) -> ReportOut:
     )
 
 
+def _guide_rank(concept: ConceptRow, guides: Mapping[str, EffectiveGuide]) -> tuple[int, int]:
+    """Concepts whose unapproved Guide was drafted from sample Problems (no book material)
+    come first in each Grade; the rest keep the list order (Grade, name)."""
+    guide = guides.get(concept.concept_id)
+    first = guide is not None and guide.source == "problems" and not guide.approved
+    return (concept.grade, 0 if first else 1)
+
+
 def concepts_out(conn: Connection) -> ConceptsOut:
     proposals, concepts = list_concepts(conn)
+    guides = load_guides(conn)
     return ConceptsOut(
         proposals=[
             ProposalOut(
@@ -995,7 +1014,157 @@ def concepts_out(conn: Connection) -> ConceptsOut:
                 grade=c.grade,
                 name_vi=c.name_vi,
                 problem_count=c.problem_count,
+                has_guide=c.concept_id in guides,
+                guide_source=guides[c.concept_id].source if c.concept_id in guides else None,  # type: ignore[arg-type]
+                guide_conflict=c.concept_id in guides and guides[c.concept_id].has_conflict,
+                guide_approved=c.concept_id in guides and guides[c.concept_id].approved,
             )
-            for c in concepts
+            for c in sorted(concepts, key=lambda c: _guide_rank(c, guides))
+        ],
+    )
+
+
+# --------------------------------------------------------------------------- concept guides
+
+MSG_GUIDE_NOT_FOUND = "Khái niệm này chưa có hướng dẫn."
+
+
+def _guide(conn: Connection, concept_id: str) -> EffectiveGuide:
+    _concept(conn, concept_id)  # 404 CONCEPT_NOT_FOUND
+    guide = effective_concept_guide(conn, concept_id)
+    if guide is None:
+        raise AppError(404, "GUIDE_NOT_FOUND", MSG_GUIDE_NOT_FOUND)
+    return guide
+
+
+def _validate_guide(body: Mapping[str, Any]) -> None:
+    try:
+        ConceptGuideDoc.model_validate(body)
+    except ValidationError as exc:
+        details = validation_messages(body, exc)
+        raise AppError(
+            422, "INVALID_OVERRIDE", "Bản sửa không hợp lệ: " + "; ".join(details[:3]), details
+        ) from None
+
+
+def save_guide_overrides(
+    conn: Connection, concept_id: str, edits: Sequence[Edit], now: datetime | None = None
+) -> None:
+    """Stores field overrides (`explanation`, `example`) of a Concept's Guide after
+    validating the merged Guide. An edit equal to the generated value removes its override;
+    saving re-bases an override on the current generated value. Nothing is stored when the
+    merge is invalid (422); unknown Concept: 404 CONCEPT_NOT_FOUND."""
+    stamp = to_iso(now or utc_now())
+    guide = _guide(conn, concept_id)
+    current = {o.field: o for o in guide.overrides}
+    wanted = dict(current)
+    for edit in edits:
+        if edit.field not in GUIDE_FIELDS:
+            raise AppError(422, "INVALID_FIELD", f"Không sửa được trường {edit.field!r}.")
+        value = _nfc_value(edit.value)
+        base = guide.generated.get(edit.field)
+        if value_hash(value) == value_hash(base):
+            wanted.pop(edit.field, None)
+            continue
+        old = current.get(edit.field)
+        wanted[edit.field] = GuideOverride(
+            old.id if old else new_id(), concept_id, edit.field, value, value_hash(base)
+        )
+    body, _ = merge_guide(guide.generated, wanted.values())
+    _validate_guide(body)
+    t = content_review_guide_overrides
+    for name, old in current.items():
+        if name not in wanted:
+            conn.execute(delete(t).where(t.c.id == old.id))
+    for name, o in wanted.items():
+        if name in current and current[name] == o:
+            continue
+        values = {
+            "value_json": json.dumps(o.value, ensure_ascii=False, sort_keys=True),
+            "base_hash": o.base_hash,
+            "updated_at": stamp,
+        }
+        if name in current:
+            conn.execute(update(t).where(t.c.id == o.id).values(**values))
+        else:
+            conn.execute(
+                insert(t).values(
+                    id=o.id, concept_id=concept_id, field=name, created_at=stamp, **values
+                )
+            )
+
+
+def delete_guide_override(conn: Connection, concept_id: str, field_name: str | None = None) -> None:
+    """Reset: removes the override of one field, or of every field, so the effective Guide
+    returns to the generated text."""
+    _guide(conn, concept_id)
+    t = content_review_guide_overrides
+    query = delete(t).where(t.c.concept_id == concept_id)
+    if field_name is not None:
+        query = query.where(t.c.field == field_name)
+    conn.execute(query)
+
+
+def approve_guide(
+    conn: Connection,
+    concept_id: str,
+    expected_hash: str | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Duyệt: `approved_hash` = the hash of the current effective Guide, which is returned.
+    A different `expected_hash` is refused (409 STALE). Approving also re-bases the
+    overrides whose generated field changed (Anh has checked the effective text)."""
+    stamp = to_iso(now or utc_now())
+    guide = _guide(conn, concept_id)
+    if guide.doc is None:
+        raise AppError(
+            409, "INVALID_EFFECTIVE", "Nội dung sau khi sửa không hợp lệ; hãy sửa hoặc bỏ sửa."
+        )
+    if expected_hash is not None and expected_hash != guide.content_hash:
+        raise AppError(409, "STALE", MSG_STALE)
+    o = content_review_guide_overrides
+    for c in guide.conflicts:
+        conn.execute(
+            update(o)
+            .where(o.c.id == c.id)
+            .values(base_hash=value_hash(guide.generated.get(c.field)), updated_at=stamp)
+        )
+    t = content_review_guide_status
+    if conn.execute(select(t.c.concept_id).where(t.c.concept_id == concept_id)).first() is None:
+        conn.execute(
+            insert(t).values(
+                concept_id=concept_id, approved_hash=guide.content_hash, updated_at=stamp
+            )
+        )
+    else:
+        conn.execute(
+            update(t)
+            .where(t.c.concept_id == concept_id)
+            .values(approved_hash=guide.content_hash, updated_at=stamp)
+        )
+    return guide.content_hash
+
+
+def guide_detail(conn: Connection, concept_id: str) -> GuideDetail:
+    guide = _guide(conn, concept_id)
+    conflicted = {c.field for c in guide.conflicts}
+    return GuideDetail(
+        concept_id=concept_id,
+        source=guide.source,  # type: ignore[arg-type]
+        model=guide.model,
+        generated_at=guide.generated_at,
+        generated=ConceptGuideDoc.model_validate(guide.generated),
+        effective=guide.doc,
+        content_hash=guide.content_hash,
+        approved=guide.approved,
+        conflict=guide.has_conflict,
+        overrides=[
+            GuideOverrideOut(
+                field=o.field,  # type: ignore[arg-type]
+                value=o.value,
+                base_hash=o.base_hash,
+                conflict=o.field in conflicted,
+            )
+            for o in sorted(guide.overrides, key=lambda o: o.field)
         ],
     )

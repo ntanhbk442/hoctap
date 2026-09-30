@@ -357,7 +357,16 @@ def test_accept_proposal(client: TestClient, engine: Engine, pub: Pub) -> None:
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["concepts"] == [
-        {"concept_id": "g1.so-sanh-so", "grade": 1, "name_vi": "So sánh số", "problem_count": 3}
+        {
+            "concept_id": "g1.so-sanh-so",
+            "grade": 1,
+            "name_vi": "So sánh số",
+            "problem_count": 3,
+            "has_guide": False,
+            "guide_source": None,
+            "guide_conflict": False,
+            "guide_approved": False,
+        }
     ]
     assert body["proposals"][0]["status"] == "accepted"
     assert body["proposals"][0]["target_concept_id"] == "g1.so-sanh-so"
@@ -415,6 +424,10 @@ def test_rename(client: TestClient, pub: Pub) -> None:
         "grade": 1,
         "name_vi": "So sánh các số",
         "problem_count": 1,
+        "has_guide": False,
+        "guide_source": None,
+        "guide_conflict": False,
+        "guide_approved": False,
     }
     assert detail(client, pid("bai-1"))["effective"]["concept_ids"] == ["g1.so-sanh-so"]
 

@@ -2,14 +2,18 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import {
   acceptProposal,
+  approveConceptGuide,
   mergeProposal,
   renameConcept,
+  resetConceptGuide,
+  saveConceptGuide,
   type ConceptOut,
   type ConceptsOut,
+  type GuideDetail,
   type ProposalOut,
 } from '../../api/client'
 import { errorMessage } from '../../api/errors'
-import { queryKeys, useConcepts } from '../../api/queries'
+import { queryKeys, useConceptGuide, useConcepts } from '../../api/queries'
 
 const STATUS_LABELS: Record<ProposalOut['status'], string> = {
   proposed: 'đề xuất',
@@ -100,7 +104,140 @@ function ProposalRow({ proposal, concepts }: { proposal: ProposalOut; concepts: 
   )
 }
 
+function GuideEditor({ concept }: { concept: ConceptOut }) {
+  const queryClient = useQueryClient()
+  const guide = useConceptGuide(concept.concept_id, true)
+  const done = (data: GuideDetail) => {
+    queryClient.setQueryData(queryKeys.conceptGuide(concept.concept_id), data)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.reviewConcepts })
+  }
+  const save = useMutation({
+    mutationFn: (edits: Parameters<typeof saveConceptGuide>[1]) =>
+      saveConceptGuide(concept.concept_id, edits),
+    onSuccess: done,
+  })
+  const reset = useMutation({ mutationFn: () => resetConceptGuide(concept.concept_id), onSuccess: done })
+  const approve = useMutation({
+    mutationFn: (hash: string) => approveConceptGuide(concept.concept_id, hash),
+    onSuccess: done,
+  })
+  if (guide.isPending) return <p>Đang tải…</p>
+  if (guide.isError) {
+    return (
+      <p role="alert" className="form-error">
+        {errorMessage(guide.error)}
+      </p>
+    )
+  }
+  const error = save.error ?? reset.error ?? approve.error
+  const busy = save.isPending || reset.isPending || approve.isPending
+  // Re-mount the form whenever the stored Guide changes (save, reset, approve).
+  return (
+    <GuideForm
+      key={guide.data.content_hash + guide.data.overrides.length}
+      guide={guide.data}
+      busy={busy}
+      error={error}
+      onSave={(edits) => save.mutate(edits)}
+      onReset={() => reset.mutate()}
+      onApprove={() => approve.mutate(guide.data.content_hash)}
+    />
+  )
+}
+
+function GuideForm({
+  guide,
+  busy,
+  error,
+  onSave,
+  onReset,
+  onApprove,
+}: {
+  guide: GuideDetail
+  busy: boolean
+  error: unknown
+  onSave: (edits: Array<{ field: 'explanation' | 'example'; value: unknown }>) => void
+  onReset: () => void
+  onApprove: () => void
+}) {
+  const current = guide.effective ?? guide.generated
+  const [explanation, setExplanation] = useState(current.explanation)
+  const [question, setQuestion] = useState(current.example.question)
+  const [steps, setSteps] = useState(current.example.steps.join('\n'))
+  const [answer, setAnswer] = useState(current.example.answer)
+  const example = {
+    question,
+    steps: steps.split('\n').map((x) => x.trim()).filter(Boolean),
+    answer,
+  }
+  const edits: Array<{ field: 'explanation' | 'example'; value: unknown }> = []
+  if (explanation !== current.explanation) edits.push({ field: 'explanation', value: explanation })
+  if (JSON.stringify(example) !== JSON.stringify(current.example)) {
+    edits.push({ field: 'example', value: example })
+  }
+  return (
+    <form
+      className="guide-editor"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSave(edits)
+      }}
+    >
+      <p>
+        {guide.approved ? (
+          <span className="badge">đã duyệt</span>
+        ) : (
+          <span className="badge badge-review">chưa duyệt</span>
+        )}
+        {guide.conflict && (
+          <span className="badge badge-review">
+            xung đột: bản sinh lại đã đổi, bản sửa của bạn vẫn được dùng
+          </span>
+        )}
+        <span className="badge">{guide.source === 'book' ? 'từ sách' : 'từ bài tập mẫu'}</span>
+      </p>
+      <label>
+        Giải thích
+        <textarea value={explanation} onChange={(e) => setExplanation(e.target.value)} rows={3} />
+      </label>
+      <label>
+        Ví dụ: đề bài
+        <input type="text" value={question} onChange={(e) => setQuestion(e.target.value)} />
+      </label>
+      <label>
+        Ví dụ: các bước (mỗi dòng một bước)
+        <textarea value={steps} onChange={(e) => setSteps(e.target.value)} rows={4} />
+      </label>
+      <label>
+        Ví dụ: kết quả
+        <input type="text" value={answer} onChange={(e) => setAnswer(e.target.value)} />
+      </label>
+      <span className="actions">
+        <button type="submit" disabled={busy || edits.length === 0}>
+          Lưu hướng dẫn
+        </button>
+        <button type="button" disabled={busy || guide.overrides.length === 0} onClick={onReset}>
+          Bỏ sửa
+        </button>
+        <button
+          type="button"
+          disabled={busy || edits.length > 0 || guide.approved}
+          onClick={onApprove}
+        >
+          Duyệt hướng dẫn
+        </button>
+      </span>
+      {error != null && (
+        <p role="alert" className="form-error">
+          {errorMessage(error)}
+        </p>
+      )}
+    </form>
+  )
+}
+
 function ConceptRow({ concept }: { concept: ConceptOut }) {
+  const [showGuide, setShowGuide] = useState(false)
   const rename = useConceptAction(renameConcept)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(concept.name_vi)
@@ -121,7 +258,22 @@ function ConceptRow({ concept }: { concept: ConceptOut }) {
             >
               Đổi tên
             </button>
+            {concept.has_guide && (
+              <button
+                type="button"
+                aria-expanded={showGuide}
+                onClick={() => setShowGuide((v) => !v)}
+              >
+                Hướng dẫn
+              </button>
+            )}
           </span>
+          {concept.has_guide && (
+            <span className="badges">
+              {!concept.guide_approved && <span className="badge badge-review">hướng dẫn chưa duyệt</span>}
+              {concept.guide_conflict && <span className="badge badge-review">xung đột</span>}
+            </span>
+          )}
         </>
       )}
       {editing && (
@@ -149,6 +301,7 @@ function ConceptRow({ concept }: { concept: ConceptOut }) {
           </button>
         </form>
       )}
+      {showGuide && concept.has_guide && <GuideEditor concept={concept} />}
       {rename.isError && (
         <p role="alert" className="form-error">
           {errorMessage(rename.error)}

@@ -1,7 +1,8 @@
 """Catalogue services, the only writers of `content_catalog_*` (AD-2).
 
 `upsert_books()` writes `content_catalog_books`; `publish_problems()` writes the units,
-lessons and problems.
+lessons and problems; `upsert_concept_guide()` writes the generated Concept Guides
+(Story 5.1).
 
 The caller owns the transaction: pass a connection from `engine.begin()`.
 """
@@ -21,6 +22,7 @@ from sqlalchemy import Connection, insert, select, update
 
 from hoctap.content.catalog.models import (
     content_catalog_books,
+    content_catalog_concept_guides,
     content_catalog_lessons,
     content_catalog_problems,
     content_catalog_units,
@@ -331,3 +333,43 @@ def publish_problems(
             result.retired.append(row.problem_id)
     result.retired.sort()
     return result
+
+
+# --------------------------------------------------------------------------- concept guides
+
+GUIDE_SOURCES = ("book", "problems")
+
+
+def upsert_concept_guide(
+    conn: Connection,
+    concept_id: str,
+    body: dict[str, Any],
+    *,
+    source: str,
+    input_hash: str,
+    model: str,
+    now: datetime | None = None,
+) -> None:
+    """Stores the generated Guide of a Concept (one row per `concept_id`, replaced on
+    regeneration). `body` is a validated ConceptGuideDoc as JSON data."""
+    if source not in GUIDE_SOURCES:
+        raise ValueError(f"unknown guide source {source!r}")
+    t = content_catalog_concept_guides
+    values = {
+        "body_json": canonical_doc_json(body),
+        "source": source,
+        "input_hash": input_hash,
+        "model": model,
+        "generated_at": to_iso(now or utc_now()),
+    }
+    if conn.execute(select(t.c.concept_id).where(t.c.concept_id == concept_id)).first() is None:
+        conn.execute(insert(t).values(concept_id=concept_id, **values))
+    else:
+        conn.execute(update(t).where(t.c.concept_id == concept_id).values(**values))
+
+
+def guide_input_hashes(conn: Connection) -> dict[str, str]:
+    """`concept_id -> input_hash` of every stored Guide."""
+    t = content_catalog_concept_guides
+    rows = conn.execute(select(t.c.concept_id, t.c.input_hash))
+    return {r.concept_id: r.input_hash for r in rows}

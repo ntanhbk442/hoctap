@@ -34,8 +34,8 @@ mirror `content.assets`'s URL/path helpers, one folder over (`assets/audio/` ins
 `problem_speech_refs()` is the one place that lists every text an audio button may need for
 a Problem: `instruction`, `display_label`, and each Part's `prompt`, `hint` and Solution
 `steps`/`final` — never `answer`, which is never read aloud (AD-5: a played clip must not
-give away the Answer Key). Concept Guides have no speakable text fields in `content.schema`
-yet, so they are not covered here (see deferred-work.md). Each `SpeechRef.text` is the
+give away the Answer Key). `guide_speech_refs()` does the same for a Concept Guide (its
+explanation and worked example, all of which may be spoken). Each `SpeechRef.text` is the
 NORMALISED spoken text (`speech_text()` of the raw field) — this is what must be sent to
 the TTS engine; `speech_key` is the hash of that same normalised text plus the voice id, so
 the two always agree on what was actually (or would be) spoken.
@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hoctap.content.assets import ASSETS_URL
-from hoctap.content.schema import ProblemDoc
+from hoctap.content.schema import ConceptGuideDoc, ProblemDoc
 
 # Vietnamese digit words, used for digit-by-digit reading (overline) and for the numerator/
 # denominator of a fraction. A v1 approximation: multi-digit numbers are read digit by
@@ -165,4 +165,18 @@ def problem_speech_refs(doc: ProblemDoc, voice_id: str) -> list[SpeechRef]:
         if key in seen:
             continue
         seen[key] = SpeechRef(speech_text(raw), key)
+    return list(seen.values())
+
+
+def guide_speech_refs(doc: ConceptGuideDoc, voice_id: str) -> list[SpeechRef]:
+    """Every (normalised text, speech_key) of a Concept Guide: `explanation`, then the
+    example's `question`, `steps` and `answer`; deduplicated by key, in that order."""
+    texts = [doc.explanation, doc.example.question, *doc.example.steps, doc.example.answer]
+    seen: dict[str, SpeechRef] = {}
+    for raw in texts:
+        if not raw:
+            continue
+        key = speech_key(raw, voice_id)
+        if key not in seen:
+            seen[key] = SpeechRef(speech_text(raw), key)
     return list(seen.values())

@@ -1835,6 +1835,331 @@
         }
       }
     },
+    "/api/v1/parent/review/concepts/{concept_id}/guide": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Get Guide",
+        "operationId": "get_concept_guide",
+        "parameters": [
+          {
+            "name": "concept_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Concept Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Save Guide",
+        "operationId": "save_concept_guide",
+        "parameters": [
+          {
+            "name": "concept_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Concept Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuideOverridesIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Reset Guide",
+        "description": "Bỏ sửa: removes the override of one field (or all); back to the generated text.",
+        "operationId": "reset_concept_guide",
+        "parameters": [
+          {
+            "name": "concept_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Concept Id"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "explanation",
+                    "example"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Field"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parent/review/concepts/{concept_id}/guide/approve": {
+      "post": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Approve Guide",
+        "operationId": "approve_concept_guide",
+        "parameters": [
+          {
+            "name": "concept_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Concept Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/hoctap__content__review__schemas__ApproveIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuideDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parent/review/spot-check": {
       "get": {
         "tags": [
@@ -4550,6 +4875,26 @@
         ],
         "title": "CompareView"
       },
+      "ConceptGuideDoc": {
+        "properties": {
+          "explanation": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Explanation"
+          },
+          "example": {
+            "$ref": "#/components/schemas/GuideExample"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "explanation",
+          "example"
+        ],
+        "title": "ConceptGuideDoc",
+        "description": "A Concept Guide: a short explanation plus one worked example (Story 5.1). The one\nvalidator of generated and edited Guide text; it fits one tablet screen."
+      },
       "ConceptOut": {
         "properties": {
           "concept_id": {
@@ -4567,6 +4912,37 @@
           "problem_count": {
             "type": "integer",
             "title": "Problem Count"
+          },
+          "has_guide": {
+            "type": "boolean",
+            "title": "Has Guide",
+            "description": "a Guide has been generated"
+          },
+          "guide_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "book",
+                  "problems"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guide Source",
+            "description": "problems: drafted from sample Problems, no book material"
+          },
+          "guide_conflict": {
+            "type": "boolean",
+            "title": "Guide Conflict",
+            "description": "an edited Guide field changed when regenerated"
+          },
+          "guide_approved": {
+            "type": "boolean",
+            "title": "Guide Approved",
+            "description": "approved for the current effective text"
           }
         },
         "type": "object",
@@ -4574,7 +4950,11 @@
           "concept_id",
           "grade",
           "name_vi",
-          "problem_count"
+          "problem_count",
+          "has_guide",
+          "guide_source",
+          "guide_conflict",
+          "guide_approved"
         ],
         "title": "ConceptOut"
       },
@@ -6187,6 +6567,181 @@
           "cells"
         ],
         "title": "GridFillView"
+      },
+      "GuideDetail": {
+        "properties": {
+          "concept_id": {
+            "type": "string",
+            "title": "Concept Id"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "book",
+              "problems"
+            ],
+            "title": "Source"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "generated": {
+            "$ref": "#/components/schemas/ConceptGuideDoc"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConceptGuideDoc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_hash": {
+            "type": "string",
+            "title": "Content Hash"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          },
+          "conflict": {
+            "type": "boolean",
+            "title": "Conflict"
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/GuideOverrideOut"
+            },
+            "type": "array",
+            "title": "Overrides"
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_id",
+          "source",
+          "model",
+          "generated_at",
+          "generated",
+          "effective",
+          "content_hash",
+          "approved",
+          "conflict",
+          "overrides"
+        ],
+        "title": "GuideDetail"
+      },
+      "GuideEditIn": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "explanation",
+              "example"
+            ],
+            "title": "Field"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field",
+          "value"
+        ],
+        "title": "GuideEditIn"
+      },
+      "GuideExample": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Question"
+          },
+          "steps": {
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Steps"
+          },
+          "answer": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Answer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question",
+          "steps",
+          "answer"
+        ],
+        "title": "GuideExample",
+        "description": "The one worked example of a Concept Guide."
+      },
+      "GuideOverrideOut": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "explanation",
+              "example"
+            ],
+            "title": "Field"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "base_hash": {
+            "type": "string",
+            "title": "Base Hash"
+          },
+          "conflict": {
+            "type": "boolean",
+            "title": "Conflict",
+            "description": "the generated field changed after this edit was saved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "value",
+          "base_hash",
+          "conflict"
+        ],
+        "title": "GuideOverrideOut"
+      },
+      "GuideOverridesIn": {
+        "properties": {
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/GuideEditIn"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Edits"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "edits"
+        ],
+        "title": "GuideOverridesIn"
       },
       "Health": {
         "properties": {

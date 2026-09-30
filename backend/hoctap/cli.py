@@ -1,5 +1,5 @@
 """`hoctap` command line: `serve`, `export-*` schemas and
-`build catalogue|pilot|verify|publish|speak-missing|gate|full`."""
+`build catalogue|pilot|verify|publish|guides|speak-missing|gate|full`."""
 
 from __future__ import annotations
 
@@ -484,6 +484,68 @@ def _build_verify(args: argparse.Namespace) -> int:
     return _run_build(args, body)
 
 
+def _build_guides(args: argparse.Namespace) -> int:
+    from hoctap.builder import costs
+    from hoctap.builder.stages import guides
+
+    def body(engine, settings) -> int:  # noqa: ANN001
+        with engine.connect() as conn:
+            tasks = guides.load_tasks(conn, args.concept)
+        if not tasks:
+            what = f" cho {args.concept} / for {args.concept}" if args.concept else ""
+            print(f"Không có khái niệm nào có bài{what} / No Concept with Problems{what}.")
+            return 1 if args.concept else 0
+        todo, current, restore = guides.pending(engine, tasks, settings)
+        print(
+            f"guides: {len(tasks)} Concept(s), {len(todo)} to generate, {len(current)} up to "
+            f"date, {len(restore)} to restore from a finished job"
+        )
+        if todo:
+            print(costs.estimate(len(todo), settings).describe(settings.extraction_model))
+        try:
+            client = _spend_client(args, settings, bool(todo))
+        except _Refused:
+            return 2
+        try:
+            report = guides.run_guides(
+                engine,
+                client,
+                settings,
+                tasks,
+                dry_run=args.dry_run,
+                max_total_usd=args.max_total_usd,
+                on_page=lambda ref, status: print(f"  {ref}: {status}"),
+            )
+        except KeyboardInterrupt:
+            print(
+                "Đã dừng; các khái niệm đã xong được giữ lại / Interrupted; finished Concepts "
+                "are kept, re-run to continue.",
+                file=sys.stderr,
+            )
+            return 130
+        if args.dry_run:
+            print(
+                f"dry run: {len(report.requests_written)} guide request(s) written to "
+                f"{guides.request_dir(settings)}; nothing was sent"
+            )
+            return 0
+        if report.calls is not None:
+            _print_calls("guides", report.calls)
+        print(
+            f"guides: {len(report.generated)} generated, {len(report.skipped)} skipped "
+            f"(unchanged), {len(report.failed)} failed"
+        )
+        if report.drafted_from_problems:
+            print(
+                "drafted from sample Problems (no book material; review these first): "
+                + ", ".join(report.drafted_from_problems)
+            )
+        _print_failed("guides", report.failed)
+        return 1 if report.failed else 0
+
+    return _open_db(body)
+
+
 def _tts_client(settings):  # noqa: ANN001, ANN202 - replaced in tests
     from hoctap.builder.tts_client import make_engine
 
@@ -823,6 +885,23 @@ def build_parser() -> argparse.ArgumentParser:
     publish.add_argument("--book", required=True, help="book_id, e.g. toan1-2020-q1")
     publish.add_argument("--pages", required=True, help="1-based page range a-b, e.g. 5-7")
     publish.set_defaults(func=_build_publish)
+    guides_cmd = build_sub.add_parser(
+        "guides",
+        help="generate the Concept Guide of every curated Concept with Claude (costs money)",
+    )
+    guides_cmd.add_argument("--concept", help="only this concept_id, e.g. g1.so-sanh-so")
+    guides_mode = guides_cmd.add_mutually_exclusive_group()
+    guides_mode.add_argument("--dry-run", action="store_true", help="write the requests only")
+    guides_mode.add_argument(
+        "--yes-spend", action="store_true", help="allow calls to Claude (costs money)"
+    )
+    guides_cmd.add_argument(
+        "--max-total-usd",
+        type=_positive_usd,
+        help="stop starting new Concepts once this run has spent this much "
+        "(default from config: extraction_max_total_usd)",
+    )
+    guides_cmd.set_defaults(func=_build_guides)
     speak_missing = build_sub.add_parser(
         "speak-missing",
         help="synthesise the Vietnamese audio of every currently-referenced speech key that "

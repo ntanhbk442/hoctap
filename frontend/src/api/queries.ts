@@ -9,6 +9,7 @@ import {
   deleteProfile,
   type EventIn,
   getCatalogueBooks,
+  getConceptGuide,
   getConcepts,
   getCurrentRun,
   getGate,
@@ -51,6 +52,7 @@ export const queryKeys = {
   reviewProblems: (filter: ProblemFilter) => ['review', 'problems', filter] as const,
   reviewProblem: (problemId: string) => ['review', 'problem', problemId] as const,
   reviewConcepts: ['review', 'concepts'] as const,
+  conceptGuide: (conceptId: string) => ['review', 'concept-guide', conceptId] as const,
   spotCheck: ['review', 'spot-check'] as const,
   gate: ['build', 'gate'] as const,
   catalogueBooks: ['build', 'books'] as const,
@@ -130,6 +132,14 @@ export function useConcepts() {
   return useQuery({
     queryKey: queryKeys.reviewConcepts,
     queryFn: ({ signal }) => getConcepts(signal),
+  })
+}
+
+export function useConceptGuide(conceptId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.conceptGuide(conceptId),
+    queryFn: ({ signal }) => getConceptGuide(conceptId, signal),
+    enabled,
   })
 }
 

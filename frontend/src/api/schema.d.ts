@@ -434,6 +434,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parent/review/concepts/{concept_id}/guide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Guide */
+        get: operations["get_concept_guide"];
+        /** Save Guide */
+        put: operations["save_concept_guide"];
+        post?: never;
+        /**
+         * Reset Guide
+         * @description Bỏ sửa: removes the override of one field (or all); back to the generated text.
+         */
+        delete: operations["reset_concept_guide"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parent/review/concepts/{concept_id}/guide/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Guide */
+        post: operations["approve_concept_guide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parent/review/spot-check": {
         parameters: {
             query?: never;
@@ -1208,6 +1247,16 @@ export interface components {
             /** Rows */
             rows: components["schemas"]["CompareRow"][];
         };
+        /**
+         * ConceptGuideDoc
+         * @description A Concept Guide: a short explanation plus one worked example (Story 5.1). The one
+         *     validator of generated and edited Guide text; it fits one tablet screen.
+         */
+        ConceptGuideDoc: {
+            /** Explanation */
+            explanation: string;
+            example: components["schemas"]["GuideExample"];
+        };
         /** ConceptOut */
         ConceptOut: {
             /** Concept Id */
@@ -1218,6 +1267,26 @@ export interface components {
             name_vi: string;
             /** Problem Count */
             problem_count: number;
+            /**
+             * Has Guide
+             * @description a Guide has been generated
+             */
+            has_guide: boolean;
+            /**
+             * Guide Source
+             * @description problems: drafted from sample Problems, no book material
+             */
+            guide_source: ("book" | "problems") | null;
+            /**
+             * Guide Conflict
+             * @description an edited Guide field changed when regenerated
+             */
+            guide_conflict: boolean;
+            /**
+             * Guide Approved
+             * @description approved for the current effective text
+             */
+            guide_approved: boolean;
         };
         /** ConceptsOut */
         ConceptsOut: {
@@ -1879,6 +1948,72 @@ export interface components {
             cols: number;
             /** Cells */
             cells: components["schemas"]["GridCell"][][];
+        };
+        /** GuideDetail */
+        GuideDetail: {
+            /** Concept Id */
+            concept_id: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "book" | "problems";
+            /** Model */
+            model: string;
+            /** Generated At */
+            generated_at: string;
+            generated: components["schemas"]["ConceptGuideDoc"];
+            effective: components["schemas"]["ConceptGuideDoc"] | null;
+            /** Content Hash */
+            content_hash: string;
+            /** Approved */
+            approved: boolean;
+            /** Conflict */
+            conflict: boolean;
+            /** Overrides */
+            overrides: components["schemas"]["GuideOverrideOut"][];
+        };
+        /** GuideEditIn */
+        GuideEditIn: {
+            /**
+             * Field
+             * @enum {string}
+             */
+            field: "explanation" | "example";
+            value: components["schemas"]["JsonValue"];
+        };
+        /**
+         * GuideExample
+         * @description The one worked example of a Concept Guide.
+         */
+        GuideExample: {
+            /** Question */
+            question: string;
+            /** Steps */
+            steps: string[];
+            /** Answer */
+            answer: string;
+        };
+        /** GuideOverrideOut */
+        GuideOverrideOut: {
+            /**
+             * Field
+             * @enum {string}
+             */
+            field: "explanation" | "example";
+            value: components["schemas"]["JsonValue"];
+            /** Base Hash */
+            base_hash: string;
+            /**
+             * Conflict
+             * @description the generated field changed after this edit was saved
+             */
+            conflict: boolean;
+        };
+        /** GuideOverridesIn */
+        GuideOverridesIn: {
+            /** Edits */
+            edits: components["schemas"]["GuideEditIn"][];
         };
         /** Health */
         Health: {
@@ -4740,6 +4875,248 @@ export interface operations {
                 };
             };
             /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_concept_guide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                concept_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuideDetail"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_concept_guide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                concept_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuideOverridesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuideDetail"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reset_concept_guide: {
+        parameters: {
+            query?: {
+                field?: ("explanation" | "example") | null;
+            };
+            header?: never;
+            path: {
+                concept_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuideDetail"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    approve_concept_guide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                concept_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["hoctap__content__review__schemas__ApproveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuideDetail"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description CONCEPT_NOT_FOUND or GUIDE_NOT_FOUND */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -13,6 +13,9 @@
 - `content_review_error_reports`: parent or child Error Reports, open or resolved.
 - `content_review_concepts` / `content_review_problem_concepts`: the curated Concepts
   and their links to Problems (built from accepted or merged proposals).
+- `content_review_guide_overrides` / `content_review_guide_status`: Anh's field edits of a
+  Concept Guide (unique on `concept_id, field`, with the `base_hash` of the generated field)
+  and its approval (`approved_hash`), like Problems (Story 5.1).
 - `content_review_spot_check_samples` / `content_review_spot_checks`: each drawn
   spot-check sample (seed, size) and its Problems with the verdict (null | correct |
   wrong), the effective hash the verdict was given for, when it was first judged wrong,
@@ -155,4 +158,25 @@ content_review_spot_checks = Table(
         "verdict IS NULL OR verdict IN ('correct', 'wrong')",
         name="ck_content_review_spot_checks_verdict",
     ),
+)
+
+content_review_guide_overrides = Table(
+    "content_review_guide_overrides",
+    metadata,
+    Column("id", Text, primary_key=True),  # UUIDv7
+    Column("concept_id", Text, nullable=False),
+    Column("field", Text, nullable=False),  # explanation | example
+    Column("value_json", Text, nullable=False),
+    Column("base_hash", Text, nullable=False),
+    Column("created_at", Text, nullable=False),
+    Column("updated_at", Text, nullable=False),
+    UniqueConstraint("concept_id", "field", name="uq_content_review_guide_overrides"),
+)
+
+content_review_guide_status = Table(
+    "content_review_guide_status",
+    metadata,
+    Column("concept_id", Text, primary_key=True),
+    Column("approved_hash", Text, nullable=True),
+    Column("updated_at", Text, nullable=False),
 )

@@ -671,3 +671,14 @@ body {
   font-size: 0.9em;
   opacity: 0.8;
 }
+
+.guide-editor {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.guide-editor label {
+  display: grid;
+  gap: 0.25rem;
+}

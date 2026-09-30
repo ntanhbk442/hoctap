@@ -26,6 +26,8 @@ export type OverrideOut = Schemas['OverrideOut']
 export type ConceptsOut = Schemas['ConceptsOut']
 export type ProposalOut = Schemas['ProposalOut']
 export type ConceptOut = Schemas['ConceptOut']
+export type GuideDetail = Schemas['GuideDetail']
+export type GuideEditIn = Schemas['GuideEditIn']
 export type SpotCheckOut = Schemas['SpotCheckOut']
 export type SpotCheckItem = Schemas['SpotCheckItem']
 export type VerdictIn = Schemas['VerdictIn']
@@ -390,6 +392,26 @@ export function mergeProposal(body: Schemas['MergeIn']): Promise<ConceptsOut> {
 
 export function renameConcept(body: Schemas['RenameIn']): Promise<ConceptsOut> {
   return apiPost<ConceptsOut>(`${REVIEW}/concepts/rename`, body)
+}
+
+// --- Hướng dẫn khái niệm (Concept Guide) ------------------------------------------
+
+const guidePath = (conceptId: string) => `${REVIEW}/concepts/${enc(conceptId)}/guide`
+
+export function getConceptGuide(conceptId: string, signal?: AbortSignal): Promise<GuideDetail> {
+  return apiGet<GuideDetail>(guidePath(conceptId), { signal })
+}
+
+export function saveConceptGuide(conceptId: string, edits: GuideEditIn[]): Promise<GuideDetail> {
+  return apiPut<GuideDetail>(guidePath(conceptId), { edits })
+}
+
+export function resetConceptGuide(conceptId: string): Promise<GuideDetail> {
+  return apiDelete<GuideDetail>(guidePath(conceptId))
+}
+
+export function approveConceptGuide(conceptId: string, contentHash: string): Promise<GuideDetail> {
+  return apiPost<GuideDetail>(`${guidePath(conceptId)}/approve`, { content_hash: contentHash })
 }
 
 // --- Kiểm tra ngẫu nhiên (spot-check) --------------------------------------------

@@ -16,8 +16,8 @@ trail after a successful synthesis.
 
 Every currently-published (not retired) Problem's referenced text
 (`content.speech.problem_speech_refs`) and every phrase of the UI phrase catalogue
-(`frontend/src/audio/phrases.vi.json`) are scanned. Concept Guides have no speakable text
-fields in `content.schema` yet, so they are not covered (deferred, see `deferred-work.md`).
+(`frontend/src/audio/phrases.vi.json`) are scanned, and so is every effective Concept Guide
+(`content.speech.guide_speech_refs`), approved or not, so the audio is ready on approval.
 
 A single engine failure is recorded in `Report.failed` and does not stop the rest.
 """
@@ -35,7 +35,13 @@ from sqlalchemy import Connection, Engine
 from hoctap.builder import jobs_store
 from hoctap.builder.tts_client import TtsEngine, TtsError
 from hoctap.content import effective
-from hoctap.content.speech import problem_speech_refs, speech_key, speech_path, speech_text
+from hoctap.content.speech import (
+    guide_speech_refs,
+    problem_speech_refs,
+    speech_key,
+    speech_path,
+    speech_text,
+)
 
 STAGE = "speak"
 PHRASES_REL_PATH = Path("frontend") / "src" / "audio" / "phrases.vi.json"
@@ -77,13 +83,19 @@ def _add_ref(refs: dict[str, str], key: str, text: str) -> None:
 
 def collect_refs(conn: Connection, repo_root: Path, voice_id: str) -> dict[str, str]:
     """Every currently-referenced `speech_key -> NORMALISED text` (see
-    `content.speech.SpeechRef`), across published (not retired) Problems and the phrase
-    catalogue — this is the text actually sent to the TTS engine, not the raw field."""
+    `content.speech.SpeechRef`), across published (not retired) Problems, effective Concept
+    Guides and the phrase catalogue — this is the text actually sent to the TTS engine, not
+    the raw field."""
     refs: dict[str, str] = {}
     for state in effective.load_effective(conn, include_retired=False):
         if state.doc is None:
             continue
         for ref in problem_speech_refs(state.doc, voice_id):
+            _add_ref(refs, ref.speech_key, ref.text)
+    for guide in effective.load_guides(conn).values():
+        if guide.doc is None:
+            continue
+        for ref in guide_speech_refs(guide.doc, voice_id):
             _add_ref(refs, ref.speech_key, ref.text)
     for raw in load_phrases(repo_root).values():
         if not raw:

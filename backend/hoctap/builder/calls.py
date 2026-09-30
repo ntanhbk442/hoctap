@@ -36,6 +36,7 @@ class CallJob:
     input_hash: str
     request: PageRequest
     check: Check
+    run_kind: str = "pilot"  # pilot | full: stored on the job row when it is first inserted
 
 
 @dataclass
@@ -97,10 +98,24 @@ def _record(engine: Engine, job: CallJob, outcome: _Outcome) -> None:
             return
         if outcome.error is None:
             output = outcome.attempts[-1].output
-            jobs_store.record(conn, job.ref, job.stage, job.input_hash, "done", output=output)
+            jobs_store.record(
+                conn,
+                job.ref,
+                job.stage,
+                job.input_hash,
+                "done",
+                output=output,
+                run_kind=job.run_kind,
+            )
         else:
             jobs_store.record(
-                conn, job.ref, job.stage, job.input_hash, "failed", error=outcome.error
+                conn,
+                job.ref,
+                job.stage,
+                job.input_hash,
+                "failed",
+                error=outcome.error,
+                run_kind=job.run_kind,
             )
 
 

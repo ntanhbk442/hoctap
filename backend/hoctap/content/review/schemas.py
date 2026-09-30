@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from hoctap.content.schema import ProblemDoc
+from hoctap.content.schema import ConceptGuideDoc, ProblemDoc
 
 OverrideField = Literal[
     "instruction", "display_label", "prompt", "answer", "hint", "solution", "part"
@@ -146,6 +146,12 @@ class ConceptOut(BaseModel):
     grade: int
     name_vi: str
     problem_count: int
+    has_guide: bool = Field(description="a Guide has been generated")
+    guide_source: Literal["book", "problems"] | None = Field(
+        description="problems: drafted from sample Problems, no book material"
+    )
+    guide_conflict: bool = Field(description="an edited Guide field changed when regenerated")
+    guide_approved: bool = Field(description="approved for the current effective text")
 
 
 class ConceptsOut(BaseModel):
@@ -221,3 +227,36 @@ class VerdictIn(BaseModel):
     verdict: Literal["correct", "wrong"]
     note: str = Field(default="", max_length=500)
     content_hash: str = Field(description="the effective hash the parent checked")
+
+
+class GuideOverrideOut(BaseModel):
+    field: Literal["explanation", "example"]
+    value: JsonValue
+    base_hash: str
+    conflict: bool = Field(description="the generated field changed after this edit was saved")
+
+
+class GuideDetail(BaseModel):
+    concept_id: str
+    source: Literal["book", "problems"]
+    model: str
+    generated_at: str
+    generated: ConceptGuideDoc
+    effective: ConceptGuideDoc | None
+    content_hash: str
+    approved: bool
+    conflict: bool
+    overrides: list[GuideOverrideOut]
+
+
+class GuideEditIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: Literal["explanation", "example"]
+    value: JsonValue
+
+
+class GuideOverridesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    edits: list[GuideEditIn] = Field(min_length=1)

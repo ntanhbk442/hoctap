@@ -28,15 +28,17 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import Connection, select
 
-from hoctap.content.catalog.models import content_catalog_problems
+from hoctap.content.catalog.models import content_catalog_concept_guides, content_catalog_problems
 from hoctap.content.catalog.service import canonical_doc_json
 from hoctap.content.review.models import (
     content_review_error_reports,
+    content_review_guide_overrides,
+    content_review_guide_status,
     content_review_overrides,
     content_review_problem_concepts,
     content_review_status,
 )
-from hoctap.content.schema import ProblemDoc
+from hoctap.content.schema import ConceptGuideDoc, ProblemDoc
 from hoctap.content.views import ChildProblemView, child_view
 
 TOP_FIELDS: frozenset[str] = frozenset({"instruction", "display_label"})
@@ -387,3 +389,115 @@ def visible_to_child(
         include_retired=False,
     )
     return [child_view(s.doc) for s in states if s.visible and s.doc is not None]
+
+
+# --------------------------------------------------------------------------- concept guides
+
+GUIDE_FIELDS: frozenset[str] = frozenset({"explanation", "example"})
+
+
+@dataclass(frozen=True)
+class GuideOverride:
+    id: str
+    concept_id: str
+    field: str
+    value: Any
+    base_hash: str
+
+
+@dataclass
+class EffectiveGuide:
+    """A Concept's Guide: the generated body with Anh's field overrides (AD-4).
+
+    `approved` is true only when `approved_hash` equals the hash of the current effective
+    body: generating, regenerating to different text and every edit make it false. Story
+    5.2 must show a child only Guides with `approved`."""
+
+    concept_id: str
+    source: str
+    model: str
+    generated_at: str
+    generated: dict[str, Any]
+    overrides: list[GuideOverride]
+    conflicts: list[GuideOverride]  # overrides whose generated field changed since saving
+    body: dict[str, Any]  # the merged body (JSON data)
+    doc: ConceptGuideDoc | None  # None when the merged body is invalid
+    content_hash: str
+    approved_hash: str | None = None
+
+    @property
+    def approved(self) -> bool:
+        return self.doc is not None and self.approved_hash == self.content_hash
+
+    @property
+    def has_conflict(self) -> bool:
+        return bool(self.conflicts)
+
+
+def merge_guide(
+    generated: Mapping[str, Any], overrides: Iterable[GuideOverride]
+) -> tuple[dict[str, Any], list[GuideOverride]]:
+    """The merged Guide body and the overrides whose base changed (they still win)."""
+    body = copy.deepcopy(dict(generated))
+    conflicts: list[GuideOverride] = []
+    for o in sorted(overrides, key=lambda o: o.field):
+        if value_hash(generated.get(o.field)) != o.base_hash:
+            conflicts.append(o)
+        body[o.field] = copy.deepcopy(o.value)
+    return body, conflicts
+
+
+def load_guides(
+    conn: Connection, concept_ids: Sequence[str] | None = None
+) -> dict[str, EffectiveGuide]:
+    """The effective Guide of every Concept that has one (or of the given Concepts)."""
+    g, o, s = (
+        content_catalog_concept_guides,
+        content_review_guide_overrides,
+        content_review_guide_status,
+    )
+    query = select(g)
+    if concept_ids is not None:
+        query = query.where(g.c.concept_id.in_(list(concept_ids)))
+    rows = conn.execute(query.order_by(g.c.concept_id)).all()
+    ids = [r.concept_id for r in rows]
+    overrides: dict[str, list[GuideOverride]] = {}
+    approved: dict[str, str | None] = {}
+    for chunk in _chunks(ids):
+        for row in conn.execute(select(o).where(o.c.concept_id.in_(chunk))):
+            overrides.setdefault(row.concept_id, []).append(
+                GuideOverride(
+                    row.id, row.concept_id, row.field, json.loads(row.value_json), row.base_hash
+                )
+            )
+        for row in conn.execute(select(s).where(s.c.concept_id.in_(chunk))):
+            approved[row.concept_id] = row.approved_hash
+    out: dict[str, EffectiveGuide] = {}
+    for row in rows:
+        generated = json.loads(row.body_json)
+        own = overrides.get(row.concept_id, [])
+        body, conflicts = merge_guide(generated, own)
+        try:
+            doc: ConceptGuideDoc | None = ConceptGuideDoc.model_validate(body)
+        except ValidationError:
+            doc = None
+        out[row.concept_id] = EffectiveGuide(
+            concept_id=row.concept_id,
+            source=row.source,
+            model=row.model,
+            generated_at=row.generated_at,
+            generated=generated,
+            overrides=own,
+            conflicts=conflicts,
+            body=body,
+            doc=doc,
+            content_hash=value_hash(body),
+            approved_hash=approved.get(row.concept_id),
+        )
+    return out
+
+
+def effective_concept_guide(conn: Connection, concept_id: str) -> EffectiveGuide | None:
+    """The effective Guide of a Concept (generated text plus overrides, `approved` flag),
+    or None when the Concept has no generated Guide. The only place that merges them."""
+    return load_guides(conn, [concept_id]).get(concept_id)

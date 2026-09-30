@@ -56,7 +56,7 @@
   summary: Garbage-collect orphaned audio files under data/assets/audio/ (a key whose Problem/phrase text has since changed leaves its old mp3 behind forever).
   evidence: content-addressed by design (AD-8), so an orphan is safe (never served, never referenced) but wastes disk; frozen intent explicitly defers this cleanup to a later story.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-speech-normaliser-tts-adapter-and-speak-missing.md`
-  summary: Extend `speak-missing` (and `content.speech`) to cover Concept Guide text once Concept Guides get speakable text fields.
+  summary: (RESOLVED in Story 5.1: `guide_speech_refs()` and `collect_refs` cover Concept Guides.) Extend `speak-missing` (and `content.speech`) to cover Concept Guide text once Concept Guides get speakable text fields.
   evidence: `content/schema.py` has no Concept Guide model yet (only Problems' `concept_ids`/`concept_proposals`); this story's Boundaries & Constraints explicitly allow deferring Concept Guide coverage until that schema exists, so `speak-missing` currently scans only Problems and `frontend/src/audio/phrases.vi.json`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-speech-normaliser-tts-adapter-and-speak-missing.md`
   summary: Improve `content.speech`'s `\overline{...}`/`\frac{a}{b}` number reading from digit-by-digit spelling to proper Vietnamese number-to-words (e.g. "12" as "mười hai", not "một hai").

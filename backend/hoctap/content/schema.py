@@ -805,6 +805,33 @@ class ProblemDoc(ProblemHeader):
         return self
 
 
+# --------------------------------------------------------------------------- concept guide
+
+GUIDE_EXPLANATION_MAX = 300  # the prompt asks for about 280 characters
+GUIDE_QUESTION_MAX = 200
+GUIDE_STEP_MAX = 160
+GUIDE_STEPS_MAX = 5
+GUIDE_ANSWER_MAX = 100
+
+
+class GuideExample(_Model):
+    """The one worked example of a Concept Guide."""
+
+    question: Annotated[NonEmptyText, StringConstraints(max_length=GUIDE_QUESTION_MAX)]
+    steps: list[Annotated[NonEmptyText, StringConstraints(max_length=GUIDE_STEP_MAX)]] = Field(
+        min_length=1, max_length=GUIDE_STEPS_MAX
+    )
+    answer: Annotated[NonEmptyText, StringConstraints(max_length=GUIDE_ANSWER_MAX)]
+
+
+class ConceptGuideDoc(_Model):
+    """A Concept Guide: a short explanation plus one worked example (Story 5.1). The one
+    validator of generated and edited Guide text; it fits one tablet screen."""
+
+    explanation: Annotated[NonEmptyText, StringConstraints(max_length=GUIDE_EXPLANATION_MAX)]
+    example: GuideExample
+
+
 def problemdoc_json_schema() -> dict[str, Any]:
     """The ProblemDoc v1 JSON Schema, as committed in `problemdoc.schema.json`."""
     return ProblemDoc.model_json_schema()
