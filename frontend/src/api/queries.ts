@@ -2,6 +2,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   type AssignmentIn,
   changeParentPin,
+  downloadBackup,
+  restoreBackup,
   createAssignment,
   createProfile,
   deleteAssignment,
@@ -201,6 +203,16 @@ export function useDeleteProfile() {
   return useMutation({
     mutationFn: (id: string) => deleteProfile(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.profiles }),
+  })
+}
+
+export function useBackup() {
+  return useMutation({ mutationFn: () => downloadBackup() })
+}
+
+export function useRestore() {
+  return useMutation({
+    mutationFn: ({ file, confirm }: { file: File; confirm: string }) => restoreBackup(file, confirm),
   })
 }
 

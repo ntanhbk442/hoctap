@@ -170,4 +170,104 @@ describe('Settings', () => {
     renderAt('/parent/settings', <Settings />)
     expect(await screen.findByText('login screen')).toBeInTheDocument()
   })
+
+  describe('backup and restore (Story 7.2)', () => {
+    const base = {
+      'GET /api/v1/parent/session': SESSION,
+      'GET /api/v1/profiles': { status: 200, body: [P1] },
+    }
+
+    it('downloads a backup through the server file name', async () => {
+      const createUrl = vi.fn(() => 'blob:x')
+      vi.stubGlobal('URL', { createObjectURL: createUrl, revokeObjectURL: vi.fn() })
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+      const inner = mockApi(base)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (init?.method === 'POST' && url === '/api/v1/parent/backup') {
+            return new Response(new Blob(['db']), {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Disposition': 'attachment; filename="hoctap-backup-20260930-080509.db"',
+              },
+            })
+          }
+          return inner(url, init)
+        }),
+      )
+      renderAt('/parent/settings', <Settings />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Sao lưu' }))
+      expect(await screen.findByText('Đã tải về hoctap-backup-20260930-080509.db.')).toBeInTheDocument()
+      expect(createUrl).toHaveBeenCalled()
+      expect(click).toHaveBeenCalled()
+      click.mockRestore()
+    })
+
+    it('shows the server error when the backup fails', async () => {
+      mockApi({
+        ...base,
+        'POST /api/v1/parent/backup': {
+          status: 500,
+          body: { error: { code: 'BACKUP_FAILED', message: 'Không tạo được bản sao lưu.' } },
+        },
+      })
+      renderAt('/parent/settings', <Settings />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Sao lưu' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Không tạo được bản sao lưu.')
+    })
+
+    function pickFile() {
+      const input = screen.getByLabelText('Tệp sao lưu để khôi phục') as HTMLInputElement
+      const file = new File(['x'], 'mine.db')
+      fireEvent.change(input, { target: { files: [file] } })
+      return file
+    }
+
+    it('needs the typed phrase before restoring, then asks to sign in again', async () => {
+      const fetchMock = mockApi({
+        ...base,
+        'POST /api/v1/parent/restore': {
+          status: 200,
+          body: { safety_backup: 'pre-restore-1.db', revision: '0020_db_epoch', db_epoch: 'e' },
+        },
+      })
+      renderAt('/parent/settings', <Settings />)
+      await screen.findByRole('button', { name: 'Sao lưu' })
+      expect(screen.queryByRole('button', { name: 'Khôi phục' })).not.toBeInTheDocument()
+      pickFile()
+      fireEvent.click(screen.getByRole('button', { name: 'Khôi phục' }))
+      const confirmButton = screen.getByRole('button', { name: 'Khôi phục dữ liệu' })
+      expect(confirmButton).toBeDisabled()
+      fireEvent.change(screen.getByLabelText(/Gõ KHÔI PHỤC/), { target: { value: 'khôi' } })
+      expect(confirmButton).toBeDisabled()
+      fireEvent.change(screen.getByLabelText(/Gõ KHÔI PHỤC/), { target: { value: 'KHÔI PHỤC' } })
+      fireEvent.click(confirmButton)
+      expect(await screen.findByText(/Bạn cần đăng nhập lại/)).toBeInTheDocument()
+      const call = fetchMock.mock.calls.find(([u]) => u === '/api/v1/parent/restore')!
+      const form = call[1]!.body as FormData
+      expect(form.get('confirm')).toBe('KHÔI PHỤC')
+      expect((form.get('file') as File).name).toBe('mine.db')
+    })
+
+    it.each([
+      ['BACKUP_NEWER', 409, 'Bản sao lưu này mới hơn ứng dụng.'],
+      ['BUILD_RUNNING', 409, 'Đang có lượt dựng nội dung chạy.'],
+      ['BACKUP_INVALID', 422, 'Tệp này không phải bản sao lưu hợp lệ.'],
+    ])('shows the %s refusal and keeps the page usable', async (code, status, message) => {
+      mockApi({
+        ...base,
+        'POST /api/v1/parent/restore': { status, body: { error: { code, message } } },
+      })
+      renderAt('/parent/settings', <Settings />)
+      await screen.findByRole('button', { name: 'Sao lưu' })
+      pickFile()
+      fireEvent.click(screen.getByRole('button', { name: 'Khôi phục' }))
+      fireEvent.change(screen.getByLabelText(/Gõ KHÔI PHỤC/), { target: { value: 'KHÔI PHỤC' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Khôi phục dữ liệu' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(screen.queryByText(/Bạn cần đăng nhập lại/)).not.toBeInTheDocument()
+    })
+  })
 })

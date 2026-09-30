@@ -1,5 +1,6 @@
 // Thin fetch helpers over the generated OpenAPI types (src/api/schema.d.ts).
 // Never hand-write API types: run `npm run gen:api` after backend changes.
+import { rememberSessionEpoch } from '../offline/dbEpoch'
 import type { components } from './schema'
 
 export type Schemas = components['schemas']
@@ -58,6 +59,7 @@ export type DashboardOut = Schemas['DashboardOut']
 export type AssignmentOut = Schemas['AssignmentOut']
 export type AssignmentIn = Schemas['AssignmentIn']
 export type HomeAssignmentOut = Schemas['HomeAssignmentOut']
+export type RestoreOut = Schemas['RestoreOut']
 export type WorksheetOut = Schemas['WorksheetOut']
 export type WorksheetProblem = Schemas['WorksheetProblem']
 
@@ -94,6 +96,21 @@ function isJson(resp: Response): boolean {
   return (resp.headers.get('content-type') ?? '').includes('json')
 }
 
+async function throwApiError(resp: Response): Promise<never> {
+  let body: Partial<ErrorResponse> | undefined
+  try {
+    body = isJson(resp) ? ((await resp.json()) as Partial<ErrorResponse>) : undefined
+  } catch {
+    body = undefined
+  }
+  throw new ApiError(
+    resp.status,
+    body?.error?.code ?? 'HTTP_ERROR',
+    body?.error?.message ?? resp.statusText,
+    body?.error?.details ?? [],
+  )
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!headers.has('Accept')) headers.set('Accept', 'application/json')
@@ -105,20 +122,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // `ApiError`, which requires an actual HTTP response to read a status/body from.
     throw new NetworkError(err)
   }
-  if (!resp.ok) {
-    let body: Partial<ErrorResponse> | undefined
-    try {
-      body = isJson(resp) ? ((await resp.json()) as Partial<ErrorResponse>) : undefined
-    } catch {
-      body = undefined
-    }
-    throw new ApiError(
-      resp.status,
-      body?.error?.code ?? 'HTTP_ERROR',
-      body?.error?.message ?? resp.statusText,
-      body?.error?.details ?? [],
-    )
-  }
+  if (!resp.ok) await throwApiError(resp)
   if (resp.status === 204 || !isJson(resp)) return undefined as T
   return (await resp.json()) as T
 }
@@ -293,6 +297,9 @@ export function startSession(
     ref,
     mode,
     assignment_id: assignmentId,
+  }).then((session) => {
+    rememberSessionEpoch(session.id, session.db_epoch)
+    return session
   })
 }
 
@@ -316,7 +323,10 @@ export function getSessionBundle(
   return apiGet<BundleOut>(
     `${SESSIONS}/${enc(sessionId)}/bundle?profile_id=${encodeURIComponent(profileId)}&chunk=${chunk}`,
     { signal },
-  )
+  ).then((bundle) => {
+    rememberSessionEpoch(sessionId, bundle.db_epoch)
+    return bundle
+  })
 }
 
 export function postSessionEvents(
@@ -327,7 +337,33 @@ export function postSessionEvents(
   return apiPost<EventOut[]>(`${SESSIONS}/${enc(sessionId)}/events`, {
     profile_id: profileId,
     events,
+  }).then((out) => {
+    rememberSessionEpoch(sessionId, out[0]?.db_epoch)
+    return out
   })
+}
+
+// --- Backup and restore (Story 7.2) ------------------------------------------------
+
+/** POSTs for the verified `.db` backup; returns the bytes and the server's file name. */
+export async function downloadBackup(): Promise<{ blob: Blob; filename: string }> {
+  let resp: Response
+  try {
+    resp = await fetch(`${API_BASE}/parent/backup`, { method: 'POST' })
+  } catch (err) {
+    throw new NetworkError(err)
+  }
+  if (!resp.ok) await throwApiError(resp)
+  const match = /filename="?([^";]+)"?/.exec(resp.headers.get('content-disposition') ?? '')
+  return { blob: await resp.blob(), filename: match?.[1] ?? 'hoctap-backup.db' }
+}
+
+/** Uploads a backup and restores it; `confirm` is the typed phrase. */
+export function restoreBackup(file: File, confirm: string): Promise<RestoreOut> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('confirm', confirm)
+  return request<RestoreOut>('/parent/restore', { method: 'POST', body: form })
 }
 
 // --- Content Review (Duyệt nội dung) ---------------------------------------------

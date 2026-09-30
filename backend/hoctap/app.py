@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from hoctap import __version__
 from hoctap.api import (
@@ -24,7 +26,7 @@ from hoctap.api import (
     worksheets,
 )
 from hoctap.api.assets import build_assets_router
-from hoctap.api.errors import ErrorResponse, install_error_handlers
+from hoctap.api.errors import ErrorResponse, error_response, install_error_handlers
 from hoctap.api.spa import build_spa_router
 from hoctap.builder import jobs
 from hoctap.config import Settings, load_settings
@@ -32,10 +34,37 @@ from hoctap.db.engine import create_db_engine, run_migrations
 from hoctap.ids import utc_now
 from hoctap.logging import configure_logging, shutdown_logging
 from hoctap.parent.auth import load_or_create_secret
+from hoctap.parent.backup import MSG_MAINTENANCE, Maintenance
 
 log = logging.getLogger(__name__)
 
 API_PREFIX = "/api/v1"
+HEALTH_PATH = f"{API_PREFIX}/health"
+
+
+class MaintenanceMiddleware:
+    """While a restore swaps the database, every route except health answers 503
+    `MAINTENANCE` with a retry hint. Requests already running are counted so the restore
+    can wait for them to finish before it touches the file."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] == HEALTH_PATH:
+            await self.app(scope, receive, send)
+            return
+        maintenance: Maintenance = scope["app"].state.maintenance
+        if not maintenance.enter():
+            response = error_response(
+                503, "MAINTENANCE", MSG_MAINTENANCE, headers={"Retry-After": "5"}
+            )
+            await response(scope, receive, send)
+            return
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            maintenance.leave()
 
 
 def build_api_router() -> APIRouter:
@@ -101,6 +130,9 @@ def create_app(
     app.state.settings = settings
     # Injectable clock (tests replace it) for PIN lockout and cookie expiry.
     app.state.clock = utc_now
+    app.state.maintenance = Maintenance()
+    app.state.restore_lock = threading.Lock()
+    app.add_middleware(MaintenanceMiddleware)
     install_error_handlers(app)
     app.include_router(build_api_router())
     app.include_router(build_assets_router(settings.data_dir))

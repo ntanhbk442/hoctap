@@ -57,3 +57,24 @@ def run_migrations(engine: Engine) -> None:
     with engine.begin() as connection:
         cfg.attributes["connection"] = connection
         command.upgrade(cfg, "head")
+
+
+def head_revision() -> str:
+    """The Alembic head this app version migrates to."""
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.set_main_option("script_location", str(ALEMBIC_DIR).replace("%", "%%"))
+    return ScriptDirectory.from_config(cfg).get_current_head() or ""
+
+
+def is_known_revision(revision: str) -> bool:
+    """True if `revision` is in this app's migration chain (so it is at or below the head)."""
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.set_main_option("script_location", str(ALEMBIC_DIR).replace("%", "%%"))
+    try:
+        return ScriptDirectory.from_config(cfg).get_revision(revision) is not None
+    except Exception:  # noqa: BLE001 -- alembic raises several types for an unknown id
+        return False

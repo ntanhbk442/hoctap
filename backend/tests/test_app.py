@@ -191,7 +191,7 @@ def test_fresh_data_dir_created_with_wal_and_migrations(data_dir: Path, dist: Pa
     try:
         assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert con.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("0019_full_run",)
+            ("0020_db_epoch",)
         ]
         columns = {r[1] for r in con.execute("PRAGMA table_info(parent_profiles)")}
         assert "auto_play" in columns

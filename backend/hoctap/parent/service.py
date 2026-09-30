@@ -5,6 +5,7 @@ Only this module writes `parent_*` tables, each mutation in one transaction.
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta
 
 import bcrypt
@@ -85,6 +86,7 @@ def complete_setup(engine: Engine, req: SetupRequest, now: datetime) -> Profile:
                     pin_hash=pin_hash,
                     failed_attempts=0,
                     locked_until=None,
+                    db_epoch=new_epoch(),
                     created_at=stamp,
                     updated_at=stamp,
                 )
@@ -160,6 +162,31 @@ def session_version(engine: Engine) -> int | None:
         return conn.execute(
             select(parent_settings.c.session_version).where(parent_settings.c.id == SETTINGS_ID)
         ).scalar_one_or_none()
+
+
+def new_epoch() -> str:
+    return secrets.token_hex(16)
+
+
+def get_db_epoch(engine: Engine) -> str:
+    """The current `db_epoch` (empty while setup is not done)."""
+    with engine.connect() as conn:
+        value = conn.execute(
+            select(parent_settings.c.db_epoch).where(parent_settings.c.id == SETTINGS_ID)
+        ).scalar_one_or_none()
+    return value or ""
+
+
+def bump_db_epoch(engine: Engine) -> str | None:
+    """Replaces `db_epoch` with a fresh random token; None if there is no settings row."""
+    token = new_epoch()
+    with engine.begin() as conn:
+        found = conn.execute(
+            update(parent_settings)
+            .where(parent_settings.c.id == SETTINGS_ID)
+            .values(db_epoch=token)
+        ).rowcount
+    return token if found == 1 else None
 
 
 def end_sessions(engine: Engine, now: datetime) -> None:

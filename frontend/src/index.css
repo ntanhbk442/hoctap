@@ -682,3 +682,9 @@ body {
   display: grid;
   gap: 0.25rem;
 }
+
+.stale-epoch-notice {
+  padding: 0.75rem 1rem;
+  border: 2px solid currentColor;
+  margin: 0.5rem;
+}

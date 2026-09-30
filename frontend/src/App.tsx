@@ -1,6 +1,7 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import { authRedirect } from './api/errors'
+import StaleEpochNotice from './offline/StaleEpochNotice.tsx'
 import { useOutboxAutoFlush } from './offline/useOutboxAutoFlush.ts'
 import Assignments from './pages/Assignments.tsx'
 import Badges from './pages/Badges.tsx'
@@ -63,6 +64,7 @@ export default function App() {
   useOutboxAutoFlush()
   return (
     <QueryClientProvider client={queryClient}>
+      <StaleEpochNotice />
       <RouterProvider router={router} />
       <PWABadge />
     </QueryClientProvider>

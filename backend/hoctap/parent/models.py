@@ -16,6 +16,9 @@ parent_settings = Table(
     Column("locked_until", Text, nullable=True),
     # Signed into the parent cookie; logout increments it so old cookies stop working.
     Column("session_version", Integer, nullable=False, server_default="0"),
+    # Story 7.2: a random token, regenerated after every restore; tablets stamp their
+    # outbox events with it and the server refuses events stamped with an older one.
+    Column("db_epoch", Text, nullable=False, server_default="0"),
     Column("created_at", Text, nullable=False),
     Column("updated_at", Text, nullable=False),
     CheckConstraint("id = 1", name="ck_parent_settings_single_row"),

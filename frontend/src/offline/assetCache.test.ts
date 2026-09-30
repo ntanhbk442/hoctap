@@ -14,6 +14,7 @@ function bundle(): BundleOut {
     chunk: 1,
     chunk_count: 1,
     chunk_label: 'Phần 1/1',
+    db_epoch: 'epoch-1',
     problems: [
       {
         problem: {

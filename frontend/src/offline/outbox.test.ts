@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EventIn } from '../api/client'
 import { mockApi } from '../test/render'
+import {
+  _resetDbEpochForTests,
+  epochForSession,
+  rememberSessionEpoch,
+  staleEpochSnapshot,
+} from './dbEpoch'
 import { flushOutbox, postEventsOrQueue, QueuedOfflineError } from './outbox'
 import { MemoryOutboxStore } from './outboxStore'
 
@@ -35,6 +41,7 @@ function eventOut(id: string, overrides: Partial<Record<string, unknown>> = {}) 
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  _resetDbEpochForTests()
 })
 
 // stubs `fetch` to reject (simulate a genuinely unreachable server -- `NetworkError`,
@@ -282,5 +289,66 @@ describe('flushOutbox', () => {
     vi.stubGlobal('fetch', fetchMock)
     expect(await flushOutbox(store)).toBe('drained')
     expect(order).toEqual(['e1', 'e2'])
+  })
+})
+
+describe('db_epoch (Story 7.2)', () => {
+  const STALE = {
+    status: 409,
+    body: { error: { code: 'STALE_EPOCH', message: 'Dữ liệu đã được khôi phục.', details: ['new'] } },
+  }
+
+  it('stamps events with the epoch the Session was seen under, and queues them stamped', async () => {
+    rememberSessionEpoch(SESSION_ID, 'old')
+    stubOffline()
+    const store = new MemoryOutboxStore()
+    await expect(
+      postEventsOrQueue(store, SESSION_ID, PROFILE_ID, [attemptEvent('e1')]),
+    ).rejects.toBeInstanceOf(QueuedOfflineError)
+    expect((await store.listAll())[0].event.db_epoch).toBe('old')
+  })
+
+  it('leaves events unstamped when no epoch is known (legacy)', async () => {
+    stubOffline()
+    const store = new MemoryOutboxStore()
+    await expect(
+      postEventsOrQueue(store, SESSION_ID, PROFILE_ID, [attemptEvent('e1')]),
+    ).rejects.toBeInstanceOf(QueuedOfflineError)
+    expect((await store.listAll())[0].event.db_epoch).toBeUndefined()
+  })
+
+  it('learns the epoch from a successful response', async () => {
+    mockApi({
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [eventOut('e1', { db_epoch: 'cur' })],
+      },
+    })
+    await postEventsOrQueue(new MemoryOutboxStore(), SESSION_ID, PROFILE_ID, [attemptEvent('e1')])
+    expect(epochForSession(SESSION_ID)).toBe('cur')
+  })
+
+  it('discards queued stale events on flush, keeps going, and raises the notice', async () => {
+    const store = new MemoryOutboxStore()
+    const stale = { ...attemptEvent('e1'), db_epoch: 'old' }
+    await store.add({ id: 'e1', sessionId: SESSION_ID, profileId: PROFILE_ID, event: stale })
+    await store.add({ id: 'e2', sessionId: SESSION_ID, profileId: PROFILE_ID, event: stale })
+    const fetchMock = mockApi({ 'POST /api/v1/sessions/session-1/events': STALE })
+
+    expect(await flushOutbox(store)).toBe('drained')
+    expect(await store.count()).toBe(0)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(staleEpochSnapshot()).toBe(true)
+  })
+
+  it('rethrows a stale 409 on a direct post (never queued) and raises the notice', async () => {
+    rememberSessionEpoch(SESSION_ID, 'old')
+    mockApi({ 'POST /api/v1/sessions/session-1/events': STALE })
+    const store = new MemoryOutboxStore()
+    await expect(
+      postEventsOrQueue(store, SESSION_ID, PROFILE_ID, [attemptEvent('e1')]),
+    ).rejects.toMatchObject({ code: 'STALE_EPOCH' })
+    expect(await store.count()).toBe(0)
+    expect(staleEpochSnapshot()).toBe(true)
   })
 })

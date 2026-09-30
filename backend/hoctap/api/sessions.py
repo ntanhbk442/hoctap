@@ -23,6 +23,7 @@ from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
 from hoctap.learning.problem_sets import ConceptRef, LessonRef, ReplayRef, RetryRef
 from hoctap.learning.summary import LOCAL_TZ
+from hoctap.parent.service import get_db_epoch
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -99,10 +100,13 @@ class SessionOut(BaseModel):
     chunk_size: int
     mode: str
     started_at: str
+    # Story 7.2: the database generation; the client stamps its outbox events with it.
+    db_epoch: str = ""
 
 
-def _session_out(s: service.SessionOut) -> SessionOut:
+def _session_out(s: service.SessionOut, db_epoch: str = "") -> SessionOut:
     return SessionOut(
+        db_epoch=db_epoch,
         id=s.id,
         profile_id=s.profile_id,
         ref_kind=s.ref_kind,
@@ -162,7 +166,8 @@ def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> Sessi
         return _session_out(
             service.start_session(
                 conn, now, body.profile_id, ref, mode=mode, assignment_id=body.assignment_id
-            )
+            ),
+            get_db_epoch(engine),
         )
 
 
@@ -184,10 +189,12 @@ class BundleOut(BaseModel):
     chunk_count: int
     chunk_label: str
     problems: list[BundleProblemOut]
+    db_epoch: str = ""
 
 
-def _bundle_out(b: service.BundleOut) -> BundleOut:
+def _bundle_out(b: service.BundleOut, db_epoch: str = "") -> BundleOut:
     return BundleOut(
+        db_epoch=db_epoch,
         session_id=b.session_id,
         mode=b.mode,
         chunk=b.chunk,
@@ -224,7 +231,8 @@ def get_bundle(
     chunk: Annotated[int, Query(ge=1)] = 1,
 ) -> BundleOut:
     with engine.connect() as conn:
-        return _bundle_out(service.get_bundle(conn, session_id, profile_id, chunk))
+        bundle = service.get_bundle(conn, session_id, profile_id, chunk)
+    return _bundle_out(bundle, get_db_epoch(engine))
 
 
 class SummaryOut(BaseModel):
@@ -270,6 +278,9 @@ class EventIn(BaseModel):
     problem_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     occurred_at: str
+    # Story 7.2: the `db_epoch` the client knew when it created the event; None for
+    # legacy events, which are accepted.
+    db_epoch: str | None = None
 
 
 class PostEventsIn(BaseModel):
@@ -309,10 +320,12 @@ class EventOut(BaseModel):
     # submission awarded Stars at all (`False` for a retake of an already-submitted Lesson).
     quiz_results: list[QuizResultOut] | None = None
     quiz_stars_awarded: bool | None = None
+    db_epoch: str = ""
 
 
-def _event_out(e: service.EventOut) -> EventOut:
+def _event_out(e: service.EventOut, db_epoch: str = "") -> EventOut:
     return EventOut(
+        db_epoch=db_epoch,
         id=e.id,
         session_id=e.session_id,
         kind=e.kind,
@@ -338,6 +351,7 @@ def _event_out(e: service.EventOut) -> EventOut:
     responses={
         403: {"model": ErrorResponse, "description": "Profile doesn't own this Session"},
         404: {"model": ErrorResponse, "description": "Unknown Session"},
+        409: {"model": ErrorResponse, "description": "STALE_EPOCH: the database was restored"},
         422: {
             "model": ErrorResponse,
             "description": "Invalid event id, kind, problem_id, or (attempt) part_key",
@@ -350,6 +364,14 @@ def post_events(
     for event in body.events:
         if not _is_uuid7(event.id):
             raise AppError(422, "INVALID_EVENT_ID", "Mã sự kiện không hợp lệ (cần UUIDv7).")
+    epoch = get_db_epoch(engine)
+    if any(e.db_epoch is not None and e.db_epoch != epoch for e in body.events):
+        raise AppError(
+            409,
+            "STALE_EPOCH",
+            "Dữ liệu đã được khôi phục từ bản sao lưu; các bài làm cũ trên máy này bị bỏ qua.",
+            details=[epoch],
+        )
     in_events = [
         service.EventIn(
             id=event.id,
@@ -374,7 +396,8 @@ def post_events(
                 for in_event in in_events:
                     out.append(
                         _event_out(
-                            service.post_event(conn, now, session_id, body.profile_id, in_event)
+                            service.post_event(conn, now, session_id, body.profile_id, in_event),
+                            epoch,
                         )
                     )
             return out

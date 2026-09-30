@@ -879,6 +879,113 @@ def _reset_pin(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _port_listening(host: str, port: int) -> bool:
+    import socket
+
+    probe = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    try:
+        with socket.create_connection((probe, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _backup(args: argparse.Namespace) -> int:
+    """Writes a verified single-file backup while the app may keep running."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from hoctap.api.errors import AppError
+    from hoctap.db.engine import create_db_engine
+    from hoctap.parent.backup import backup_filename, make_backup
+
+    settings = load_settings()
+    if not settings.db_path.is_file():
+        print(f"Không có cơ sở dữ liệu / No database at {settings.db_path}.", file=sys.stderr)
+        return 1
+    target = (
+        Path(args.to).expanduser() if args.to else settings.data_dir.parent / "hoctap-backups"
+    ).resolve()
+    inside = target == settings.data_dir.resolve() or settings.data_dir.resolve() in target.parents
+    if inside:
+        print(
+            "Cảnh báo / Warning: thư mục này nằm trong thư mục dữ liệu; hãy giữ một bản ở nơi "
+            "khác / this folder is inside the data folder; keep a copy somewhere else too.",
+            file=sys.stderr,
+        )
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        engine = create_db_engine(settings.db_path)
+        try:
+            path = make_backup(engine, target / backup_filename())
+        finally:
+            engine.dispose()
+    except AppError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    except (SQLAlchemyError, OSError) as exc:
+        print(f"Lỗi / Error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Đã sao lưu / Backup written: {path}")
+    print("Tệp chứa mã PIN đã băm, hãy giữ riêng tư / It holds the PIN hash; keep it private.")
+    return 0
+
+
+def _restore(args: argparse.Namespace) -> int:
+    """Offline restore: refuses while the server runs or a build is active."""
+    import threading
+    from types import SimpleNamespace
+
+    from hoctap.api.errors import AppError
+    from hoctap.builder import jobs
+    from hoctap.db.engine import create_db_engine, run_migrations
+    from hoctap.parent.auth import load_or_create_secret
+    from hoctap.parent.backup import CONFIRM_PHRASE, Maintenance, restore
+
+    settings = load_settings()
+    source = Path(args.file).expanduser()
+    if not source.is_file():
+        print(f"Không thấy tệp / File not found: {source}", file=sys.stderr)
+        return 1
+    for port in {settings.port, settings.tls_port}:
+        if _port_listening(settings.host, port):
+            print(
+                f"Máy chủ đang chạy trên cổng {port}; hãy dừng nó trước khi khôi phục / the "
+                "server is running; stop it before restoring. Nothing was changed.",
+                file=sys.stderr,
+            )
+            return 1
+    if args.yes:
+        typed = CONFIRM_PHRASE
+    else:
+        typed = input(f"Gõ {CONFIRM_PHRASE} để ghi đè dữ liệu hiện tại / type it to overwrite: ")
+    if typed.strip().upper() != CONFIRM_PHRASE:
+        print("Chưa xác nhận, không đổi gì / Not confirmed; nothing changed.", file=sys.stderr)
+        return 2
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        engine = create_db_engine(settings.db_path)
+        try:
+            run_migrations(engine)
+            app = SimpleNamespace()
+            app.state = SimpleNamespace(
+                settings=settings,
+                engine=engine,
+                maintenance=Maintenance(),
+                restore_lock=threading.Lock(),
+                secret_key=load_or_create_secret(settings.data_dir),
+                run_manager=jobs.RunManager(engine, settings, jobs.default_client_factory),
+            )
+            result = restore(app, source, own_requests=0)  # type: ignore[arg-type]
+        finally:
+            engine.dispose()
+    except AppError as exc:
+        print(f"{exc.code}: {exc.message}", file=sys.stderr)
+        return 1
+    print(f"Đã khôi phục / Restored (revision {result.revision}).")
+    print(f"Bản sao lưu an toàn / Safety backup: {result.safety_backup}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hoctap", description="Học Tập server")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -908,6 +1015,19 @@ def build_parser() -> argparse.ArgumentParser:
         "reset-pin", help="forgotten PIN: set a new one on this machine (prompts for it)"
     )
     reset_pin.set_defaults(func=_reset_pin)
+
+    backup_cmd = sub.add_parser("backup", help="write a verified single-file database backup")
+    backup_cmd.add_argument(
+        "--to", help="folder for the backup (default: 'hoctap-backups' next to the data folder)"
+    )
+    backup_cmd.set_defaults(func=_backup)
+
+    restore_cmd = sub.add_parser(
+        "restore", help="replace the database with a backup (server must be stopped)"
+    )
+    restore_cmd.add_argument("file", help="the .db backup file")
+    restore_cmd.add_argument("--yes", action="store_true", help="skip the typed confirmation")
+    restore_cmd.set_defaults(func=_restore)
 
     export = sub.add_parser("export-openapi", help="write the OpenAPI schema for gen:api")
     export.add_argument("--out", default=str(DEFAULT_OPENAPI_OUT), help="output file")

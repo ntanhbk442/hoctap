@@ -1,18 +1,34 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Avatar, Profile } from '../api/client'
 import { authRedirect, errorMessage } from '../api/errors'
 import {
+  useBackup,
   useChangePin,
   useCreateProfile,
   useDeleteProfile,
   useParentSession,
   useProfiles,
+  useRestore,
   useUpdateProfile,
 } from '../api/queries'
 import { AVATARS, GRADES, PIN_PATTERN } from './avatars'
 
 const MAX_PROFILES = 4
+const RESTORE_PHRASE = 'KHÔI PHỤC'
+
+/** Saves `blob` through a temporary download link. */
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 
 interface Draft {
   name: string
@@ -294,6 +310,132 @@ function PinForm() {
   )
 }
 
+/** Story 7.2: "Sao lưu" (download the database) and "Khôi phục" (replace it). */
+function BackupSection() {
+  const backup = useBackup()
+  const restore = useRestore()
+  const queryClient = useQueryClient()
+  const fileInput = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [phrase, setPhrase] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [restored, setRestored] = useState(false)
+
+  function download() {
+    setError(null)
+    setSaved(null)
+    backup.mutate(undefined, {
+      onSuccess: ({ blob, filename }) => {
+        saveBlob(blob, filename)
+        setSaved(filename)
+      },
+      onError: (e) => setError(errorMessage(e)),
+    })
+  }
+
+  function doRestore() {
+    if (!file) return
+    setError(null)
+    restore.mutate(
+      { file, confirm: phrase },
+      {
+        onSuccess: () => {
+          setConfirming(false)
+          setPhrase('')
+          setFile(null)
+          if (fileInput.current) fileInput.current.value = ''
+          setRestored(true)
+          queryClient.clear() // everything cached belongs to the old database
+        },
+        onError: (e) => setError(errorMessage(e)),
+      },
+    )
+  }
+
+  if (restored) {
+    return (
+      <section className="settings-section" aria-labelledby="backup-heading">
+        <h2 id="backup-heading">Sao lưu và khôi phục</h2>
+        <p role="status">
+          Đã khôi phục dữ liệu. Bạn cần đăng nhập lại bằng mã PIN của bản sao lưu.
+        </p>
+        <Link to="/parent/login">Đăng nhập</Link>
+      </section>
+    )
+  }
+
+  return (
+    <section className="settings-section" aria-labelledby="backup-heading">
+      <h2 id="backup-heading">Sao lưu và khôi phục</h2>
+      <p>
+        Bản sao lưu gồm toàn bộ tiến độ học, hồ sơ, mã PIN và nội dung đã chỉnh sửa. Tệp không
+        được mã hoá, hãy giữ ở nơi riêng tư.
+      </p>
+      <div className="settings-row">
+        <button type="button" onClick={download} disabled={backup.isPending}>
+          Sao lưu
+        </button>
+      </div>
+      {saved && <p role="status">Đã tải về {saved}.</p>}
+
+      <label>
+        Tệp sao lưu để khôi phục
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".db,application/octet-stream"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null)
+            setConfirming(false)
+          }}
+        />
+      </label>
+      {file && !confirming && (
+        <button type="button" onClick={() => setConfirming(true)}>
+          Khôi phục
+        </button>
+      )}
+      {file && confirming && (
+        <div role="alertdialog" aria-label="Xác nhận khôi phục">
+          <p>
+            Khôi phục từ {file.name}? Toàn bộ dữ liệu hiện tại sẽ được thay bằng bản sao lưu (máy
+            sẽ tự lưu một bản dự phòng trước khi thay) và bạn phải đăng nhập lại.
+          </p>
+          <label>
+            Gõ {RESTORE_PHRASE} để xác nhận
+            <input
+              type="text"
+              autoComplete="off"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+            />
+          </label>
+          <div className="settings-row">
+            <button
+              type="button"
+              onClick={doRestore}
+              disabled={restore.isPending || phrase.trim().toUpperCase() !== RESTORE_PHRASE}
+            >
+              Khôi phục dữ liệu
+            </button>
+            <button type="button" onClick={() => setConfirming(false)}>
+              Huỷ
+            </button>
+          </div>
+        </div>
+      )}
+      {restore.isPending && <p role="status">Đang khôi phục, vui lòng đợi…</p>}
+      {error && (
+        <p role="alert" className="form-error">
+          {error}
+        </p>
+      )}
+    </section>
+  )
+}
+
 /** Parent Area settings (Story 4.1): Child Profiles (max 4), per-child auto-play, PIN. */
 export default function Settings() {
   const session = useParentSession()
@@ -342,6 +484,7 @@ export default function Settings() {
             <h2 id="pin-heading">Mã PIN</h2>
             <PinForm />
           </section>
+          <BackupSection />
         </>
       )}
     </main>

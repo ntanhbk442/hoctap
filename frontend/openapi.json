@@ -411,6 +411,181 @@
         }
       }
     },
+    "/api/v1/parent/backup": {
+      "post": {
+        "tags": [
+          "parent"
+        ],
+        "summary": "Make Backup",
+        "description": "Consistent copy of the whole database, made while the app keeps running.",
+        "operationId": "parent_backup",
+        "responses": {
+          "200": {
+            "description": "A verified single-file SQLite backup",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in or wrong PIN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The copy failed its integrity check",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parent/restore": {
+      "post": {
+        "tags": [
+          "parent"
+        ],
+        "summary": "Restore Backup",
+        "description": "Replaces the database with an uploaded backup. All parent cookies become invalid.",
+        "operationId": "parent_restore",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_parent_restore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "BACKUP_INVALID or wrong confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in or wrong PIN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "BACKUP_NEWER, BUILD_RUNNING or busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "RESTORE_FAILED (rolled back)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MAINTENANCE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parent/dashboard/{profile_id}": {
       "get": {
         "tags": [
@@ -3308,6 +3483,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "STALE_EPOCH: the database was restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -4812,6 +4997,25 @@
         ],
         "title": "BadgeOut"
       },
+      "Body_parent_restore": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "confirm": {
+            "type": "string",
+            "title": "Confirm",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_parent_restore"
+      },
       "BookPilotPages": {
         "properties": {
           "book_id": {
@@ -4872,6 +5076,11 @@
             },
             "type": "array",
             "title": "Problems"
+          },
+          "db_epoch": {
+            "type": "string",
+            "title": "Db Epoch",
+            "default": ""
           }
         },
         "type": "object",
@@ -6414,6 +6623,17 @@
           "occurred_at": {
             "type": "string",
             "title": "Occurred At"
+          },
+          "db_epoch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Db Epoch"
           }
         },
         "type": "object",
@@ -6527,6 +6747,11 @@
               }
             ],
             "title": "Quiz Stars Awarded"
+          },
+          "db_epoch": {
+            "type": "string",
+            "title": "Db Epoch",
+            "default": ""
           }
         },
         "type": "object",
@@ -10053,6 +10278,29 @@
         ],
         "title": "ReportOut"
       },
+      "RestoreOut": {
+        "properties": {
+          "safety_backup": {
+            "type": "string",
+            "title": "Safety Backup"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "db_epoch": {
+            "type": "string",
+            "title": "Db Epoch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "safety_backup",
+          "revision",
+          "db_epoch"
+        ],
+        "title": "RestoreOut"
+      },
       "RetryRefIn": {
         "properties": {
           "kind": {
@@ -10514,6 +10762,11 @@
           "started_at": {
             "type": "string",
             "title": "Started At"
+          },
+          "db_epoch": {
+            "type": "string",
+            "title": "Db Epoch",
+            "default": ""
           }
         },
         "type": "object",

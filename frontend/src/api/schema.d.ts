@@ -123,6 +123,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parent/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make Backup
+         * @description Consistent copy of the whole database, made while the app keeps running.
+         */
+        post: operations["parent_backup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parent/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Backup
+         * @description Replaces the database with an uploaded backup. All parent cookies become invalid.
+         */
+        post: operations["parent_restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parent/dashboard/{profile_id}": {
         parameters: {
             query?: never;
@@ -1156,6 +1196,16 @@ export interface components {
             /** Earned At */
             earned_at?: string | null;
         };
+        /** Body_parent_restore */
+        Body_parent_restore: {
+            /** File */
+            file: string;
+            /**
+             * Confirm
+             * @default
+             */
+            confirm: string;
+        };
         /** BookPilotPages */
         BookPilotPages: {
             /** Book Id */
@@ -1185,6 +1235,11 @@ export interface components {
             chunk_label: string;
             /** Problems */
             problems: components["schemas"]["BundleProblemOut"][];
+            /**
+             * Db Epoch
+             * @default
+             */
+            db_epoch: string;
         };
         /** BundleProblemOut */
         BundleProblemOut: {
@@ -1808,6 +1863,8 @@ export interface components {
             };
             /** Occurred At */
             occurred_at: string;
+            /** Db Epoch */
+            db_epoch?: string | null;
         };
         /** EventOut */
         EventOut: {
@@ -1834,6 +1891,11 @@ export interface components {
             quiz_results?: components["schemas"]["QuizResultOut"][] | null;
             /** Quiz Stars Awarded */
             quiz_stars_awarded?: boolean | null;
+            /**
+             * Db Epoch
+             * @default
+             */
+            db_epoch: string;
         };
         /**
          * ExpressionEntry
@@ -3281,6 +3343,15 @@ export interface components {
             /** Resolved At */
             resolved_at: string | null;
         };
+        /** RestoreOut */
+        RestoreOut: {
+            /** Safety Backup */
+            safety_backup: string;
+            /** Revision */
+            revision: string;
+            /** Db Epoch */
+            db_epoch: string;
+        };
         /**
          * RetryRefIn
          * @description Story 3.3: a Session of the Profile's due Retry Queue Problems. Profile-scoped, so
@@ -3465,6 +3536,11 @@ export interface components {
             mode: string;
             /** Started At */
             started_at: string;
+            /**
+             * Db Epoch
+             * @default
+             */
+            db_epoch: string;
         };
         /** SessionStatus */
         SessionStatus: {
@@ -4181,6 +4257,158 @@ export interface operations {
             };
             /** @description Too many wrong PINs */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    parent_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A verified single-file SQLite backup */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Not signed in or wrong PIN */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The copy failed its integrity check */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    parent_restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_parent_restore"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreOut"];
+                };
+            };
+            /** @description Not signed in or wrong PIN */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description BACKUP_NEWER, BUILD_RUNNING or busy */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description BACKUP_INVALID or wrong confirmation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RESTORE_FAILED (rolled back) */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MAINTENANCE */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6377,6 +6605,15 @@ export interface operations {
             };
             /** @description Unknown Session */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description STALE_EPOCH: the database was restored */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -204,6 +204,10 @@ class RunManager:
             select(build_runs).where(build_runs.c.status.in_(ACTIVE_STATUSES))
         ).first()
 
+    def is_busy(self) -> bool:
+        """Public form of `_busy`: a build run is active (restore refuses while it is)."""
+        return self._busy()
+
     def _busy(self) -> bool:
         """A pilot or full run is running (a full run holds the lock between its Books too)."""
         with self._engine.connect() as conn:

@@ -4,7 +4,8 @@
 // is deliberately decoupled from (dependency-injected as `OutboxStore`), which is what makes
 // `postEventsOrQueue()`/`flushOutbox()` unit-testable without a real IndexedDB.
 import type { EventIn, EventOut } from '../api/client'
-import { NetworkError, postSessionEvents } from '../api/client'
+import { ApiError, NetworkError, postSessionEvents } from '../api/client'
+import { epochForSession, noteStaleEpoch } from './dbEpoch'
 import { createOutboxStore, type OutboxStore } from './outboxStore'
 
 /** Thrown by `postEventsOrQueue()` instead of the original `NetworkError` once `events`
@@ -32,6 +33,10 @@ export async function postEventsOrQueue(
   profileId: string,
   events: EventIn[],
 ): Promise<EventOut[]> {
+  // Story 7.2: stamp each event with the database epoch its Session belongs to (when
+  // known), so the server can refuse events created before a restore.
+  const epoch = epochForSession(sessionId)
+  if (epoch) events = events.map((e) => (e.db_epoch ? e : { ...e, db_epoch: epoch }))
   // Strict FIFO (AD-10): never post a new event ahead of older queued ones. Drain first
   // (serialised with any other flush); if anything is still queued, queue behind it.
   if ((await store.count()) > 0) {
@@ -44,6 +49,7 @@ export async function postEventsOrQueue(
   try {
     return await postSessionEvents(sessionId, profileId, events)
   } catch (err) {
+    if (isStaleEpoch(err)) noteStaleEpoch()
     if (!(err instanceof NetworkError)) throw err
     await queueEvents(store, sessionId, profileId, events)
     throw new QueuedOfflineError()
@@ -98,6 +104,10 @@ export function flushOutbox(store: OutboxStore): Promise<FlushOutcome> {
 
 const inFlight = new WeakMap<OutboxStore, Promise<FlushOutcome>>()
 
+function isStaleEpoch(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && err.code === 'STALE_EPOCH'
+}
+
 async function drain(store: OutboxStore): Promise<FlushOutcome> {
   for (;;) {
     const items = await store.listAll()
@@ -105,8 +115,11 @@ async function drain(store: OutboxStore): Promise<FlushOutcome> {
     const next = items[0]
     try {
       await postSessionEvents(next.sessionId, next.profileId, [next.event])
-    } catch {
-      return 'stopped'
+    } catch (err) {
+      if (!isStaleEpoch(err)) return 'stopped'
+      // Story 7.2: the data was restored since this event was made; it can never apply.
+      // Discard it (and tell the user once) instead of jamming the queue behind it.
+      noteStaleEpoch()
     }
     await store.remove(next.id)
   }
