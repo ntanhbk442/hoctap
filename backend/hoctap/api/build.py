@@ -97,13 +97,30 @@ def revoke_gate(engine: EngineDep, settings: SettingsDep, now: NowDep) -> gate.G
 
 # --------------------------------------------------------------------------- runs (1.10)
 
-RunStatus = Literal["running", "pausing", "paused", "done", "failed", "cancelled"]
+RunStatus = Literal[
+    "running",
+    "pausing",
+    "paused",
+    "done",
+    "failed",
+    "cancelled",
+    "stopped_budget",
+    "stopped_checkpoint",
+    "stopped_gate",
+]
 RunStage = Literal["render", "extract", "validate", "verify", "crop", "publish"]
 
 
 class FailedPage(BaseModel):
     page: int
     stage: str
+    reason: str
+    book_id: str | None = Field(default=None, description="set on a full run's failures")
+
+
+class UnstartedOut(BaseModel):
+    book_id: str
+    pages: int = Field(description="pages that would still call Claude")
     reason: str
 
 
@@ -128,6 +145,11 @@ class RunOut(BaseModel):
     stale: bool = Field(
         description="a `running` row with no progress in 5 minutes: offer Tiếp tục too"
     )
+    run_kind: Literal["pilot", "full"] = "pilot"
+    full_id: str | None = Field(default=None, description="groups the Book rows of a full run")
+    max_total_usd: float | None = Field(default=None, description="a full run's overall cap")
+    stop_reason: Literal["budget", "checkpoint", "gate"] | None = None
+    unstarted: list[UnstartedOut] = []
 
 
 class RunListOut(BaseModel):
@@ -225,3 +247,121 @@ def list_runs(
     manager: RunManagerDep, now: NowDep, limit: Annotated[int, Query(ge=1, le=100)] = 20
 ) -> RunListOut:
     return RunListOut(runs=[_run_out(r, now) for r in manager.list_runs(limit)])
+
+
+# --------------------------------------------------------------------------- full run (6.2)
+
+
+class FullPlanIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grade: int | None = Field(default=None, ge=1, le=5)
+    books: list[str] = []
+
+
+class FullPlanBookOut(BaseModel):
+    book_id: str
+    title_vi: str
+    grade: int
+    pages_in_scope: int
+    pages_to_call: int
+    pages_to_verify: int
+    probe: bool = Field(description="a grade 3-5 first Book: a small pilot first, then a stop")
+    skipped: str | None = Field(description="why the Book cannot run now")
+
+
+class FullPlanOut(BaseModel):
+    approved: bool = Field(description="the go/no-go approval holds")
+    books: list[FullPlanBookOut]
+    pages_to_call: int
+    estimate_usd: float
+    worst_case_usd: float
+    gate_est_cost: float | None = Field(description="the gate's estimate for the whole corpus")
+
+
+class FullStartIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grade: int | None = Field(default=None, ge=1, le=5)
+    books: list[str] = []
+    max_total_usd: float = Field(
+        gt=0, allow_inf_nan=False, description="the overall cap over all Books; required"
+    )
+    yes_spend: bool = False
+
+
+class FullRunOut(BaseModel):
+    full_id: str
+    status: RunStatus
+    max_total_usd: float
+    spent_usd: float
+    cost_usd: float
+    stop_reason: Literal["budget", "checkpoint", "gate"] | None
+    unstarted: list[UnstartedOut]
+    books: list[RunOut]
+    failed_pages: list[FailedPage]
+    current_run_id: str
+
+
+def _full_out(status: dict, now: datetime) -> FullRunOut:
+    books = [_run_out(b, now) for b in status["books"]]
+    return FullRunOut(**{**status, "books": books})
+
+
+@router.post(
+    "/full/plan",
+    response_model=FullPlanOut,
+    operation_id="plan_full_run",
+    responses={422: {"model": ErrorResponse, "description": "VALIDATION_ERROR"}},
+)
+def plan_full_run(
+    body: FullPlanIn, manager: RunManagerDep, engine: EngineDep, settings: SettingsDep
+) -> FullPlanOut:
+    """The ordered plan and the pre-flight estimate. Writes and calls nothing."""
+    plan = manager.plan_full(body.grade, tuple(body.books))
+    with engine.connect() as conn:
+        report = gate.report(conn, settings)
+    return FullPlanOut(
+        approved=report.approved,
+        books=[
+            FullPlanBookOut(
+                book_id=p.book.book_id,
+                title_vi=p.book.title_vi,
+                grade=p.book.grade,
+                pages_in_scope=len(p.scope),
+                pages_to_call=len(p.pending),
+                pages_to_verify=len(p.verify_pending),
+                probe=p.probe,
+                skipped=p.skipped,
+            )
+            for p in plan.books
+        ],
+        pages_to_call=plan.calls_pages,
+        estimate_usd=plan.estimate_usd,
+        worst_case_usd=plan.worst_case_usd,
+        gate_est_cost=report.cost.est_cost,
+    )
+
+
+@router.post(
+    "/full",
+    response_model=FullRunOut | None,
+    status_code=202,
+    operation_id="start_full_run",
+    responses={
+        409: {"model": ErrorResponse, "description": "GATE_NOT_APPROVED or RUN_IN_PROGRESS"},
+        422: {"model": ErrorResponse, "description": "SPEND_NOT_CONFIRMED or VALIDATION_ERROR"},
+    },
+)
+def start_full_run(body: FullStartIn, manager: RunManagerDep, now: NowDep) -> FullRunOut | None:
+    started = manager.start_full(
+        body.grade, tuple(body.books), body.max_total_usd, body.yes_spend
+    )
+    status = manager.full_status(started["full_id"])
+    return _full_out(status, now) if status is not None else None
+
+
+@router.get("/full/current", response_model=FullRunOut | None, operation_id="get_current_full_run")
+def get_current_full_run(manager: RunManagerDep, now: NowDep) -> FullRunOut | None:
+    status = manager.current_full()
+    return _full_out(status, now) if status is not None else None

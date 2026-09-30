@@ -1,12 +1,13 @@
 import { fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildRun, catalogueBook } from '../test/runFixtures'
+import { buildRun, catalogueBook, fullPlan, fullRun } from '../test/runFixtures'
 import { mockApi, renderAt } from '../test/render'
 import ExtractionPage from './ExtractionPage'
 
 const RUNS = '/api/v1/build/runs'
 const BOOKS = '/api/v1/build/books'
 const CURRENT = `${RUNS}/current`
+const FULL = '/api/v1/build/full'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -138,5 +139,88 @@ describe('ExtractionPage', () => {
     renderAt('/parent/extraction', <ExtractionPage />)
     expect(await screen.findByText(/Không thấy tiến triển/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tiếp tục' })).toBeInTheDocument()
+  })
+
+  describe('Chạy toàn bộ', () => {
+    it('shows the plan, needs a cap and a confirmation, then starts', async () => {
+      mockApi({
+        [`GET ${CURRENT}`]: { status: 200, body: null },
+        [`GET ${BOOKS}`]: { status: 200, body: [catalogueBook()] },
+        [`GET ${FULL}/current`]: { status: 200, body: null },
+        [`POST ${FULL}/plan`]: { status: 200, body: fullPlan() },
+        [`POST ${FULL}`]: { status: 202, body: fullRun() },
+      })
+      renderAt('/parent/extraction', <ExtractionPage />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Xem kế hoạch chạy toàn bộ' }))
+      expect(await screen.findByText(/Chạy thử đầu lớp/)).toBeInTheDocument()
+      expect(screen.getByText(/Ước tính: \$12\.50/)).toBeInTheDocument()
+      const start = screen.getByRole('button', { name: 'Chạy toàn bộ' })
+      expect(start).toBeDisabled() // no cap chosen yet
+      fireEvent.change(screen.getByLabelText('Mức chi tối đa (USD)'), { target: { value: '50' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Chạy toàn bộ' }))
+      expect(await screen.findByText(/dừng khi đã chi \$50\.00/)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận & chạy toàn bộ' }))
+      expect(await screen.findByText(/Chi phí: \$1\.50 \/ mức tối đa \$50\.00/)).toBeInTheDocument()
+    })
+
+    it('does not offer to run without the go/no-go approval', async () => {
+      mockApi({
+        [`GET ${CURRENT}`]: { status: 200, body: null },
+        [`GET ${BOOKS}`]: { status: 200, body: [catalogueBook()] },
+        [`GET ${FULL}/current`]: { status: 200, body: null },
+        [`POST ${FULL}/plan`]: { status: 200, body: fullPlan({ approved: false }) },
+      })
+      renderAt('/parent/extraction', <ExtractionPage />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Xem kế hoạch chạy toàn bộ' }))
+      expect(await screen.findByText(/Chưa được duyệt chạy toàn bộ/)).toBeInTheDocument()
+      fireEvent.change(screen.getByLabelText('Mức chi tối đa (USD)'), { target: { value: '50' } })
+      expect(screen.getByRole('button', { name: 'Chạy toàn bộ' })).toBeDisabled()
+    })
+
+    it('shows per-Book progress and pauses through the Book row', async () => {
+      mockApi({
+        [`GET ${CURRENT}`]: { status: 200, body: fullRun().books[0] },
+        [`GET ${BOOKS}`]: { status: 200, body: [catalogueBook()] },
+        [`GET ${FULL}/current`]: { status: 200, body: fullRun() },
+        [`POST ${RUNS}/run1/pause`]: {
+          status: 200,
+          body: buildRun({ status: 'pausing', run_kind: 'full', activity: 'Đang dừng…' }),
+        },
+      })
+      renderAt('/parent/extraction', <ExtractionPage />)
+      expect(await screen.findByText('12/70')).toBeInTheDocument()
+      expect(screen.getByText(/Đang trích xuất trang 13\/70/, { selector: 'td' })).toBeInTheDocument()
+      // The full run's Book row is not shown as a trial run.
+      expect(screen.getByLabelText('Sách')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Tạm dừng' }))
+      await vi.waitFor(() =>
+        expect(
+          vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/runs/run1/pause')),
+        ).toBe(true),
+      )
+    })
+
+    it('explains a cap stop and lists what was not started and the failures', async () => {
+      mockApi({
+        [`GET ${CURRENT}`]: { status: 200, body: null },
+        [`GET ${BOOKS}`]: { status: 200, body: [catalogueBook()] },
+        [`GET ${FULL}/current`]: {
+          status: 200,
+          body: fullRun({
+            status: 'stopped_budget',
+            stop_reason: 'budget',
+            unstarted: [{ book_id: 'toan1-2020-q2', pages: 70, reason: 'chưa bắt đầu' }],
+            failed_pages: [
+              { book_id: 'toan1-2020-q1', page: 5, stage: 'extract', reason: 'refusal: x' },
+            ],
+          }),
+        },
+      })
+      renderAt('/parent/extraction', <ExtractionPage />)
+      expect(await screen.findByText(/hết mức chi tối đa/)).toBeInTheDocument()
+      expect(screen.getByText('toan1-2020-q2: 70 trang')).toBeInTheDocument()
+      expect(screen.getByText(/toan1-2020-q1 trang 5 \(extract\): refusal: x/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Xem kế hoạch để tiếp tục' })).toBeInTheDocument()
+    })
   })
 })

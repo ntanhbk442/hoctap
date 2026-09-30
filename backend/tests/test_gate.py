@@ -100,22 +100,35 @@ class World:
             )
 
     def pages(
-        self, *pages: int, kind: str = "pilot", status: str = "done", stage: str = "extract"
+        self,
+        *pages: int,
+        kind: str = "pilot",
+        status: str = "done",
+        stage: str = "extract",
+        input_hash: str = "h",
     ) -> None:
         """Marks pages as extracted (done pilot extract jobs by default)."""
         with self.engine.begin() as conn:
             for page in pages:
                 ref = jobs_store.page_ref(BOOK, page)
-                jobs_store.record(conn, ref, stage, "h", status, run_kind=kind)
+                jobs_store.record(conn, ref, stage, input_hash, status, run_kind=kind)
 
-    def cost(self, page: int, usd: float, *, unknown: bool = False, stage: str = "extract") -> None:
+    def cost(
+        self,
+        page: int,
+        usd: float,
+        *,
+        unknown: bool = False,
+        stage: str = "extract",
+        input_hash: str = "h",
+    ) -> None:
         with self.engine.begin() as conn:
             conn.execute(
                 insert(build_costs).values(
                     id=new_id(),
                     page_ref=jobs_store.page_ref(BOOK, page),
                     stage=stage,
-                    input_hash="h",
+                    input_hash=input_hash,
                     attempt=1,
                     model="m",
                     input_tokens=0,
@@ -216,6 +229,7 @@ def code(resp) -> str:  # noqa: ANN001
 def passing_pilot(client: TestClient, world: World) -> dict[str, Any]:
     """40 Problems over 16 pages, $3.20 spent, a sample all Đúng: both checks pass."""
     world.pages(*range(1, 17))
+    world.pages(*range(1, 17), stage="verify")
     for page in range(1, 17):
         world.cost(page, 0.15)
         world.cost(page, 0.05, stage="verify")
@@ -341,6 +355,7 @@ def test_fallback_at_threshold_passes(client: TestClient, world: World) -> None:
 
 def test_cost(client: TestClient, world: World) -> None:
     world.pages(*range(1, 17))
+    world.pages(*range(1, 17), stage="verify")
     for page in range(1, 17):
         world.cost(page, 0.15)
         world.cost(page, 0.05, stage="verify")
@@ -614,8 +629,11 @@ def test_acceptance_pilot_spot_check_approve_full(
             gate.approve(conn, settings, True, report.cost.est_cost)
         assert rows(env, "SELECT count(*) FROM build_gate")[0][0] == 1
         capsys.readouterr()
-        assert full() == 0
-        assert "chưa triển khai (Story 6.2)" in capsys.readouterr().out
+        # The guard passes: the run itself then wants the spend flags (Story 6.2).
+        assert full() == 2
+        captured = capsys.readouterr()
+        assert "SPEND_NOT_CONFIRMED" in captured.err and "GATE_NOT_APPROVED" not in captured.err
+        assert "toan1-2020-q1" in captured.out
 
         assert cli.main(["build", "gate"]) == 0
         assert "Đã duyệt" in capsys.readouterr().out
@@ -795,7 +813,8 @@ def test_full_run_jobs_are_outside_pilot_scope_and_cost(client: TestClient, worl
     world.pages(1, 2)
     world.pages(3, 4, kind="full")
     world.pages(5, status="failed")
-    # Pending: rendered, but the extract call was cut off (its cost recorded, no job yet).
+    world.pages(5, status="done", stage="verify")
+    # Cut off: the extract call was made (cost recorded) but no job was written.
     world.pages(6, stage="render")
     for page in (1, 2, 3, 4, 5, 6, 99):
         world.cost(page, 0.1)
@@ -806,9 +825,29 @@ def test_full_run_jobs_are_outside_pilot_scope_and_cost(client: TestClient, worl
     assert report["pilot_pages"] == 2 and report["pilot_problems"] == 2
     assert report["books"] == [{"book_id": BOOK, "pilot_pages": 2}]
     cost = report["cost"]
-    # Pages 1, 2 and the failed/pending pilot pages 5, 6; not 3, 4 (full) nor 99 (no job).
-    assert cost["pilot_cost"] == pytest.approx(0.45)
-    assert cost["est_cost"] == round(0.45 / 2 * (2140 - 2), 2)
+    # The calls of pilot jobs (1, 2, and 5's failed extract and verify); not 3, 4 (full
+    # jobs), 6 (no extract job) nor 99 (no job).
+    assert cost["pilot_cost"] == pytest.approx(0.35)
+    assert cost["est_cost"] == round(0.35 / 2 * (2140 - 2), 2)
+
+
+def test_full_reextraction_of_a_pilot_page_keeps_the_estimate(
+    client: TestClient, world: World
+) -> None:
+    """The full run re-extracts a pilot page under a new hash (a prompt change): that is
+    a `full` job; its cost is not the pilot's, so the estimate and the approval stay."""
+    passing_pilot(client, world)
+    report = gate_report(client)
+    assert approve(client, report["cost"]["est_cost"]).status_code == 200
+    before = gate_report(client)
+    assert before["approved"] is True
+    world.pages(5, kind="full", input_hash="p3")
+    world.cost(5, 3.0, input_hash="p3")
+    world.cost(5, 1.0, stage="verify", input_hash="p3")
+    after = gate_report(client)
+    assert after["cost"]["est_cost"] == before["cost"]["est_cost"]
+    assert after["cost"]["pilot_cost"] == before["cost"]["pilot_cost"]
+    assert after["approved"] is True
 
 
 @pytest.mark.parametrize(

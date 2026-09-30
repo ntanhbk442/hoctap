@@ -965,6 +965,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/build/full/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan Full Run
+         * @description The ordered plan and the pre-flight estimate. Writes and calls nothing.
+         */
+        post: operations["plan_full_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build/full": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Full Run */
+        post: operations["start_full_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build/full/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Current Full Run */
+        get: operations["get_current_full_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1858,6 +1912,11 @@ export interface components {
             stage: string;
             /** Reason */
             reason: string;
+            /**
+             * Book Id
+             * @description set on a full run's failures
+             */
+            book_id?: string | null;
         };
         /** FallbackCheck */
         FallbackCheck: {
@@ -1948,6 +2007,108 @@ export interface components {
              * @default true
              */
             ok: boolean;
+        };
+        /** FullPlanBookOut */
+        FullPlanBookOut: {
+            /** Book Id */
+            book_id: string;
+            /** Title Vi */
+            title_vi: string;
+            /** Grade */
+            grade: number;
+            /** Pages In Scope */
+            pages_in_scope: number;
+            /** Pages To Call */
+            pages_to_call: number;
+            /** Pages To Verify */
+            pages_to_verify: number;
+            /**
+             * Probe
+             * @description a grade 3-5 first Book: a small pilot first, then a stop
+             */
+            probe: boolean;
+            /**
+             * Skipped
+             * @description why the Book cannot run now
+             */
+            skipped: string | null;
+        };
+        /** FullPlanIn */
+        FullPlanIn: {
+            /** Grade */
+            grade?: number | null;
+            /**
+             * Books
+             * @default []
+             */
+            books: string[];
+        };
+        /** FullPlanOut */
+        FullPlanOut: {
+            /**
+             * Approved
+             * @description the go/no-go approval holds
+             */
+            approved: boolean;
+            /** Books */
+            books: components["schemas"]["FullPlanBookOut"][];
+            /** Pages To Call */
+            pages_to_call: number;
+            /** Estimate Usd */
+            estimate_usd: number;
+            /** Worst Case Usd */
+            worst_case_usd: number;
+            /**
+             * Gate Est Cost
+             * @description the gate's estimate for the whole corpus
+             */
+            gate_est_cost: number | null;
+        };
+        /** FullRunOut */
+        FullRunOut: {
+            /** Full Id */
+            full_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "pausing" | "paused" | "done" | "failed" | "cancelled" | "stopped_budget" | "stopped_checkpoint" | "stopped_gate";
+            /** Max Total Usd */
+            max_total_usd: number;
+            /** Spent Usd */
+            spent_usd: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Stop Reason */
+            stop_reason: ("budget" | "checkpoint" | "gate") | null;
+            /** Unstarted */
+            unstarted: components["schemas"]["UnstartedOut"][];
+            /** Books */
+            books: components["schemas"]["RunOut"][];
+            /** Failed Pages */
+            failed_pages: components["schemas"]["FailedPage"][];
+            /** Current Run Id */
+            current_run_id: string;
+        };
+        /** FullStartIn */
+        FullStartIn: {
+            /** Grade */
+            grade?: number | null;
+            /**
+             * Books
+             * @default []
+             */
+            books: string[];
+            /**
+             * Max Total Usd
+             * @description the overall cap over all Books; required
+             */
+            max_total_usd: number;
+            /**
+             * Yes Spend
+             * @default false
+             */
+            yes_spend: boolean;
         };
         /** GateApproval */
         GateApproval: {
@@ -3182,7 +3343,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "running" | "pausing" | "paused" | "done" | "failed" | "cancelled";
+            status: "running" | "pausing" | "paused" | "done" | "failed" | "cancelled" | "stopped_budget" | "stopped_checkpoint" | "stopped_gate";
             /** Stage */
             stage: ("render" | "extract" | "validate" | "verify" | "crop" | "publish") | null;
             /** Pages Total */
@@ -3215,6 +3376,29 @@ export interface components {
              * @description a `running` row with no progress in 5 minutes: offer Tiếp tục too
              */
             stale: boolean;
+            /**
+             * Run Kind
+             * @default pilot
+             * @enum {string}
+             */
+            run_kind: "pilot" | "full";
+            /**
+             * Full Id
+             * @description groups the Book rows of a full run
+             */
+            full_id?: string | null;
+            /**
+             * Max Total Usd
+             * @description a full run's overall cap
+             */
+            max_total_usd?: number | null;
+            /** Stop Reason */
+            stop_reason?: ("budget" | "checkpoint" | "gate") | null;
+            /**
+             * Unstarted
+             * @default []
+             */
+            unstarted: components["schemas"]["UnstartedOut"][];
         };
         /** RunStartIn */
         RunStartIn: {
@@ -3499,6 +3683,18 @@ export interface components {
              * @description the printed value; a node without `given` is an Answer Slot
              */
             given?: string | null;
+        };
+        /** UnstartedOut */
+        UnstartedOut: {
+            /** Book Id */
+            book_id: string;
+            /**
+             * Pages
+             * @description pages that would still call Claude
+             */
+            pages: number;
+            /** Reason */
+            reason: string;
         };
         /** VerdictIn */
         VerdictIn: {
@@ -6850,6 +7046,191 @@ export interface operations {
                 };
             };
             /** @description RUN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    plan_full_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullPlanIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullPlanOut"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_full_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullStartIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullRunOut"] | null;
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description GATE_NOT_APPROVED or RUN_IN_PROGRESS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description SPEND_NOT_CONFIRMED or VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_current_full_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullRunOut"] | null;
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
             404: {
                 headers: {
                     [name: string]: unknown;

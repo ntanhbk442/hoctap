@@ -492,3 +492,29 @@ export function resumeRun(runId: string): Promise<BuildRun> {
 export function cancelRun(runId: string): Promise<BuildRun> {
   return apiPost<BuildRun>(`/build/runs/${enc(runId)}/cancel`)
 }
+
+// --- Full-corpus run / Chạy toàn bộ (Story 6.2) ------------------------------------
+
+export type FullPlan = Schemas['FullPlanOut']
+export type FullRun = Schemas['FullRunOut']
+
+export function planFullRun(grade: number | null = null): Promise<FullPlan> {
+  return apiPost<FullPlan>('/build/full/plan', { grade, books: [] })
+}
+
+export function getCurrentFullRun(signal?: AbortSignal): Promise<FullRun | null> {
+  return apiGet<FullRun | null>('/build/full/current', { signal })
+}
+
+export function startFullRun(
+  maxTotalUsd: number,
+  yesSpend: boolean,
+  grade: number | null = null,
+): Promise<FullRun | null> {
+  return apiPost<FullRun | null>('/build/full', {
+    grade,
+    books: [],
+    max_total_usd: maxTotalUsd,
+    yes_spend: yesSpend,
+  })
+}

@@ -7,8 +7,8 @@
   (Đúng ÷ (Đúng + Sai) over the latest spot-check sample: an item ever judged Sai counts
   as wrong for good, a Đúng only for the current hash) and `est_cost` = pilot cost per
   page × (catalogue pages − pilot pages). The pilot cost is every recorded call (extract
-  and verify, failed pages included) of a page not claimed by a `full` job; a call of
-  unknown cost counts at the per-call cap.
+  and verify, failed pages included) that belongs to a `pilot`-kind job, matched by
+  (page_ref, stage, input_hash); a call of unknown cost counts at the per-call cap.
 - The sample is drawn with `gate_min_sample + 5` Problems and records the scope it was
   drawn from; a sample from another scope is outdated ("cần rút mẫu mới").
 - Approval (`build_gate`) needs both checks to pass, a current sample, the cost accepted
@@ -27,7 +27,7 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Connection, Engine, func, insert, select, update
+from sqlalchemy import Connection, Engine, func, insert, select, tuple_, update
 
 from hoctap.api.errors import AppError
 from hoctap.builder.jobs_store import page_ref
@@ -223,16 +223,17 @@ def _accuracy(conn: Connection, limits: GateThresholds, scope: str, eligible: in
 
 
 def _cost(conn: Connection, refs: list[str], settings: Settings) -> GateCost:
-    """Every recorded call (extract and verify, any status: failed and pending pages
-    included) for a page ref that has any `pilot`-kind job -- not merely the `done`
-    extract jobs that define the Problem scope in `refs`."""
+    """Every recorded call (extract and verify, done or failed) that belongs to a
+    `pilot`-kind job: its (page_ref, stage, input_hash) matches one. A full-run call on a
+    pilot page under a new input hash (a re-extraction after a prompt change) is a `full`
+    job and is not counted, so the full run never changes the estimate."""
     t, j = build_costs, build_jobs
-    pilot_page_refs = select(j.c.page_ref).where(j.c.run_kind == PILOT).distinct()
+    pilot_jobs = select(j.c.page_ref, j.c.stage, j.c.input_hash).where(j.c.run_kind == PILOT)
     reported, unknown = conn.execute(
         select(
             func.coalesce(func.sum(t.c.cost_usd), 0.0),
             func.coalesce(func.sum(t.c.cost_unknown), 0),
-        ).where(t.c.page_ref.in_(pilot_page_refs))
+        ).where(tuple_(t.c.page_ref, t.c.stage, t.c.input_hash).in_(pilot_jobs))
     ).one()
     reported, unknown = float(reported), int(unknown)
     cap = settings.extraction_max_budget_usd

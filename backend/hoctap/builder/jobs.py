@@ -19,6 +19,7 @@ import json
 import logging
 import shutil
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -27,7 +28,7 @@ from typing import Any
 from sqlalchemy import Connection, Engine, insert, select, update
 
 from hoctap.api.errors import AppError
-from hoctap.builder import costs
+from hoctap.builder import costs, full, gate
 from hoctap.builder.claude_client import ClaudeCliClient, ClaudeClient
 from hoctap.builder.models import build_runs
 from hoctap.builder.pilot import (
@@ -66,6 +67,9 @@ _STATUS_VI = {
     "done": "Đã xong",
     "failed": "Lỗi",
     "cancelled": "Đã hủy",
+    "stopped_budget": "Đã dừng: hết ngân sách",
+    "stopped_checkpoint": "Đã dừng ở điểm kiểm tra — xem lại rồi tiếp tục",
+    "stopped_gate": "Đã dừng: chưa duyệt chạy toàn bộ",
 }
 
 ClientFactory = Callable[[Settings], ClaudeClient]
@@ -90,6 +94,10 @@ class _RunHandle:
     cancel: threading.Event = field(default_factory=threading.Event)
 
 
+def _row_options(row: Any) -> dict[str, Any]:
+    return json.loads(row.options_json) if row.options_json else {}
+
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -108,6 +116,11 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "started_at": row.started_at,
         "updated_at": row.updated_at,
         "finished_at": row.finished_at,
+        "run_kind": row.run_kind,
+        "full_id": row.full_id,
+        "max_total_usd": row.max_total_usd,
+        "stop_reason": row.stop_reason,
+        "unstarted": json.loads(row.unstarted_json),
     }
 
 
@@ -146,6 +159,7 @@ class RunManager:
         self._client_factory = client_factory
         self._lock = threading.Lock()
         self._handles: dict[str, _RunHandle] = {}
+        self._full_running = False  # a full run's thread is alive (also between its Books)
 
     # ------------------------------------------------------------------ reads
 
@@ -189,6 +203,11 @@ class RunManager:
         return conn.execute(
             select(build_runs).where(build_runs.c.status.in_(ACTIVE_STATUSES))
         ).first()
+
+    def _busy(self) -> bool:
+        """A pilot or full run is running (a full run holds the lock between its Books too)."""
+        with self._engine.connect() as conn:
+            return self._active_row(conn) is not None or self._full_running
 
     # ------------------------------------------------------------------ start / resume
 
@@ -253,9 +272,8 @@ class RunManager:
 
     def start(self, book_id: str, first: int, last: int, yes_spend: bool) -> dict[str, Any]:
         with self._lock:
-            with self._engine.connect() as conn:
-                if self._active_row(conn) is not None:
-                    raise AppError(409, "RUN_IN_PROGRESS", "Đang có một lượt chạy thử khác.")
+            if self._busy():
+                raise AppError(409, "RUN_IN_PROGRESS", "Đang có một lượt chạy thử khác.")
             try:
                 plan = plan_pilot(self._engine, self._settings, book_id, first, last)
             except PilotError as exc:
@@ -292,9 +310,10 @@ class RunManager:
                 )
             if row["status"] in ACTIVE_STATUSES and is_dead:
                 self._finish(run_id, "cancelled", row["pages_done"], row["failed_pages"], None)
-            with self._engine.connect() as conn:
-                if self._active_row(conn) is not None:
-                    raise AppError(409, "RUN_IN_PROGRESS", "Đang có một lượt chạy thử khác.")
+            if self._busy():
+                raise AppError(409, "RUN_IN_PROGRESS", "Đang có một lượt chạy thử khác.")
+            if row["run_kind"] == "full":
+                return self._resume_full(run_id, row)
             try:
                 plan = plan_pilot(
                     self._engine,
@@ -319,6 +338,188 @@ class RunManager:
             )
             self._launch(new_run_id, plan, client)
         return self.get(new_run_id)  # type: ignore[return-value]
+
+    # ------------------------------------------------------------------ full run (6.2)
+
+    def plan_full(self, grade: int | None, books: tuple[str, ...]) -> full.FullPlan:
+        try:
+            return full.plan_full(self._engine, self._settings, grade=grade, books=books)
+        except PilotError as exc:
+            raise AppError(422, "VALIDATION_ERROR", str(exc)) from exc
+
+    def start_full(
+        self,
+        grade: int | None,
+        books: tuple[str, ...],
+        max_total_usd: float,
+        yes_spend: bool,
+    ) -> dict[str, Any]:
+        """Starts a full-corpus run: refused without a valid go/no-go approval (409
+        GATE_NOT_APPROVED) or, when a call would be made, without `yes_spend` (422
+        SPEND_NOT_CONFIRMED). The overall cap is required. Returns the first row of the run
+        (or a placeholder while the plan has no row yet)."""
+        with self._lock:
+            if self._busy():
+                raise AppError(409, "RUN_IN_PROGRESS", "Đang có một lượt chạy khác.")
+            gate.require_approval(self._engine, self._settings)
+            plan = self.plan_full(grade, books)
+            client = self._full_client(plan, yes_spend)
+            full_id = new_id()
+            self._launch_full(full_id, plan, client, max_total_usd, None, 0.0)
+            self._await_first_row(full_id)
+        return {"full_id": full_id}
+
+    def _await_first_row(
+        self, full_id: str, timeout: float = 5.0, resumed_from: str | None = None
+    ) -> None:
+        """Waits (briefly) for the run's first row (of this invocation), so the caller can
+        show it at once."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and self._full_running:
+            status = self.full_status(full_id)
+            if status is not None and (
+                resumed_from is None
+                or any(b["resumed_from"] == resumed_from for b in status["books"])
+            ):
+                return
+            time.sleep(0.02)
+
+    def _full_client(self, plan: full.FullPlan, yes_spend: bool) -> ClaudeClient | None:
+        if not plan.runnable:
+            raise AppError(422, "VALIDATION_ERROR", "Không có sách nào chạy được.")
+        if not yes_spend:
+            raise AppError(
+                422,
+                "SPEND_NOT_CONFIRMED",
+                "Lệnh này sẽ gọi Claude và tốn tiền. Xác nhận yes_spend để chạy. / This "
+                "calls Claude and costs money: confirm yes_spend to run it. "
+                + plan.extract.describe(self._settings.extraction_model),
+            )
+        return self._client_factory(self._settings)
+
+    def _resume_full(self, run_id: str, row: dict[str, Any]) -> dict[str, Any]:
+        """Tiếp tục on a paused/cancelled full run: same options and cap; what the earlier
+        rows spent is deducted. The original start already confirmed the spend."""
+        full_id = row["full_id"]
+        with self._engine.connect() as conn:
+            stored: str | None = conn.execute(
+                select(build_runs.c.options_json).where(build_runs.c.id == run_id)
+            ).scalar_one()
+        options = json.loads(stored) if stored else {}
+        gate.require_approval(self._engine, self._settings)
+        plan = self.plan_full(options.get("grade"), tuple(options.get("books") or ()))
+        client = self._client_factory(self._settings) if plan.runnable else None
+        spent = full.spent_of(self._engine, self._settings, full_id)
+        self._launch_full(full_id, plan, client, row["max_total_usd"] or 0.0, run_id, spent)
+        self._await_first_row(full_id, resumed_from=run_id)
+        with self._engine.connect() as conn:
+            new = conn.execute(
+                select(build_runs).where(build_runs.c.resumed_from == run_id)
+            ).first()
+        return _row_to_dict(new) if new is not None else row
+
+    def _launch_full(
+        self,
+        full_id: str,
+        plan: full.FullPlan,
+        client: ClaudeClient | None,
+        cap: float,
+        resumed_from: str | None,
+        already_spent: float,
+    ) -> None:
+        handle = _RunHandle(thread=threading.Thread())
+        handle.thread = threading.Thread(
+            target=self._run_full_body,
+            args=(handle, full_id, plan, client, cap, resumed_from, already_spent),
+            daemon=True,
+        )
+        self._full_running = True
+        handle.thread.start()
+
+    def _run_full_body(
+        self,
+        handle: _RunHandle,
+        full_id: str,
+        plan: full.FullPlan,
+        client: ClaudeClient | None,
+        cap: float,
+        resumed_from: str | None,
+        already_spent: float,
+    ) -> None:
+        def should_stop() -> str | None:
+            if handle.cancel.is_set():
+                return "cancelled"
+            return "paused" if handle.pause.is_set() else None
+
+        def on_row(run_id: str) -> None:
+            with self._lock:
+                for key in [k for k, h in self._handles.items() if h is handle]:
+                    del self._handles[key]
+                self._handles[run_id] = handle
+
+        try:
+            full.run_full(
+                self._engine,
+                self._settings,
+                plan,
+                client,
+                max_total_usd=cap,
+                out=lambda _line: None,
+                full_id=full_id,
+                resumed_from=resumed_from,
+                already_spent=already_spent,
+                chunk=1,
+                should_stop=should_stop,
+                on_row=on_row,
+            )
+        except Exception:  # noqa: BLE001 - run_full already closed the row as `failed`
+            log.exception("full run failed", extra={"full_id": full_id})
+        finally:
+            with self._lock:
+                for key in [k for k, h in self._handles.items() if h is handle]:
+                    del self._handles[key]
+                self._full_running = False
+
+    def full_status(self, full_id: str) -> dict[str, Any] | None:
+        """The Books of a full run (one row each), oldest first, with its totals."""
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                select(build_runs).where(build_runs.c.full_id == full_id).order_by(build_runs.c.id)
+            ).all()
+        if not rows:
+            return None
+        books = [_row_to_dict(r) for r in rows]
+        last = books[-1]
+        spent = sum(
+            b["cost_usd"] + b["cost_unknown_count"] * self._settings.extraction_max_budget_usd
+            for b in books
+        )
+        failed = [f for b in books for f in b["failed_pages"]]
+        return {
+            "full_id": full_id,
+            "status": last["status"],
+            "max_total_usd": last["max_total_usd"] or 0.0,
+            "spent_usd": spent,
+            "cost_usd": sum(b["cost_usd"] for b in books),
+            "stop_reason": last["stop_reason"],
+            "unstarted": last["unstarted"],
+            "books": books,
+            "failed_pages": failed,
+            "current_run_id": last["id"],
+        }
+
+    def current_full(self) -> dict[str, Any] | None:
+        """The latest full run, when a full run is active or it settled recently."""
+        run = self.current()
+        if run is None or run["run_kind"] != "full" or run["full_id"] is None:
+            return None
+        status = self.full_status(run["full_id"])
+        # Between two Books the latest row is the finished Book's `done` while the run's
+        # thread is still alive (the next Book's row is not created yet): the full run as a
+        # whole is still running, not done.
+        if status is not None and status["status"] == "done" and self._full_running:
+            status["status"] = "running"
+        return status
 
     # ------------------------------------------------------------------ pause / cancel
 

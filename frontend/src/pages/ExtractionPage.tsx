@@ -11,6 +11,7 @@ import {
 } from '../api/client'
 import { errorMessage } from '../api/errors'
 import { queryKeys, useCatalogueBooks, useCurrentRun } from '../api/queries'
+import FullRunCard from './FullRunCard'
 
 function usd(value: number): string {
   return `$${value.toFixed(4)}`
@@ -236,8 +237,9 @@ export default function ExtractionPage() {
     )
   }
 
-  const run = current.data
-  const showPicker = dismissed || run === null
+  // A Book row of a full run is shown by the "Chạy toàn bộ" card, not as a trial run.
+  const run = current.data?.run_kind === 'full' ? null : current.data
+  const showPicker = dismissed || run === null || run === undefined
 
   return (
     <main className="parent">
@@ -255,6 +257,7 @@ export default function ExtractionPage() {
       ) : (
         run && <Progress run={run} onDismiss={() => setDismissed(true)} />
       )}
+      <FullRunCard />
     </main>
   )
 }

@@ -11,6 +11,7 @@ import {
   getCatalogueBooks,
   getConceptGuide,
   getConcepts,
+  getCurrentFullRun,
   getCurrentRun,
   getGate,
   getHealth,
@@ -59,6 +60,7 @@ export const queryKeys = {
   gate: ['build', 'gate'] as const,
   catalogueBooks: ['build', 'books'] as const,
   currentRun: ['build', 'runs', 'current'] as const,
+  currentFullRun: ['build', 'full', 'current'] as const,
   profiles: ['profiles'] as const,
   libraryBooks: (grade: number, profileId?: string) =>
     ['library', 'books', grade, profileId] as const,
@@ -370,6 +372,18 @@ export function usePostEvent(sessionId: string) {
       postEventsOrQueue(defaultOutboxStore(), sessionId, profileId, events),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sessions', sessionId, 'bundle'] })
+    },
+  })
+}
+
+/** Polls `GET /build/full/current` every 2s while a Book of a full run is running. */
+export function useCurrentFullRun() {
+  return useQuery({
+    queryKey: queryKeys.currentFullRun,
+    queryFn: ({ signal }) => getCurrentFullRun(signal),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status && ACTIVE_RUN_STATUSES.has(status) ? 2000 : false
     },
   })
 }

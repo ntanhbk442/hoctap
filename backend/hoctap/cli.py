@@ -714,10 +714,16 @@ def _build_gate(_args: argparse.Namespace) -> int:
 EXIT_GATE_NOT_APPROVED = 3
 
 
-def _build_full(_args: argparse.Namespace) -> int:
-    """Checks the go/no-go approval (exit 3 without one), then stops: the full run itself
-    is Story 6.2."""
-    from hoctap.builder import gate
+def _build_full(args: argparse.Namespace) -> int:
+    """The full-corpus run (Story 6.2; `builder/full.py`). Exit codes: 0 done or stopped at a
+    checkpoint, 1 failed pages or an error, 2 usage or spend not confirmed, 3 the go/no-go
+    approval is missing or void (GATE_NOT_APPROVED), 4 the overall cap was reached (resumable),
+    130 interrupted."""
+
+    from hoctap.builder import full, gate
+    from hoctap.builder.jobs import STALE_AFTER
+    from hoctap.builder.pilot import PilotError
+    from hoctap.ids import to_iso, utc_now
 
     def body(engine, settings) -> int:  # noqa: ANN001
         try:
@@ -725,10 +731,78 @@ def _build_full(_args: argparse.Namespace) -> int:
         except gate.GateNotApproved as exc:
             print(f"{exc.code}: {exc.message}", file=sys.stderr)
             return EXIT_GATE_NOT_APPROVED
-        print("chưa triển khai (Story 6.2) / not implemented yet (Story 6.2)")
-        return 0
+        try:
+            plan = full.plan_full(
+                engine,
+                settings,
+                grade=args.grade,
+                books=tuple(b.strip() for b in (args.books or "").split(",") if b.strip()),
+            )
+        except PilotError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        for line in full.describe_plan(plan, settings):
+            print(line)
+        if args.dry_run:
+            report = full.run_full(
+                engine, settings, plan, None, max_total_usd=0.0, dry_run=True, out=print
+            )
+            print(
+                f"dry run: {report.requests_written} request(s) written under "
+                f"{settings.build_dir / 'requests'}; nothing was sent"
+            )
+            return 0
+        if not args.yes_spend:
+            print(f"SPEND_NOT_CONFIRMED: {_SPEND_REFUSED}", file=sys.stderr)
+            return 2
+        if args.max_total_usd is None:
+            print(
+                "cần đặt --max-total-usd: mỗi lượt chạy toàn bộ phải có mức chi tối đa do bạn "
+                "chọn / --max-total-usd is required on every full run (no default). "
+                "Nothing was sent.",
+                file=sys.stderr,
+            )
+            return 2
+        now = utc_now()
+        full.close_stale_rows(engine, to_iso(now), to_iso(now - STALE_AFTER))
+        if full.active_run(engine) is not None:
+            print(
+                "RUN_IN_PROGRESS: Đang có một lượt chạy khác / another build run is in "
+                "progress. Nothing was sent.",
+                file=sys.stderr,
+            )
+            return 2
+        client = _spend_client(args, settings, True)
+        report = full.run_full(
+            engine, settings, plan, client, max_total_usd=args.max_total_usd, out=print
+        )
+        for line in full.describe(report):
+            print(line)
+        if report.failed_pages:
+            print(
+                f"Cảnh báo / Warning: {len(report.failed_pages)} trang lỗi / failed page(s) "
+                "(re-run `hoctap build full` to retry):",
+                file=sys.stderr,
+            )
+            for line in full.describe_failures(report):
+                print(line, file=sys.stderr)
+        return full.exit_code(report)
 
-    return _open_db(body)
+    try:
+        return _open_db(body)
+    except KeyboardInterrupt:
+        print(
+            "Đã dừng; các trang đã xong được giữ lại / Interrupted; finished pages are kept, "
+            "re-run to continue.",
+            file=sys.stderr,
+        )
+        return 130
+    except PilotError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    except (RuntimeError, ValueError) as exc:
+        print(f"Lỗi / Error: {exc}", file=sys.stderr)
+        return 1
 
 
 def _spend_flags(command: argparse.ArgumentParser) -> None:
@@ -915,8 +989,24 @@ def build_parser() -> argparse.ArgumentParser:
     gate_cmd.set_defaults(func=_build_gate)
     full = build_sub.add_parser(
         "full",
-        help="the full-corpus run (checks the go/no-go approval, exit 3 without it; Story 6.2)",
+        help="the full-corpus run, Book by Book (needs the approved go/no-go gate: exit 3 "
+        "without it; costs money: needs --yes-spend and --max-total-usd; exit 4 when the cap "
+        "stops it)",
     )
+    full_mode = full.add_mutually_exclusive_group()
+    full_mode.add_argument(
+        "--dry-run", action="store_true", help="write the requests; send nothing"
+    )
+    full_mode.add_argument(
+        "--yes-spend", action="store_true", help="allow calls to Claude (costs money)"
+    )
+    full.add_argument(
+        "--max-total-usd",
+        type=_positive_usd,
+        help="REQUIRED with --yes-spend: the overall cap over all Books (no default)",
+    )
+    full.add_argument("--grade", type=int, choices=range(1, 6), help="only this grade (1-5)")
+    full.add_argument("--books", help="only these book_ids (comma-separated)")
     full.set_defaults(func=_build_full)
     return parser
 

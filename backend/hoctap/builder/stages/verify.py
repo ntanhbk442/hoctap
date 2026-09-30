@@ -216,10 +216,18 @@ def run_verify(
     settings: Settings,
     on_page: Callable[[str, str], None] = lambda ref, status: None,
     max_total_usd: float | None = None,
+    run_kind: str = "pilot",
 ) -> CallReport:
     """Calls Claude for each pending page (see `builder.calls.run_calls`)."""
     jobs = [
-        CallJob(task.ref, STAGE, input_hash, build_request(task, settings), _check_output)
+        CallJob(
+            task.ref,
+            STAGE,
+            input_hash,
+            build_request(task, settings),
+            _check_output,
+            run_kind=run_kind,
+        )
         for task, input_hash in todo
     ]
     return run_calls(engine, client, jobs, settings, on_page, max_total_usd)

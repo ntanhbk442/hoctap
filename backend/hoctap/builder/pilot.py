@@ -66,6 +66,20 @@ class PilotPlan:
 def plan_pilot(
     engine: Engine, settings: Settings, book_id: str, first: int, last: int
 ) -> PilotPlan:
+    return plan_book(engine, settings, book_id, first, last, limit=settings.pilot_max_pages)
+
+
+def plan_book(
+    engine: Engine,
+    settings: Settings,
+    book_id: str,
+    first: int,
+    last: int,
+    *,
+    limit: int | None = None,
+) -> PilotPlan:
+    """Like `plan_pilot`, with `limit` (default: none) as the most pages allowed: the full
+    run (Story 6.2) plans whole Books."""
     with engine.connect() as conn:
         books = {b.book_id: b for b in list_books(conn)}
     if not books:
@@ -81,10 +95,9 @@ def plan_pilot(
             f"Trang ngoài phạm vi / Pages out of range: {first}-{last} "
             f"({book_id} has pages 1-{book.page_count})"
         )
-    if last - first + 1 > settings.pilot_max_pages:
+    if limit is not None and last - first + 1 > limit:
         raise PilotError(
-            f"Quá nhiều trang / Too many pages: {last - first + 1} > pilot_max_pages "
-            f"({settings.pilot_max_pages})"
+            f"Quá nhiều trang / Too many pages: {last - first + 1} > pilot_max_pages ({limit})"
         )
     res = resolve_source(settings.source_dir, book.source_path)
     if res.path is None or res.problem is not None:
@@ -256,6 +269,7 @@ def run_verify(
     max_total_usd: float | None = None,
     skip_pages: frozenset[int] = frozenset(),
     no_problems: str = NO_PROBLEMS_VERIFY,
+    run_kind: str = "pilot",
 ) -> VerifyReport:
     """Verifies the valid Problems of the plan's pages: writes the requests (`dry_run`,
     except for `skip_pages`), or calls Claude for the pending pages and stores every
@@ -298,6 +312,7 @@ def run_verify(
                 settings,
                 on_page=lambda ref, status: out(f"  {ref}: {status}"),
                 max_total_usd=budget,
+                run_kind=run_kind,
             )
         else:
             out("verify: nothing to call (every page already verified)")
@@ -329,6 +344,7 @@ def run_pilot(
     verify: bool = True,
     publish_pages: bool = True,
     on_stage: Callable[[str], None] = lambda stage: None,
+    run_kind: str = "pilot",
 ) -> PilotReport:
     """Renders the range (plus the context page), then either writes the extract requests
     (`dry_run`) or extracts the pending pages, validates the range, (unless `verify` is
@@ -337,7 +353,8 @@ def run_pilot(
 
     `on_stage(stage)` is called just before each of render/extract/validate/verify/crop
     starts (a caller such as `builder.jobs.RunManager` uses it to report live progress);
-    it defaults to a no-op, so the CLI's own behaviour is unchanged.
+    it defaults to a no-op, so the CLI's own behaviour is unchanged. `run_kind` (pilot |
+    full) is stored on every job first inserted by this run.
     """
     report = PilotReport()
     book = plan.book
@@ -412,6 +429,7 @@ def run_pilot(
             settings,
             on_page=lambda ref, status: out(f"  {ref}: {status}"),
             max_total_usd=budget,
+            run_kind=run_kind,
         )
     else:
         out("extract: nothing to do (every page already extracted)")
@@ -437,6 +455,7 @@ def run_pilot(
             out=out,
             max_total_usd=max(budget - report.extract.spent_usd, 0.0),
             no_problems=NO_PROBLEMS_PILOT,
+            run_kind=run_kind,
         )
     if publish_pages:
         on_stage("crop")

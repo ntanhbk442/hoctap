@@ -132,14 +132,26 @@ build_runs = Table(
     Column("started_at", Text, nullable=False),
     Column("updated_at", Text, nullable=False),
     Column("finished_at", Text, nullable=True),
+    # Story 6.2: a full-corpus run is one row per Book, grouped by `full_id`. `max_total_usd`
+    # is the overall cap of the whole run; `unstarted_json` lists the Books/pages a stopped
+    # run did not reach; `options_json` is what a resume needs (grade / books).
+    Column("run_kind", Text, nullable=False, server_default="pilot"),
+    Column("full_id", Text, nullable=True),
+    Column("max_total_usd", Float, nullable=True),
+    Column("stop_reason", Text, nullable=True),
+    Column("unstarted_json", Text, nullable=False, server_default="[]"),
+    Column("options_json", Text, nullable=True),
     CheckConstraint(
-        "status IN ('running', 'pausing', 'paused', 'done', 'failed', 'cancelled')",
+        "status IN ('running', 'pausing', 'paused', 'done', 'failed', 'cancelled', "
+        "'stopped_budget', 'stopped_checkpoint', 'stopped_gate')",
         name="ck_build_runs_status",
     ),
+    CheckConstraint("run_kind IN ('pilot', 'full')", name="ck_build_runs_run_kind"),
     CheckConstraint(
         "stage IS NULL OR stage IN ('render', 'extract', 'validate', 'verify', 'crop', 'publish')",
         name="ck_build_runs_stage",
     ),
     Index("ix_build_runs_status", "status"),
     Index("ix_build_runs_book_id", "book_id"),
+    Index("ix_build_runs_full_id", "full_id"),
 )

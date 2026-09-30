@@ -4162,6 +4162,236 @@
           }
         }
       }
+    },
+    "/api/v1/build/full/plan": {
+      "post": {
+        "tags": [
+          "build"
+        ],
+        "summary": "Plan Full Run",
+        "description": "The ordered plan and the pre-flight estimate. Writes and calls nothing.",
+        "operationId": "plan_full_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FullPlanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FullPlanOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "VALIDATION_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/build/full": {
+      "post": {
+        "tags": [
+          "build"
+        ],
+        "summary": "Start Full Run",
+        "operationId": "start_full_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FullStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/FullRunOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Start Full Run"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "SPEND_NOT_CONFIRMED or VALIDATION_ERROR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GATE_NOT_APPROVED or RUN_IN_PROGRESS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/build/full/current": {
+      "get": {
+        "tags": [
+          "build"
+        ],
+        "summary": "Get Current Full Run",
+        "operationId": "get_current_full_run",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/FullRunOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Current Full Run"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6351,6 +6581,18 @@
           "reason": {
             "type": "string",
             "title": "Reason"
+          },
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Id",
+            "description": "set on a full run's failures"
           }
         },
         "type": "object",
@@ -6535,6 +6777,273 @@
         },
         "type": "object",
         "title": "FlagOut"
+      },
+      "FullPlanBookOut": {
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "title_vi": {
+            "type": "string",
+            "title": "Title Vi"
+          },
+          "grade": {
+            "type": "integer",
+            "title": "Grade"
+          },
+          "pages_in_scope": {
+            "type": "integer",
+            "title": "Pages In Scope"
+          },
+          "pages_to_call": {
+            "type": "integer",
+            "title": "Pages To Call"
+          },
+          "pages_to_verify": {
+            "type": "integer",
+            "title": "Pages To Verify"
+          },
+          "probe": {
+            "type": "boolean",
+            "title": "Probe",
+            "description": "a grade 3-5 first Book: a small pilot first, then a stop"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped",
+            "description": "why the Book cannot run now"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id",
+          "title_vi",
+          "grade",
+          "pages_in_scope",
+          "pages_to_call",
+          "pages_to_verify",
+          "probe",
+          "skipped"
+        ],
+        "title": "FullPlanBookOut"
+      },
+      "FullPlanIn": {
+        "properties": {
+          "grade": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "books": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Books",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FullPlanIn"
+      },
+      "FullPlanOut": {
+        "properties": {
+          "approved": {
+            "type": "boolean",
+            "title": "Approved",
+            "description": "the go/no-go approval holds"
+          },
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/FullPlanBookOut"
+            },
+            "type": "array",
+            "title": "Books"
+          },
+          "pages_to_call": {
+            "type": "integer",
+            "title": "Pages To Call"
+          },
+          "estimate_usd": {
+            "type": "number",
+            "title": "Estimate Usd"
+          },
+          "worst_case_usd": {
+            "type": "number",
+            "title": "Worst Case Usd"
+          },
+          "gate_est_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate Est Cost",
+            "description": "the gate's estimate for the whole corpus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approved",
+          "books",
+          "pages_to_call",
+          "estimate_usd",
+          "worst_case_usd",
+          "gate_est_cost"
+        ],
+        "title": "FullPlanOut"
+      },
+      "FullRunOut": {
+        "properties": {
+          "full_id": {
+            "type": "string",
+            "title": "Full Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "pausing",
+              "paused",
+              "done",
+              "failed",
+              "cancelled",
+              "stopped_budget",
+              "stopped_checkpoint",
+              "stopped_gate"
+            ],
+            "title": "Status"
+          },
+          "max_total_usd": {
+            "type": "number",
+            "title": "Max Total Usd"
+          },
+          "spent_usd": {
+            "type": "number",
+            "title": "Spent Usd"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "budget",
+                  "checkpoint",
+                  "gate"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "unstarted": {
+            "items": {
+              "$ref": "#/components/schemas/UnstartedOut"
+            },
+            "type": "array",
+            "title": "Unstarted"
+          },
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "type": "array",
+            "title": "Books"
+          },
+          "failed_pages": {
+            "items": {
+              "$ref": "#/components/schemas/FailedPage"
+            },
+            "type": "array",
+            "title": "Failed Pages"
+          },
+          "current_run_id": {
+            "type": "string",
+            "title": "Current Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "full_id",
+          "status",
+          "max_total_usd",
+          "spent_usd",
+          "cost_usd",
+          "stop_reason",
+          "unstarted",
+          "books",
+          "failed_pages",
+          "current_run_id"
+        ],
+        "title": "FullRunOut"
+      },
+      "FullStartIn": {
+        "properties": {
+          "grade": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "books": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Books",
+            "default": []
+          },
+          "max_total_usd": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Total Usd",
+            "description": "the overall cap over all Books; required"
+          },
+          "yes_spend": {
+            "type": "boolean",
+            "title": "Yes Spend",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "max_total_usd"
+        ],
+        "title": "FullStartIn"
       },
       "GateApproval": {
         "properties": {
@@ -9587,7 +10096,10 @@
               "paused",
               "done",
               "failed",
-              "cancelled"
+              "cancelled",
+              "stopped_budget",
+              "stopped_checkpoint",
+              "stopped_gate"
             ],
             "title": "Status"
           },
@@ -9683,6 +10195,63 @@
             "type": "boolean",
             "title": "Stale",
             "description": "a `running` row with no progress in 5 minutes: offer Tiếp tục too"
+          },
+          "run_kind": {
+            "type": "string",
+            "enum": [
+              "pilot",
+              "full"
+            ],
+            "title": "Run Kind",
+            "default": "pilot"
+          },
+          "full_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Id",
+            "description": "groups the Book rows of a full run"
+          },
+          "max_total_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Total Usd",
+            "description": "a full run's overall cap"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "budget",
+                  "checkpoint",
+                  "gate"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "unstarted": {
+            "items": {
+              "$ref": "#/components/schemas/UnstartedOut"
+            },
+            "type": "array",
+            "title": "Unstarted",
+            "default": []
           }
         },
         "type": "object",
@@ -10451,6 +11020,30 @@
           "node_key"
         ],
         "title": "TreeNode"
+      },
+      "UnstartedOut": {
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages",
+            "description": "pages that would still call Claude"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id",
+          "pages",
+          "reason"
+        ],
+        "title": "UnstartedOut"
       },
       "VerdictIn": {
         "properties": {
