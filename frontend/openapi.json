@@ -4105,6 +4105,11 @@
           "attempted": {
             "type": "boolean",
             "title": "Attempted"
+          },
+          "done_in_session": {
+            "type": "boolean",
+            "title": "Done In Session",
+            "default": false
           }
         },
         "type": "object",

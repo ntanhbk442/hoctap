@@ -7,14 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // separate injectable/mock element needed; `getAudioElement()` exposes the real one).
 import {
   __resetAudioUnlockForTests,
+  beginSpeak,
   getAudioElement,
   getPlayerState,
   isAudioUnlocked,
   isMissing,
+  isSpeakCurrent,
   playKey,
   stop,
   subscribe,
 } from './player'
+
+function setMediaErrorCode(el: HTMLAudioElement, code: number): void {
+  ;(el as unknown as { error: MediaError | null }).error = { code } as MediaError
+}
 
 beforeEach(() => {
   __resetAudioUnlockForTests()
@@ -74,6 +80,7 @@ describe('missing-file detection', () => {
     expect(isMissing('missing-key')).toBe(false)
 
     const el = getAudioElement()
+    setMediaErrorCode(el, 4)
     el.dispatchEvent(new Event('error'))
 
     expect(isMissing('missing-key')).toBe(true)
@@ -83,6 +90,7 @@ describe('missing-file detection', () => {
   it('does not mark a different, still-idle key as missing', async () => {
     await playKey('key-a', '/assets-data/audio/key-a.mp3')
     const el = getAudioElement()
+    setMediaErrorCode(el, 4)
     el.dispatchEvent(new Event('error'))
     expect(isMissing('key-b')).toBe(false)
   })
@@ -95,10 +103,6 @@ describe('missing-file detection', () => {
   // a defined accessor -- confirmed by inspection), so tests set it directly via a narrow
   // cast, the same "dispatch a synthetic event on the real element" approach this file
   // already uses for `error`/`ended`.
-  function setMediaErrorCode(el: HTMLAudioElement, code: number): void {
-    ;(el as unknown as { error: MediaError | null }).error = { code } as MediaError
-  }
-
   it('does NOT mark a key missing when the error is MEDIA_ERR_ABORTED (an interrupted load)', async () => {
     await playKey('aborted-key', '/assets-data/audio/aborted-key.mp3')
     const el = getAudioElement()
@@ -106,6 +110,15 @@ describe('missing-file detection', () => {
     el.dispatchEvent(new Event('error'))
     expect(isMissing('aborted-key')).toBe(false)
     expect(getPlayerState()).toEqual({ key: 'aborted-key', status: 'playing' })
+  })
+
+  it('does NOT mark a key missing on a network error (MEDIA_ERR_NETWORK)', async () => {
+    await playKey('net-key', '/assets-data/audio/net-key.mp3')
+    const el = getAudioElement()
+    setMediaErrorCode(el, 2) // MEDIA_ERR_NETWORK
+    el.dispatchEvent(new Event('error'))
+    expect(isMissing('net-key')).toBe(false)
+    expect(getPlayerState()).toEqual({ key: 'net-key', status: 'playing' })
   })
 
   it('DOES mark a key missing on a genuine decode/not-found failure (MEDIA_ERR_SRC_NOT_SUPPORTED)', async () => {
@@ -123,6 +136,31 @@ describe('missing-file detection', () => {
     el.dispatchEvent(new Event('ended'))
     expect(getPlayerState()).toEqual({ key: 'key-c', status: 'idle' })
     expect(isMissing('key-c')).toBe(false)
+  })
+})
+
+describe('play() rejection and pending speak()', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    stop()
+  })
+
+  it('resets the state to idle when play() rejects', async () => {
+    const el = getAudioElement()
+    vi.spyOn(el, 'play').mockRejectedValue(new Error('NotAllowedError'))
+    await expect(playKey('blocked-key', '/x.mp3')).rejects.toThrow()
+    expect(getPlayerState()).toEqual({ key: 'blocked-key', status: 'idle' })
+  })
+
+  it('a speak ticket goes stale after stop() or a newer request', () => {
+    const first = beginSpeak()
+    expect(isSpeakCurrent(first)).toBe(true)
+    stop()
+    expect(isSpeakCurrent(first)).toBe(false)
+    const second = beginSpeak()
+    const third = beginSpeak()
+    expect(isSpeakCurrent(second)).toBe(false)
+    expect(isSpeakCurrent(third)).toBe(true)
   })
 })
 

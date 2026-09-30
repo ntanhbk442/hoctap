@@ -36,6 +36,7 @@ function bundle(): BundleOut {
         page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
         audio: { abc123: '/assets-data/audio/abc123.mp3' },
         attempted: false,
+        done_in_session: false,
       },
       {
         problem: {
@@ -58,6 +59,7 @@ function bundle(): BundleOut {
         page_urls: ['/assets-data/pages/toan1-2020-q1/p013.jpg'],
         audio: { def456: '/assets-data/audio/def456.mp3' },
         attempted: false,
+        done_in_session: false,
       },
       // no more chunk_count than 1, but include a second problem so we cover the "whole
       // chunk, not just the current Problem" requirement (AD-10).

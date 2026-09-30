@@ -9,6 +9,7 @@ flag) in one query pass per Book, to avoid one `visible_to_child()` call per Les
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy import Connection, select
@@ -122,23 +123,40 @@ class HomeLesson:
     lesson_title: str
 
 
-def home_lesson(conn: Connection, grade: int) -> HomeLesson | None:
-    """The first Lesson (Book order, then Unit `position`, then Lesson `position`) of
-    `grade` with >=1 visible Problem; `None` when nothing is visible yet (honest empty
-    state, e.g. a fresh install with nothing extracted)."""
+def home_lesson(
+    conn: Connection,
+    grade: int,
+    attempted_counts: Callable[[str], dict[tuple[str, str], int]] | None = None,
+) -> HomeLesson | None:
+    """The "Học tiếp" Lesson of `grade`: the first Lesson (Book order, then Unit `position`,
+    then Lesson `position`) with a visible Problem the Profile has not attempted yet;
+    falling back to the first Lesson with >=1 visible Problem when everything is attempted;
+    `None` when nothing is visible yet (honest empty state, e.g. a fresh install).
+
+    `attempted_counts(book_id)` returns the Profile's attempted-and-visible Problem count
+    per (unit_key, lesson_key) -- injected by the caller (`learning.progress`) so this
+    module never imports `learning`. Omitted, no progress is known and the first Lesson
+    with a visible Problem wins."""
+    first: HomeLesson | None = None
     for book in grade_books(conn, grade):
+        attempted = attempted_counts(book.book_id) if attempted_counts else {}
         for unit in book.units:
             for lesson in unit.lessons:
-                if lesson.problem_count > 0:
-                    return HomeLesson(
-                        book_id=book.book_id,
-                        book_title_vi=book.title_vi,
-                        unit_key=unit.unit_key,
-                        lesson_key=lesson.lesson_key,
-                        lesson_label=lesson.label,
-                        lesson_title=lesson.title,
-                    )
-    return None
+                if lesson.problem_count <= 0:
+                    continue
+                candidate = HomeLesson(
+                    book_id=book.book_id,
+                    book_title_vi=book.title_vi,
+                    unit_key=unit.unit_key,
+                    lesson_key=lesson.lesson_key,
+                    lesson_label=lesson.label,
+                    lesson_title=lesson.title,
+                )
+                if attempted.get((unit.unit_key, lesson.lesson_key), 0) < lesson.problem_count:
+                    return candidate
+                if first is None:
+                    first = candidate
+    return first
 
 
 def lesson_problems(

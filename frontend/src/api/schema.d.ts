@@ -1045,6 +1045,11 @@ export interface components {
             };
             /** Attempted */
             attempted: boolean;
+            /**
+             * Done In Session
+             * @default false
+             */
+            done_in_session: boolean;
         };
         /** CatalogueBookOut */
         CatalogueBookOut: {

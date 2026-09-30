@@ -70,7 +70,8 @@ class GoogleTtsEngine(TtsEngine):
         return self._client
 
     def synthesize(self, text: str, voice_id: str) -> bytes:
-        from google.api_core.exceptions import GoogleAPICallError
+        from google.api_core.exceptions import GoogleAPICallError, RetryError
+        from google.auth.exceptions import GoogleAuthError
         from google.cloud import texttospeech
 
         language_code = "-".join(voice_id.split("-")[:2]) or "vi-VN"
@@ -89,12 +90,15 @@ class GoogleTtsEngine(TtsEngine):
             raise TtsError(
                 f"Google TTS gọi thất bại / Google TTS call failed: {exc}"
             ) from exc
-        except OSError as exc:
+        except (GoogleAuthError, RetryError, OSError) as exc:
             raise TtsError(
                 f"Google TTS: lỗi thông tin xác thực hoặc mạng / "
                 f"credentials or network error: {exc}"
             ) from exc
-        return bytes(response.audio_content)
+        audio = bytes(response.audio_content)
+        if not audio:
+            raise TtsError("Google TTS không trả về âm thanh nào / Google TTS returned no audio")
+        return audio
 
 
 class EdgeTtsEngine(TtsEngine):

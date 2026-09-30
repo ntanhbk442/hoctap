@@ -42,24 +42,22 @@ export default function DotDrawWidget({
     const rect = event.currentTarget.getBoundingClientRect()
     const x = (event.clientX - rect.left) / rect.width
     const y = (event.clientY - rect.top) / rect.height
-    setDotsByBox((prev) => {
-      const existing = prev[boxKey] ?? []
-      const tapKey = bucketKey(x, y)
-      const matchIndex = existing.findIndex((dot) => bucketKey(dot.x, dot.y) === tapKey)
-      const dots = matchIndex === -1 ? [...existing, { x, y }] : existing.filter((_, i) => i !== matchIndex)
-      onSetValue(boxKey, String(given + dots.length))
-      return { ...prev, [boxKey]: dots }
-    })
+    // The parent's `onSetValue` is a side effect: never call it inside a state updater
+    // (StrictMode double-invokes updaters).
+    const existing = dotsByBox[boxKey] ?? []
+    const tapKey = bucketKey(x, y)
+    const matchIndex = existing.findIndex((dot) => bucketKey(dot.x, dot.y) === tapKey)
+    const dots = matchIndex === -1 ? [...existing, { x, y }] : existing.filter((_, i) => i !== matchIndex)
+    setDotsByBox((prev) => ({ ...prev, [boxKey]: dots }))
+    onSetValue(boxKey, String(given + dots.length))
   }
 
   function removeDot(boxKey: string, given: number, index: number, event: MouseEvent) {
     event.stopPropagation()
     if (disabled) return
-    setDotsByBox((prev) => {
-      const dots = (prev[boxKey] ?? []).filter((_, i) => i !== index)
-      onSetValue(boxKey, String(given + dots.length))
-      return { ...prev, [boxKey]: dots }
-    })
+    const dots = (dotsByBox[boxKey] ?? []).filter((_, i) => i !== index)
+    setDotsByBox((prev) => ({ ...prev, [boxKey]: dots }))
+    onSetValue(boxKey, String(given + dots.length))
   }
 
   return (

@@ -209,6 +209,8 @@ class BundleProblem:
     page_urls: list[str]
     audio: dict[str, str]  # speech_key -> URL
     attempted: bool
+    # Session-scoped, every mode: already finished in THIS Session (drives "Tiếp tục").
+    done_in_session: bool = False
 
 
 @dataclass(frozen=True)
@@ -247,46 +249,83 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
 
     attempted_ids: set[str] = set()
     graded_keys: dict[str, set[str]] = {}
-    if slice_ids and session.mode == "quiz":
-        # A multi-Part quiz Problem is answered only once EVERY graded Part has an attempt.
-        for problem_id in slice_ids:
-            try:
-                doc = load_one(conn, problem_id).doc
-            except ProblemNotFound:
-                continue
-            if doc is not None:
-                graded_keys[problem_id] = {
-                    p.part_key for p in doc.parts if not isinstance(p, FallbackPart)
-                }
-    if slice_ids:
-        conditions = [
-            progress_events.c.profile_id == session.profile_id,
-            progress_events.c.kind == "attempt",
-            progress_events.c.problem_id.in_(slice_ids),
-        ]
-        if session.mode == "quiz":
-            # Story 3.4: a quiz resumes from its own answers; an earlier Session's attempts
-            # at the same Problems must not make a retake look already answered.
-            conditions.append(progress_events.c.session_id == session_id)
-        if session.mode == "quiz":
-            rows = conn.execute(
-                select(progress_events.c.problem_id, progress_events.c.payload_json).where(
-                    *conditions
-                )
-            )
-            answered: dict[str, set[str]] = {}
-            for r in rows:
-                key = json.loads(r.payload_json).get("part_key")
-                if isinstance(key, str):
-                    answered.setdefault(r.problem_id, set()).add(key)
-            attempted_ids = {
-                pid for pid, keys in answered.items() if graded_keys.get(pid, keys) <= keys
+    for problem_id in slice_ids:
+        # A multi-Part Problem counts as answered/done only once EVERY graded Part is.
+        try:
+            doc = load_one(conn, problem_id).doc
+        except ProblemNotFound:
+            continue
+        if doc is not None:
+            graded_keys[problem_id] = {
+                p.part_key for p in doc.parts if not isinstance(p, FallbackPart)
             }
-        else:
-            rows = conn.execute(
-                select(progress_events.c.problem_id).where(*conditions).distinct()
+    if slice_ids and session.mode == "quiz":
+        # Story 3.4: a quiz resumes from its own answers; an earlier Session's attempts
+        # at the same Problems must not make a retake look already answered.
+        rows = conn.execute(
+            select(progress_events.c.problem_id, progress_events.c.payload_json).where(
+                progress_events.c.profile_id == session.profile_id,
+                progress_events.c.kind == "attempt",
+                progress_events.c.problem_id.in_(slice_ids),
+                progress_events.c.session_id == session_id,
             )
-            attempted_ids = {r.problem_id for r in rows}
+        )
+        answered: dict[str, set[str]] = {}
+        for r in rows:
+            key = json.loads(r.payload_json).get("part_key")
+            if isinstance(key, str):
+                answered.setdefault(r.problem_id, set()).add(key)
+        attempted_ids = {
+            pid for pid, keys in answered.items() if graded_keys.get(pid, keys) <= keys
+        }
+    elif slice_ids:
+        rows = conn.execute(
+            select(progress_events.c.problem_id).where(
+                progress_events.c.profile_id == session.profile_id,
+                progress_events.c.kind == "attempt",
+                progress_events.c.problem_id.in_(slice_ids),
+            ).distinct()
+        )
+        attempted_ids = {r.problem_id for r in rows}
+
+    # Epic 2 review: "already done IN THIS Session", for every mode, so "Tiếp tục" resumes at
+    # the first Problem the child has not finished. Quiz keeps its all-Parts-answered rule;
+    # otherwise a Problem is done once each graded Part has a correct attempt or one that
+    # released the Solution here, and a fallback Problem once it has been self-marked.
+    done_ids: set[str] = set()
+    if session.mode == "quiz":
+        done_ids = set(attempted_ids)
+    elif slice_ids:
+        done_parts: dict[str, set[str]] = {}
+        self_marked_ids: set[str] = set()
+        rows = conn.execute(
+            select(
+                progress_events.c.problem_id,
+                progress_events.c.kind,
+                progress_events.c.payload_json,
+            ).where(
+                progress_events.c.session_id == session_id,
+                progress_events.c.kind.in_(("attempt", "self_marked")),
+                progress_events.c.problem_id.in_(slice_ids),
+            )
+        )
+        for r in rows:
+            data = json.loads(r.payload_json)
+            if r.kind == "self_marked":
+                self_marked_ids.add(r.problem_id)
+            elif (data.get("correct") is True or data.get("solution")) and isinstance(
+                data.get("part_key"), str
+            ):
+                done_parts.setdefault(r.problem_id, set()).add(data["part_key"])
+        for pid in slice_ids:
+            keys = graded_keys.get(pid)
+            if keys is None:
+                continue
+            if keys:
+                if keys <= done_parts.get(pid, set()):
+                    done_ids.add(pid)
+            elif pid in self_marked_ids:
+                done_ids.add(pid)
 
     problems: list[BundleProblem] = []
     for problem_id in slice_ids:
@@ -307,6 +346,7 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
                 page_urls=assets.problem_page_urls(state.doc),
                 audio={r.speech_key: speech_url(r.speech_key) for r in refs},
                 attempted=problem_id in attempted_ids,
+                done_in_session=problem_id in done_ids,
             )
         )
 
@@ -434,16 +474,21 @@ def _find_part(parts: list[Part], part_key: Any) -> Part:
     raise AppError(422, "PART_NOT_FOUND", "Không tìm thấy phần bài tập này để chấm điểm.")
 
 
-def _count_prior_wrong(conn: Any, profile_id: str, problem_id: str, part_key: str) -> int:
-    """Prior wrong `attempt` events for this Part, across ALL Sessions (Profile-wide, per
-    AD-6/this story's frozen intent) -- staged help is derived by counting the append-only
-    log, not a separate mutable counter. Attempts made in `quiz` Sessions are ignored: a
-    quiz miss must not release the Solution immediately in a later practice Session."""
+def _count_prior_wrong(
+    conn: Any, profile_id: str, session_id: str, problem_id: str, part_key: str
+) -> int:
+    """Prior wrong `attempt` events for this Part within THIS Session only (Epic 2 review
+    decision: the first miss in a Session releases the Hint, a second miss in the same
+    Session releases the Solution, and a new Session starts again) -- staged help is
+    derived by counting the append-only log, not a separate mutable counter. Attempts made
+    in `quiz` Sessions are ignored (a quiz never releases help; its Sessions never reach
+    `_grade_and_stage()`'s counting, and the mode filter keeps that explicit)."""
     rows = conn.execute(
         select(progress_events.c.payload_json)
         .join(progress_sessions, progress_sessions.c.id == progress_events.c.session_id)
         .where(
             progress_events.c.profile_id == profile_id,
+            progress_events.c.session_id == session_id,
             progress_events.c.problem_id == problem_id,
             progress_events.c.kind == "attempt",
             progress_sessions.c.mode != "quiz",
@@ -542,6 +587,7 @@ def _validate_self_marked(conn: Any, event: EventIn) -> bool:
 def _grade_and_stage(
     conn: Any,
     profile_id: str,
+    session_id: str,
     problem_id: str | None,
     payload: dict[str, Any],
     wrong_at: str,
@@ -581,8 +627,10 @@ def _grade_and_stage(
     hint: str | None = None
     solution: dict[str, Any] | None = None
     if not result.correct:
-        prior_wrong = _count_prior_wrong(conn, profile_id, problem_id, part.part_key)
-        hint = part.hint  # released on the 1st wrong attempt, and stays shown afterward
+        prior_wrong = _count_prior_wrong(
+            conn, profile_id, session_id, problem_id, part.part_key
+        )
+        hint = part.hint  # released on the 1st wrong attempt in the Session, and stays shown
         # Story 2.10, AD-6: a `replay`-mode Session's wrong attempts never touch the
         # Retry Queue. Story 3.3: EVERY other wrong attempt (not just the first) calls
         # `add_retry_item()`, which opens the row or refreshes `last_wrong_at`.
@@ -719,7 +767,9 @@ def post_event(
 
     `session_completed` (Story 2.10): posted by the frontend once, at the TRUE end of a
     Session (the last Problem of the last chunk, never a mid-Session chunk boundary). Sets
-    `progress_sessions.completed_at` to this event's own `received_at` -- idempotent the
+    `progress_sessions.completed_at` to this event's device `occurred_at` (normalised by
+    `device_time_iso()`, server time if it does not parse), so the Streak's calendar day is
+    the day the child actually finished, even when the outbox syncs it later -- idempotent the
     same way every other event kind already is (a resent `session_completed` for an
     already-completed Session hits the `already_stored` fast path above and is a pure
     no-op, never re-setting `completed_at` or erroring). No grading side effect of its own;
@@ -766,7 +816,7 @@ def post_event(
             payload = event.payload
             if event.kind == "attempt":
                 payload = _grade_and_stage(
-                    conn, profile_id, event.problem_id, payload, device_at, mode
+                    conn, profile_id, session_id, event.problem_id, payload, device_at, mode
                 )
             elif event.kind == "self_marked":
                 correct = _validate_self_marked(conn, event)
@@ -800,7 +850,7 @@ def post_event(
                 # DISTINCT `session_completed` event (different UUIDv7 -- two open tabs,
                 # or a client retry after a false-timeout) would otherwise pass straight
                 # through to here and unconditionally overwrite `completed_at` with this
-                # later `received_at`, potentially shifting the Session to the wrong
+                # later event's time, potentially shifting the Session to the wrong
                 # calendar day for Streak purposes. Guarding the UPDATE itself with
                 # `completed_at IS NULL` makes only the FIRST `session_completed` event
                 # (whichever id arrives first) ever actually set it -- a second distinct
@@ -812,7 +862,7 @@ def post_event(
                         progress_sessions.c.id == session_id,
                         progress_sessions.c.completed_at.is_(None),
                     )
-                    .values(completed_at=received_at)
+                    .values(completed_at=device_at)
                 )
             conn.execute(
                 progress_events.insert().values(

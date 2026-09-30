@@ -54,6 +54,7 @@ function bundle(overrides: Partial<Record<string, unknown>> = {}) {
         page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
         audio: { abc123: '/assets-data/audio/abc123.mp3' },
         attempted: false,
+        done_in_session: false,
       },
     ],
     ...overrides,
@@ -315,6 +316,7 @@ describe('SessionPlayer', () => {
               page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
               audio: {},
               attempted: false,
+              done_in_session: false,
             },
             {
               problem: problem2,
@@ -322,6 +324,7 @@ describe('SessionPlayer', () => {
               page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
               audio: {},
               attempted: false,
+              done_in_session: false,
             },
           ],
         }),
@@ -504,7 +507,7 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
   })
 
   it('resumes at the first unanswered Problem, and submits when all are answered', async () => {
-    const answered = { ...bundle().problems[0], attempted: true }
+    const answered = { ...bundle().problems[0], attempted: true, done_in_session: true }
     mockApi({
       'GET /api/v1/sessions/session-1/bundle': {
         status: 200,
@@ -554,7 +557,7 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
     mockApi({
       'GET /api/v1/sessions/session-1/bundle': {
         status: 200,
-        body: bundle({ mode: 'quiz', problems: [{ ...bundle().problems[0], attempted: true }] }),
+        body: bundle({ mode: 'quiz', problems: [{ ...bundle().problems[0], attempted: true, done_in_session: true }] }),
       },
       'POST /api/v1/sessions/session-1/events': {
         status: 201,
@@ -574,7 +577,7 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       if (method === 'GET' && url.startsWith('/api/v1/sessions/session-1/bundle')) {
-        const b = bundle({ mode: 'quiz', problems: [{ ...bundle().problems[0], attempted: true }] })
+        const b = bundle({ mode: 'quiz', problems: [{ ...bundle().problems[0], attempted: true, done_in_session: true }] })
         return new Response(JSON.stringify(b), { status: 200, headers: json })
       }
       if (method === 'POST') {
@@ -595,5 +598,154 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
     expect(await screen.findByTestId('quiz-results', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(await screen.findByRole('alert')).toHaveTextContent(/\S/)
     expect(screen.getByRole('button', { name: 'Thử lại' })).toBeInTheDocument()
+  })
+
+  // --- Epic 2 review patches -----------------------------------------------------------
+
+  const json = { 'Content-Type': 'application/json' }
+
+  function twoProblems(firstDone: boolean, secondDone = false) {
+    const problem2 = {
+      ...PROBLEM,
+      problem_id: 'toan1-2020-q1.tuan-5.tiet-2.bai-2',
+      problem_label: 'bai-2',
+      display_label: 'Bài 2',
+    }
+    const base = bundle().problems[0]
+    return [
+      { ...base, done_in_session: firstDone },
+      { ...base, problem: problem2, done_in_session: secondDone },
+    ]
+  }
+
+  it('resumes a practice Session at the first Problem not finished in THIS Session', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ problems: twoProblems(true) }),
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 2')).toBeInTheDocument()
+    expect(screen.queryByText('Bài 1')).not.toBeInTheDocument()
+  })
+
+  it('skips a whole finished chunk and resumes in the next one', async () => {
+    const requestedChunks: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const chunk = new URL(url, 'http://x').searchParams.get('chunk') ?? '1'
+        if (url.includes('/bundle')) {
+          requestedChunks.push(chunk)
+          const b =
+            chunk === '1'
+              ? bundle({ chunk: 1, chunk_count: 2, chunk_label: 'Phần 1/2', problems: twoProblems(true, true) })
+              : bundle({ chunk: 2, chunk_count: 2, chunk_label: 'Phần 2/2', problems: twoProblems(false) })
+          return new Response(JSON.stringify(b), { status: 200, headers: json })
+        }
+        return new Response(null, { status: 404 })
+      }),
+    )
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Phần 2/2')).toBeInTheDocument()
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(requestedChunks).toEqual(['1', '2'])
+  })
+
+  it('shows an error with retry when session_completed fails in a practice Session', async () => {
+    let completedPosts = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'GET' && url.includes('/bundle')) {
+          const b = bundle({ problems: [{ ...bundle().problems[0], done_in_session: true }] })
+          return new Response(JSON.stringify(b), { status: 200, headers: json })
+        }
+        if (method === 'POST') {
+          completedPosts += 1
+          if (completedPosts === 1) {
+            return new Response(
+              JSON.stringify({ error: { code: 'BOOM', message: 'Có lỗi xảy ra.' } }),
+              { status: 500, headers: json },
+            )
+          }
+          return new Response(JSON.stringify([QUIZ_EVENT]), { status: 201, headers: json })
+        }
+        return new Response(null, { status: 404 })
+      }),
+    )
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/\S/)
+    // Not stuck on the summary's "Đang tải…".
+    expect(screen.queryByText('Đang tải…')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
+    await vi.waitFor(() => expect(completedPosts).toBe(2))
+  })
+
+  it('shows an error when starting "Luyện lại bài sai" fails', async () => {
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({ problems: [{ ...bundle().problems[0], done_in_session: true }] }),
+      },
+      'POST /api/v1/sessions/session-1/events': { status: 201, body: [QUIZ_EVENT] },
+      'GET /api/v1/sessions/session-1/summary': {
+        status: 200,
+        body: {
+          session_id: 'session-1',
+          first_try_correct: 0,
+          total: 1,
+          wrong_problem_ids: [PROBLEM.problem_id],
+          streak: 1,
+          stars_earned: 0,
+          new_badges: [],
+        },
+      },
+      'POST /api/v1/sessions': {
+        status: 422,
+        body: { error: { code: 'REPLAY_NO_WRONG_PROBLEMS', message: 'Không có bài nào để luyện lại.' } },
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    fireEvent.click(await screen.findByRole('button', { name: 'Luyện lại bài sai' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Không có bài nào để luyện lại.')
+  })
+
+  describe('auto-play follows the Profile setting', () => {
+    function profilesReply(autoPlay: boolean) {
+      return {
+        status: 200,
+        body: [{ id: PROFILE_ID, name: 'Bin', avatar: 'cat', grade: 1, auto_play: autoPlay }],
+      }
+    }
+
+    it('plays the instruction when auto_play is true', async () => {
+      const { speak } = await import('../audio/speech')
+      ;(speak as ReturnType<typeof vi.fn>).mockClear()
+      window.dispatchEvent(new Event('click')) // unlock audio
+      mockApi({
+        'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+        'GET /api/v1/profiles': profilesReply(true),
+      })
+      renderAt(ROUTE, <SessionPlayer />, PATTERN)
+      expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+      await vi.waitFor(() => expect(speak).toHaveBeenCalledWith('Tính:'))
+    })
+
+    it('does not play it when auto_play is false', async () => {
+      const { speak } = await import('../audio/speech')
+      ;(speak as ReturnType<typeof vi.fn>).mockClear()
+      window.dispatchEvent(new Event('click'))
+      mockApi({
+        'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+        'GET /api/v1/profiles': profilesReply(false),
+      })
+      renderAt(ROUTE, <SessionPlayer />, PATTERN)
+      await screen.findByText('Bài 1')
+      await new Promise((r) => setTimeout(r, 50))
+      expect(speak).not.toHaveBeenCalledWith('Tính:')
+    })
   })
 })

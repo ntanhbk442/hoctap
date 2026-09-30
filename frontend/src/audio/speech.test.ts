@@ -127,4 +127,11 @@ describe('speak (Story 2.9: shared-player internals)', () => {
     await expect(speak('xin chào')).resolves.toBeUndefined()
     playSpy.mockRestore()
   })
+
+  it('a pending speak() does not start its clip after stop()', async () => {
+    const pending = speak('xin chào')
+    stop() // e.g. the Problem unmounted while the key was still being hashed
+    await pending
+    expect(getPlayerState()).toEqual({ key: null, status: 'idle' })
+  })
 })

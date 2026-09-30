@@ -57,6 +57,7 @@ function bundleProblem(parts: unknown[]): BundleProblemOut {
     page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
     audio: {},
     attempted: false,
+    done_in_session: false,
   }
 }
 
@@ -364,6 +365,157 @@ describe('ProblemPlayer: multiple_choice', () => {
     fireEvent.click(screen.getByRole('button', { name: '3' }))
     fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
     expect(await screen.findByRole('button', { name: '3' })).toHaveClass('choice-chip-wrong')
+  })
+})
+
+describe('ProblemPlayer: Epic 2 review patches', () => {
+  const NUMBER_INPUT_PART = {
+    part_key: 'a',
+    type: 'number_input',
+    prompt: '',
+    image_keys: [],
+    template: '3 + 2 = [[s1]]',
+    slots: [{ slot_key: 's1' }],
+  }
+  const IMAGE_PART = {
+    part_key: 'a',
+    type: 'count_image',
+    prompt: '',
+    image_keys: ['img2'],
+    image_key: 'img2',
+    slots: [{ slot_key: 's1', label: 'Số' }],
+  }
+
+  function withImages(
+    sourcePages: { page: number; bbox: number[] }[],
+    cropUrls: string[],
+  ): BundleProblemOut {
+    const base = bundleProblem([IMAGE_PART])
+    return {
+      ...base,
+      problem: {
+        ...base.problem,
+        source_pages: sourcePages,
+        images: [{ image_key: 'img1' }, { image_key: 'img2' }],
+      } as unknown as BundleProblemOut['problem'],
+      crop_urls: cropUrls,
+    }
+  }
+
+  it('maps a Part image_key to its crop URL after the whole-Problem crop (single page)', () => {
+    mockApi({})
+    renderPlayer(
+      withImages(
+        [{ page: 12, bbox: [0, 0, 1, 1] }],
+        ['/crops/_problem.jpg', '/crops/img1.jpg', '/crops/img2.jpg'],
+      ),
+    )
+    expect(document.querySelector('.widget-count-image img')).toHaveAttribute(
+      'src',
+      '/crops/img2.jpg',
+    )
+  })
+
+  it('skips the per-page crops of a multi-page Problem when mapping image URLs', () => {
+    mockApi({})
+    renderPlayer(
+      withImages(
+        [
+          { page: 12, bbox: [0, 0, 1, 1] },
+          { page: 13, bbox: [0, 0, 1, 1] },
+        ],
+        [
+          '/crops/_problem.jpg',
+          '/crops/_problem_p12.jpg',
+          '/crops/_problem_p13.jpg',
+          '/crops/img1.jpg',
+          '/crops/img2.jpg',
+        ],
+      ),
+    )
+    expect(document.querySelector('.widget-count-image img')).toHaveAttribute(
+      'src',
+      '/crops/img2.jpg',
+    )
+  })
+
+  it('renders a match item that has an image key as its crop <img>', () => {
+    mockApi({})
+    const base = bundleProblem([
+      {
+        part_key: 'a',
+        type: 'match',
+        prompt: '',
+        image_keys: ['m1'],
+        left: [{ item_key: 'l1', image_key: 'm1' }],
+        right: [{ item_key: 'r1', text: 'một' }],
+      },
+    ])
+    renderPlayer({
+      ...base,
+      problem: { ...base.problem, images: [{ image_key: 'm1' }] } as unknown as BundleProblemOut['problem'],
+      crop_urls: ['/crops/_problem.jpg', '/crops/m1.jpg'],
+    })
+    expect(document.querySelector('.widget-match-item img')).toHaveAttribute('src', '/crops/m1.jpg')
+  })
+
+  it('pressing ✔ again on an unchanged wrong answer submits again instead of doing nothing', async () => {
+    const fetchMock = mockApi(eventsReply({ correct: false, wrong_keys: ['s1'], hint: 'Đếm lại nhé.' }))
+    renderPlayer(bundleProblem([NUMBER_INPUT_PART]))
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '9' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await screen.findByText('Đếm lại nhé.', {}, { timeout: 2000 })
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() => {
+      const posts = fetchMock.mock.calls.filter(([url]) => (url as string).includes('/events'))
+      expect(posts).toHaveLength(2)
+    })
+  })
+
+  it('the wrong-answer Hint bubble has a working 🔊 replay', async () => {
+    mockApi(eventsReply({ correct: false, wrong_keys: ['s1'], hint: 'Đếm lại nhé.' }))
+    const { speak } = await import('../audio/speech')
+    renderPlayer(bundleProblem([NUMBER_INPUT_PART]))
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '9' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await screen.findByText('Đếm lại nhé.', {}, { timeout: 2000 })
+    ;(speak as ReturnType<typeof vi.fn>).mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Nghe gợi ý: Đếm lại nhé.' }))
+    expect(speak).toHaveBeenCalledWith('Đếm lại nhé.')
+  })
+
+  it('does not advance after unmount (the correct-answer timer is cleared)', async () => {
+    mockApi(eventsReply({ correct: true }))
+    const onDone = vi.fn()
+    const { unmount } = renderPlayer(bundleProblem([NUMBER_INPUT_PART]), onDone)
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('.feedback-banner-visible')).toHaveClass('feedback-banner-correct'),
+    )
+    unmount()
+    await new Promise((r) => setTimeout(r, 1000))
+    expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('auto-plays each later Part prompt once when the Part changes', async () => {
+    const { isAudioUnlocked } = await import('../audio/player')
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    const { speak } = await import('../audio/speech')
+    ;(speak as ReturnType<typeof vi.fn>).mockClear()
+    mockApi(eventsReply({ correct: true }))
+    renderPlayer(
+      bundleProblem([NUMBER_INPUT_PART, { ...NUMBER_INPUT_PART, part_key: 'b', prompt: 'Câu b:' }]),
+    )
+    expect(speak).toHaveBeenCalledWith('Tính:')
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledWith('Câu b:'), { timeout: 3000 })
+    ;(isAudioUnlocked as ReturnType<typeof vi.fn>).mockReturnValue(false)
   })
 })
 

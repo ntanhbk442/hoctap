@@ -161,6 +161,12 @@
   background: var(--color-surface, #fff);
 }
 
+.widget-match-item img {
+  display: block;
+  max-width: 100%;
+  max-height: 96px;
+}
+
 .widget-match-item-picked {
   border-color: var(--color-primary);
 }
@@ -273,6 +279,13 @@
   margin: -7px 0 0 -7px;
 }
 
+/* Keep the 14px drawn dot but give it a 64px touch target (UX >=64px rule). */
+.widget-dot-draw-dot-added::before {
+  content: '';
+  position: absolute;
+  inset: -25px;
+}
+
 .widget-connect-dots-dot {
   position: absolute;
   width: 32px;
@@ -283,6 +296,13 @@
   border-radius: var(--radius-full);
   border: 2px solid var(--color-primary);
   background: var(--color-surface, #fff);
+}
+
+/* Keep the 32px drawn dot but give it a 64px touch target (UX >=64px rule). */
+.widget-connect-dots-dot::before {
+  content: '';
+  position: absolute;
+  inset: -16px;
 }
 
 .widget-connect-dots-dot-done {

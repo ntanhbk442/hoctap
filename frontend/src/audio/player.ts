@@ -18,6 +18,9 @@ type Listener = (state: PlayerState) => void
 let audioEl: HTMLAudioElement | null = null
 let state: PlayerState = { key: null, status: 'idle' }
 const listeners = new Set<Listener>()
+// A pending `speak()` (still hashing its key) must not start a clip after `stop()` -- e.g.
+// the Problem it belonged to unmounted -- or after a newer `speak()` superseded it.
+let speakEpoch = 0
 // Keys the shared element's own `error` event has confirmed missing (404/decode failure) --
 // distinct from "not playing yet", per the Boundaries & Constraints' grey-out rule. Never
 // cleared: a key is content-addressed (AD-8), so a confirmed-missing clip stays missing for
@@ -43,19 +46,14 @@ export function getAudioElement(): HTMLAudioElement {
       // A `src=''`/initial-state error (no clip ever asked for) is not a "missing file" --
       // only mark the key we were actually trying to play.
       if (state.key === null) return
-      // `playKey()` itself triggers `MEDIA_ERR_ABORTED` (code 1) whenever it interrupts an
-      // in-flight load by swapping `src` for a new clip mid-fetch -- that's normal
-      // stop-previous-on-new-clip behaviour (UX-DR7), not a missing file, so it must never
-      // poison `missingKeys` (finding #2: `missingKeys` is remembered forever, so a false
-      // positive here would permanently grey out a perfectly playable clip). A genuine
-      // decode/not-found failure (`MEDIA_ERR_SRC_NOT_SUPPORTED`, code 4) or a network error
-      // (code 2) -- or no `MediaError` at all, e.g. this synthetic-`error`-event test path --
-      // is still treated as missing, preserving the pre-existing "any other error" breadth.
-      // `MediaError` isn't a global in every test environment (jsdom doesn't define it), so
-      // the code is compared against the spec's own stable numeric constant rather than
-      // `MediaError.MEDIA_ERR_ABORTED`.
-      const MEDIA_ERR_ABORTED = 1
-      if (audioEl?.error?.code === MEDIA_ERR_ABORTED) return
+      // Only a genuine "cannot load/decode this clip" failure marks it missing:
+      // `MEDIA_ERR_SRC_NOT_SUPPORTED` (code 4, what a 404 or an undecodable file reports).
+      // `MEDIA_ERR_ABORTED` (code 1, `playKey()` swapping `src` mid-load) and
+      // `MEDIA_ERR_NETWORK` (code 2, a dropped connection -- the clip may well exist) must
+      // never poison `missingKeys`, which is remembered for the page's lifetime. `MediaError`
+      // isn't a global in every test environment, so the spec's numeric constant is used.
+      const MEDIA_ERR_SRC_NOT_SUPPORTED = 4
+      if (audioEl?.error?.code !== MEDIA_ERR_SRC_NOT_SUPPORTED) return
       missingKeys.add(state.key)
       setState({ key: state.key, status: 'missing' })
     })
@@ -82,6 +80,7 @@ export function subscribe(listener: Listener): () => void {
 /** Stops whatever is currently playing on the shared element (a new clip starting, or the
  * caller leaving the screen it was playing on) -- `pause()` + reset, never a new element. */
 export function stop(): void {
+  speakEpoch += 1
   const el = getAudioElement()
   el.pause()
   el.currentTime = 0
@@ -94,12 +93,30 @@ export function stop(): void {
  * via `subscribe`, never by rejecting this promise; `speak()` in `speech.ts` is the
  * silent-no-op wrapper existing callers use directly. */
 export async function playKey(key: string, url: string): Promise<void> {
+  speakEpoch += 1
   const el = getAudioElement()
   el.pause()
   el.currentTime = 0
   el.src = url
   setState({ key, status: 'playing' })
-  await el.play()
+  try {
+    await el.play()
+  } catch (err) {
+    // Playback never started (blocked, aborted by a newer clip, ...): don't stay "playing".
+    if (state.key === key && state.status === 'playing') setState({ key, status: 'idle' })
+    throw err
+  }
+}
+
+/** Starts a `speak()` request; pass the result to `isSpeakCurrent()` before playing. */
+export function beginSpeak(): number {
+  speakEpoch += 1
+  return speakEpoch
+}
+
+/** False once `stop()`, `playKey()` or another `beginSpeak()` ran after `ticket` was issued. */
+export function isSpeakCurrent(ticket: number): boolean {
+  return ticket === speakEpoch
 }
 
 // --- Audio unlock tracking ---

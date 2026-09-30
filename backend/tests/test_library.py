@@ -464,6 +464,53 @@ def test_home_skips_an_earlier_book_with_nothing_visible(
     assert lesson["book_id"] == BOOK_2024
 
 
+def _attempt_row(engine: Engine, profile_id: str, session_id: str, problem_id: str) -> None:
+    from hoctap.ids import new_id, utc_now
+    from hoctap.learning.models import progress_events
+
+    with engine.begin() as conn:
+        now = utc_now().isoformat()
+        conn.execute(
+            progress_events.insert().values(
+                id=new_id(),
+                session_id=session_id,
+                profile_id=profile_id,
+                kind="attempt",
+                problem_id=problem_id,
+                payload_json="{}",
+                occurred_at=now,
+                received_at=now,
+            )
+        )
+
+
+def test_home_continues_at_the_first_lesson_with_an_unattempted_problem(
+    client: TestClient, engine: Engine
+) -> None:
+    """Epic 2 review decision: "Học tiếp" skips Lessons whose visible Problems the Profile
+    has all attempted, and falls back to the first Lesson once everything is attempted."""
+    profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
+    doc_a = make_doc(BOOK_2020, "bai-1")
+    doc_b = make_doc(BOOK_2024, "bai-1")
+    Pub(engine, BOOK_2020, "2020", 1)(doc_a)
+    Pub(engine, BOOK_2024, "2024-25", 1)(doc_b)
+    session = client.post(
+        "/api/v1/sessions",
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK_2020, "unit_key": UNIT, "lesson_key": LESSON},
+        },
+    ).json()
+
+    assert client.get(f"{API}/home/{profile_id}").json()["lesson"]["book_id"] == BOOK_2020
+
+    _attempt_row(engine, profile_id, session["id"], doc_a["problem_id"])
+    assert client.get(f"{API}/home/{profile_id}").json()["lesson"]["book_id"] == BOOK_2024
+
+    _attempt_row(engine, profile_id, session["id"], doc_b["problem_id"])
+    assert client.get(f"{API}/home/{profile_id}").json()["lesson"]["book_id"] == BOOK_2020
+
+
 def test_home_nothing_visible_yet_is_a_friendly_null_not_a_crash(client: TestClient) -> None:
     profile_id = client.post("/api/v1/setup", json=SETUP).json()["id"]
     resp = client.get(f"{API}/home/{profile_id}")

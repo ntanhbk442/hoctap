@@ -1553,29 +1553,36 @@ def test_self_marked_dung_star_is_derived_by_counting_events(
     assert star_count == 2
 
 
-def test_retry_queue_counting_is_profile_wide_across_two_sessions(
+def test_staged_help_counts_wrong_attempts_within_the_session_only(
     client: TestClient, engine: Engine, profile_id: str
 ) -> None:
-    """A 1st wrong attempt in one Session and a 2nd wrong attempt in a DIFFERENT Session
-    (same Profile, same Problem/Part) still correctly escalates to the Solution -- staged
-    help and the Retry Queue are Profile-wide, not Session-scoped (this story's frozen
-    intent), with two REAL distinct `session_id`s, not just asserted by code inspection."""
+    """Epic 2 review decision (reverses Story 2.5's Profile-wide wording): a Part's wrong
+    attempts are counted per Session -- a 1st miss in Session A does not make Session B's
+    1st miss release the Solution; B's own 2nd miss does. The Retry Queue stays one row per
+    Problem (every wrong attempt refreshes it), whatever the Session."""
     doc = make_doc("bai-1")
     Pub(engine)(doc)
     session_a = _start(client, profile_id)
     session_b = _start(client, profile_id)
     assert session_a["id"] != session_b["id"]
-    first_wrong = _attempt(
-        doc["problem_id"], "a", [{"key": "s1", "value": "9"}], "2026-09-29T10:00:00+00:00"
-    )
-    second_wrong = _attempt(
-        doc["problem_id"], "a", [{"key": "s1", "value": "8"}], "2026-09-29T10:00:01+00:00"
-    )
-    _post(client, session_a["id"], profile_id, first_wrong)
-    resp = _post(client, session_b["id"], profile_id, second_wrong)
-    out = resp.json()[0]
-    assert out["correct"] is False
-    assert out["solution"] is not None
+
+    def wrong(value: str, second: int) -> dict[str, Any]:
+        return _attempt(
+            doc["problem_id"],
+            "a",
+            [{"key": "s1", "value": value}],
+            f"2026-09-29T10:00:0{second}+00:00",
+        )
+
+    first_a = _post(client, session_a["id"], profile_id, wrong("9", 0)).json()[0]
+    assert first_a["hint"] is not None and first_a["solution"] is None
+    # A different Session starts again: Hint, no Solution.
+    first_b = _post(client, session_b["id"], profile_id, wrong("8", 1)).json()[0]
+    assert first_b["correct"] is False
+    assert first_b["hint"] is not None and first_b["solution"] is None
+    # ... and a 2nd miss in that same Session releases the Solution.
+    second_b = _post(client, session_b["id"], profile_id, wrong("7", 2)).json()[0]
+    assert second_b["solution"] is not None
     with engine.connect() as conn:
         rows = conn.execute(
             select(progress_retry_items).where(
@@ -2182,3 +2189,236 @@ def test_streak_crosses_utc_local_calendar_day_boundary() -> None:
         streak_utc_date_as_today = compute_streak(conn, profile_id, date(2026, 9, 28))
     assert streak_today_local == 1
     assert streak_utc_date_as_today == 0
+
+
+# --- Epic 2 review fixes ---------------------------------------------------------------
+
+
+def test_default_voice_id_matches_the_configured_default() -> None:
+    from hoctap.learning.sessions import DEFAULT_VOICE_ID
+
+    assert DEFAULT_VOICE_ID == Settings(data_dir=Path("unused")).tts_voice_id
+
+
+def test_summary_foreign_profile_403_and_unknown_session_404(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    Pub(engine)(make_doc("bai-1"))
+    session = _start(client, profile_id)
+    _post(client, session["id"], profile_id, _completed())
+    _envelope(_summary(client, session["id"], "someone-else"), 403, "FORBIDDEN")
+    _envelope(_summary(client, str(uuid.uuid7()), profile_id), 404, "SESSION_NOT_FOUND")
+
+
+def test_post_events_retries_a_locked_database_then_succeeds(
+    client: TestClient,
+    engine: Engine,
+    profile_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    import hoctap.api.sessions as api_sessions
+
+    Pub(engine)(make_doc("bai-1"))
+    session = _start(client, profile_id)
+    real = api_sessions.service.post_event
+    calls = {"n": 0}
+
+    def flaky(*args: Any, **kwargs: Any):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OperationalError("INSERT", {}, Exception("database is locked"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(api_sessions.service, "post_event", flaky)
+    monkeypatch.setattr(api_sessions.time, "sleep", lambda _s: None)
+    event = _completed()
+    resp = _post(client, session["id"], profile_id, event)
+    assert resp.status_code == 201, resp.text
+    assert calls["n"] == 2
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(progress_events.c.id).where(progress_events.c.id == event["id"])
+        ).all()
+    assert len(rows) == 1
+
+
+def test_post_events_lock_error_propagates_after_the_last_attempt(
+    client: TestClient,
+    engine: Engine,
+    profile_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    import hoctap.api.sessions as api_sessions
+
+    Pub(engine)(make_doc("bai-1"))
+    session = _start(client, profile_id)
+    calls = {"n": 0}
+
+    def always_locked(*args: Any, **kwargs: Any):
+        calls["n"] += 1
+        raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(api_sessions.service, "post_event", always_locked)
+    monkeypatch.setattr(api_sessions.time, "sleep", lambda _s: None)
+    with pytest.raises(OperationalError):
+        _post(client, session["id"], profile_id, _completed())
+    assert calls["n"] == api_sessions._LOCK_RETRY_ATTEMPTS
+
+
+def test_session_completed_stores_the_device_time_not_the_server_time(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Epic 2 review decision: `completed_at` (the Streak/dashboard/badge day) is the
+    `session_completed` event's device `occurred_at`. 16:30Z is 23:30 on the 28th in
+    Asia/Ho_Chi_Minh, even though the server receives it on a later day."""
+    from datetime import date
+
+    from hoctap.ids import from_iso
+    from hoctap.learning.summary import LOCAL_TZ, compute_streak
+
+    Pub(engine)(make_doc("bai-1"))
+    session = _start(client, profile_id)
+    event = _completed("2026-09-28T16:30:00+00:00")
+    assert _post(client, session["id"], profile_id, event).status_code == 201
+    with engine.connect() as conn:
+        completed_at = conn.execute(
+            select(progress_sessions.c.completed_at).where(progress_sessions.c.id == session["id"])
+        ).scalar_one()
+        assert from_iso(completed_at).astimezone(LOCAL_TZ).date() == date(2026, 9, 28)
+        assert compute_streak(conn, profile_id, date(2026, 9, 28)) == 1
+        assert compute_streak(conn, profile_id, date(2026, 9, 29)) == 1  # alive until tomorrow
+        assert compute_streak(conn, profile_id, date(2026, 9, 30)) == 0
+    # An idempotent re-post never moves it.
+    assert _post(client, session["id"], profile_id, event).status_code == 201
+    with engine.connect() as conn:
+        assert (
+            conn.execute(
+                select(progress_sessions.c.completed_at).where(
+                    progress_sessions.c.id == session["id"]
+                )
+            ).scalar_one()
+            == completed_at
+        )
+
+
+def test_session_completed_with_unparseable_device_time_falls_back_to_server_time(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    from hoctap.ids import from_iso
+
+    Pub(engine)(make_doc("bai-1"))
+    session = _start(client, profile_id)
+    assert _post(client, session["id"], profile_id, _completed("not-a-time")).status_code == 201
+    with engine.connect() as conn:
+        completed_at = conn.execute(
+            select(progress_sessions.c.completed_at).where(progress_sessions.c.id == session["id"])
+        ).scalar_one()
+    from_iso(completed_at)  # a valid ISO timestamp, not the garbage string
+
+
+def test_summary_counts_a_fallback_problem_by_its_earliest_self_mark(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Epic 2 review decision (reverses Story 2.10's frozen limitation): the first
+    `self_marked` of a fallback Problem is its first-try result in the summary and replay
+    set -- correct counts as right, a later change of mind does not, and no evidence at all
+    stays wrong."""
+    right, first_wrong, unmarked = (make_fallback_doc(f"bai-{i}") for i in range(3))
+    Pub(engine)(right, first_wrong, unmarked)
+    session = _start(client, profile_id)
+
+    def mark(doc: dict[str, Any], correct: bool) -> None:
+        resp = _post(
+            client,
+            session["id"],
+            profile_id,
+            _fallback_event("self_marked", doc["problem_id"], {"correct": correct}),
+        )
+        assert resp.status_code == 201, resp.text
+
+    mark(right, True)
+    mark(first_wrong, False)
+    mark(first_wrong, True)  # a later "đúng" does not rewrite the first-try result
+    _post(client, session["id"], profile_id, _completed())
+
+    summary = _summary(client, session["id"], profile_id).json()
+    assert summary["total"] == 3
+    assert summary["first_try_correct"] == 1
+    assert summary["wrong_problem_ids"] == [first_wrong["problem_id"], unmarked["problem_id"]]
+    replay = _start_replay(client, profile_id, session["id"]).json()
+    assert replay["problem_ids"] == summary["wrong_problem_ids"]
+
+
+def test_all_fallback_problems_self_marked_correct_leave_nothing_to_replay(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _fallback_event("self_marked", doc["problem_id"], {"correct": True}),
+    )
+    _post(client, session["id"], profile_id, _completed())
+    summary = _summary(client, session["id"], profile_id).json()
+    assert (summary["first_try_correct"], summary["total"]) == (1, 1)
+    _envelope(_start_replay(client, profile_id, session["id"]), 422, "REPLAY_NO_WRONG_PROBLEMS")
+
+
+def test_bundle_done_in_session_is_session_scoped_for_practice(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Resume ("Tiếp tục") support: a graded Problem is done in THIS Session once every
+    graded Part is correct or has had its Solution released; `attempted` keeps its
+    Profile-wide meaning."""
+    doc = make_multi_slot_doc("bai-1")  # a single Part "a"
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+
+    def done(sid: str) -> tuple[bool, bool]:
+        p = _bundle(client, sid, profile_id).json()["problems"][0]
+        return p["done_in_session"], p["attempted"]
+
+    assert done(session["id"]) == (False, False)
+
+    def wrong(v: str, s: int) -> dict[str, Any]:
+        value = [{"key": "s1", "value": v}, {"key": "s2", "value": v}]
+        return _attempt(doc["problem_id"], "a", value, f"2026-09-29T10:00:0{s}+00:00")
+
+    assert _post(client, session["id"], profile_id, wrong("9", 0)).json()[0]["solution"] is None
+    assert done(session["id"]) == (False, True)  # only a Hint so far
+    assert _post(client, session["id"], profile_id, wrong("8", 1)).json()[0]["solution"]
+    assert done(session["id"]) == (True, True)  # Solution released -> done
+
+    # A fresh Session of the same Profile: attempted profile-wide, but not done here.
+    other = _start(client, profile_id)
+    assert done(other["id"]) == (False, True)
+    both = [{"key": "s1", "value": "5"}, {"key": "s2", "value": "7"}]
+    right = _attempt(doc["problem_id"], "a", both, "2026-09-29T11:00:00+00:00")
+    assert _post(client, other["id"], profile_id, right).json()[0]["correct"]
+    assert done(other["id"]) == (True, True)
+
+
+def test_bundle_done_in_session_for_a_fallback_problem_needs_a_self_mark(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    def is_done() -> bool:
+        return _bundle(client, session["id"], profile_id).json()["problems"][0]["done_in_session"]
+
+    assert is_done() is False
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _fallback_event("self_marked", doc["problem_id"], {"correct": False}),
+    )
+    assert is_done() is True

@@ -128,20 +128,19 @@ export default function ProblemPlayer({
   const [partIndex, setPartIndex] = useState(0)
   const part = problem.parts[partIndex] as ChildPart | undefined
 
-  // Story 2.9: auto-play the Problem's instruction once when it opens -- this component is
-  // remounted per Problem (see `SessionPlayer`'s `key={problems[...].problem.problem_id}`),
-  // never per Part, so an empty-deps effect here fires exactly once per Problem open, not on
-  // every Part advance. Gated on both `autoPlay` (the Profile's setting) and the page having
-  // been unlocked by a user gesture already (Boundaries & Constraints: never attempted, never
-  // retried, before unlock). The cleanup stops the shared player on unmount -- covers both a
-  // Part-to-Part remount lower in the tree and leaving the Session entirely.
+  // Story 2.9: the shared player is stopped when this Problem unmounts (leaving the Session,
+  // or moving on to the next Problem -- `SessionPlayer` remounts this component per Problem).
+  useEffect(() => () => stopAudio(), [])
+  // Auto-play once per Part as it renders: the Problem instruction when the Problem opens
+  // (first Part), then each later Part's own prompt. Gated on both `autoPlay` (the Profile's
+  // setting) and the page having been unlocked by a user gesture already (never attempted,
+  // never retried, before unlock).
   useEffect(() => {
-    if (autoPlay && isAudioUnlocked()) {
-      void speak(problem.instruction)
-    }
-    return () => stopAudio()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally once per Problem
-  }, [])
+    if (!autoPlay || !isAudioUnlocked()) return
+    const text = partIndex === 0 ? problem.instruction : part?.prompt
+    if (text) void speak(text)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per Part index
+  }, [partIndex])
 
   if (!part) return null
 
@@ -247,6 +246,29 @@ function InstructionLine({ instruction }: { instruction: string }) {
   )
 }
 
+/** The wrong-answer Hint bubble with a working 🔊 replay (the hint is also spoken once
+ * automatically when it appears; the child is a pre-reader, so replay must be free). */
+function SpokenHint({ text }: { text: string }) {
+  const [hintKey, setHintKey] = useState<string | null>(null)
+  const [playerState, setPlayerState] = useState<PlayerState>(() => getPlayerState())
+
+  useEffect(() => {
+    let cancelled = false
+    void speechKey(text).then((key) => {
+      if (!cancelled) setHintKey(key)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [text])
+
+  useEffect(() => subscribePlayer(setPlayerState), [])
+
+  const speaking =
+    hintKey !== null && playerState.key === hintKey && playerState.status === 'playing'
+  return <HintBubble text={text} speaking={speaking} onSpeak={() => void speak(text)} />
+}
+
 interface PartPlayerProps {
   sessionId: string
   profileId: string
@@ -299,9 +321,14 @@ function PartPlayer({
   const submittingRef = useRef(false)
   // The quiz "Đã lưu" advance timer; cleared on unmount so it cannot fire on stale state.
   const savedTimerRef = useRef<number | null>(null)
+  // The correct-advance and wrong-feedback timers, cleared on unmount too.
+  const advanceTimerRef = useRef<number | null>(null)
+  const feedbackTimerRef = useRef<number | null>(null)
   useEffect(
     () => () => {
       if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current)
+      if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current)
+      if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current)
     },
     [],
   )
@@ -507,6 +534,9 @@ function PartPlayer({
 
   async function handleCheck() {
     if (disabled || !isComplete()) return
+    // After a wrong answer the guard is normally re-armed by the first edit
+    // (`retryIfSettled`); pressing ✔ again on an unchanged answer must still submit.
+    if (phase === 'wrong-hint') submittingRef.current = false
     if (submittingRef.current) return
     submittingRef.current = true
     setPhase('submitting')
@@ -540,11 +570,11 @@ function PartPlayer({
         const chosen = PRAISE_KEYS[Math.floor(Math.random() * PRAISE_KEYS.length)]
         setPraiseKey(chosen)
         void speak(phrase(chosen))
-        window.setTimeout(onAdvance, CORRECT_ADVANCE_DELAY_MS)
+        advanceTimerRef.current = window.setTimeout(onAdvance, CORRECT_ADVANCE_DELAY_MS)
       } else {
         setPhase('wrong-shake')
         void playBoop()
-        window.setTimeout(() => {
+        feedbackTimerRef.current = window.setTimeout(() => {
           if (result.solution) {
             setPhase('wrong-solution')
             setSolutionRevealed(1)
@@ -657,7 +687,7 @@ function PartPlayer({
             {submitError}
           </p>
         )}
-        {phase === 'wrong-hint' && attemptResult?.hint && <HintBubble text={attemptResult.hint} />}
+        {phase === 'wrong-hint' && attemptResult?.hint && <SpokenHint text={attemptResult.hint} />}
         {phase === 'wrong-solution' && attemptResult?.solution && (
           <>
             <SolutionPanel steps={attemptResult.solution.steps} revealedCount={solutionRevealed} />
@@ -766,6 +796,13 @@ function FallbackPartPlayer({
   const [justEarned, setJustEarned] = useState(false)
   const [praiseKey, setPraiseKey] = useState<(typeof PRAISE_KEYS)[number]>(PRAISE_KEYS[0])
   const submittingRef = useRef(false)
+  const advanceTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current)
+    },
+    [],
+  )
   const postEvent = usePostEvent(sessionId)
 
   function imageUrl(imageKey: string): string | undefined {
@@ -852,7 +889,7 @@ function FallbackPartPlayer({
         setPhase('neutral')
         void speak(phrase('self_mark_neutral_ack'))
       }
-      window.setTimeout(onAdvance, CORRECT_ADVANCE_DELAY_MS)
+      advanceTimerRef.current = window.setTimeout(onAdvance, CORRECT_ADVANCE_DELAY_MS)
     } catch (err) {
       submittingRef.current = false
       if (err instanceof QueuedOfflineError) {

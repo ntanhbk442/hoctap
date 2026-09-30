@@ -8,7 +8,7 @@
 // `DEFAULT_VOICE_ID` mirrors `Settings.tts_voice_id`'s default (`backend/hoctap/config.py`)
 // -- there is no endpoint exposing it, so this is a deliberate, documented duplication (see
 // this story's Implementation Notes), not a new backend concept.
-import { playKey } from './player'
+import { beginSpeak, isSpeakCurrent, playKey } from './player'
 
 export const DEFAULT_VOICE_ID = 'vi-VN-HoaiMyNeural'
 
@@ -95,7 +95,10 @@ export function speechUrl(key: string): string {
  */
 export async function speak(text: string): Promise<void> {
   try {
+    const ticket = beginSpeak()
     const key = await speechKey(text)
+    // Cancelled (screen left -> `stop()`) or superseded while hashing: stay silent.
+    if (!isSpeakCurrent(ticket)) return
     await playKey(key, speechUrl(key))
   } catch {
     // Silent no-op -- see the module docstring.

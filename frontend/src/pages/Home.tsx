@@ -15,8 +15,8 @@ import ParentLock from './ParentLock'
 
 /**
  * The child-facing Home (Story 2.3): a Profile picker (skipped when there is only one
- * Profile), then "Học tiếp" (the first Lesson with a visible Problem, in the child's own
- * Grade) and "Sách" (Library). Keeps `Home`'s original setup-redirect/loading/error
+ * Profile), then "Học tiếp" (the first Lesson with a still-unattempted visible Problem,
+ * in the child's own Grade) and "Sách" (Library). Keeps `Home`'s original setup-redirect/loading/error
  * handling around the (former placeholder) server-status screen.
  */
 export default function Home() {
@@ -113,6 +113,7 @@ function HomeContent({ profile }: { profile: Profile }) {
 
   const startLesson = () => {
     if (!lesson) return
+    if (startSession.isPending) return // a second tap must not start a second Session
     setStartedFrom('lesson')
     startSession.mutate(
       {
@@ -161,6 +162,7 @@ function HomeContent({ profile }: { profile: Profile }) {
   }
 
   const startRetry = () => {
+    if (startSession.isPending) return // a second tap must not start a second Session
     setStartedFrom('retry')
     startSession.mutate(
       { profileId: profile.id, ref: { kind: 'retry' }, mode: 'retry' },

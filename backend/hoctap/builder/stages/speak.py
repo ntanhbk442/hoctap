@@ -147,6 +147,10 @@ def run_speak(
         except TtsError as exc:
             report.failed[key] = str(exc)
             continue
+        if not audio:
+            # Never write a zero-byte mp3: a later run would treat the file as done.
+            report.failed[key] = "âm thanh rỗng / the engine returned empty audio"
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".mp3.tmp")
         tmp.write_bytes(audio)

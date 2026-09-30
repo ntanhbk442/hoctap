@@ -51,7 +51,8 @@ export default function SessionPlayer() {
   // The client never grades; this is the only source of a quiz's results.
   const [quizSubmitted, setQuizSubmitted] = useState<EventOut | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  // Story 3.4: a resumed quiz (Home "Tiếp tục") starts at its first unanswered Problem.
+  // Home "Tiếp tục": any mode resumes at the first Problem not yet finished IN THIS Session
+  // (the bundle's Session-scoped `done_in_session`), skipping whole finished chunks.
   const [resumed, setResumed] = useState(false)
   // Story 2.11: true once ANY event (an attempt/self_marked/fallback_revealed/
   // session_completed, from anywhere below) got queued to the offline outbox instead of
@@ -70,8 +71,8 @@ export default function SessionPlayer() {
   const profileId = getCurrentProfileId() ?? ''
   const bundle = useSessionBundle(sessionId, profileId, chunk)
   // Story 2.9: the current Profile's `auto_play` setting gates auto-playing a Problem's
-  // instruction on open. Defaults to true while Profiles are still loading/unknown, matching
-  // `Profile.auto_play`'s own default-on -- never blocks the player on this fetch.
+  // instruction on open. Defaults to true when the Profile is unknown (fetch failed),
+  // matching `Profile.auto_play`'s own default-on; the Problem itself waits for the fetch.
   const profiles = useProfiles()
   const autoPlay = profiles.data?.find((p) => p.id === profileId)?.auto_play ?? true
   const sessionGone =
@@ -80,9 +81,13 @@ export default function SessionPlayer() {
   const problems = bundle.data?.problems ?? []
   const isQuiz = bundle.data?.mode === 'quiz'
   if (bundle.data && !resumed) {
-    setResumed(true)
-    if (bundle.data.mode === 'quiz') {
-      const first = bundle.data.problems.findIndex((p) => !p.attempted)
+    const first = bundle.data.problems.findIndex((p) => !p.done_in_session)
+    if (first === -1 && bundle.data.chunk < bundle.data.chunk_count) {
+      // The whole chunk is finished: look at the next one (`resumed` stays false).
+      setChunk(bundle.data.chunk + 1)
+      setProblemIndex(0)
+    } else {
+      setResumed(true)
       setProblemIndex(first === -1 ? bundle.data.problems.length : first)
     }
   }
@@ -143,7 +148,7 @@ export default function SessionPlayer() {
       // offline screen; the retry below (or the app-wide `online` auto-flush) re-arms
       // this same effect via `retryTick` once the queue has actually drained.
       if (err instanceof QueuedOfflineError) setOffline(true)
-      else if (isQuiz) setSubmitError(errorMessage(err))
+      else setSubmitError(errorMessage(err))
     })
     // `postEvent` is a fresh `useMutation()` object identity on every render -- only
     // `trueEnd`/`completedPosted`/`retryTick` should ever re-arm this effect.
@@ -235,9 +240,9 @@ export default function SessionPlayer() {
             </div>
           ) : trueEnd ? (
             <>
-              {isQuiz && quizSubmitted && submitError && !completedPosted && (
-                // `quiz_submitted` went through but `session_completed` failed for a
-                // non-offline reason: say so, and let the child re-arm the post.
+              {submitError && !completedPosted && (
+                // `session_completed` failed for a non-offline reason (any mode; for a quiz
+                // `quiz_submitted` already went through): say so, and re-arm the post.
                 <div className="session-done">
                   <p role="alert" className="form-error">
                     {submitError}
@@ -254,12 +259,15 @@ export default function SessionPlayer() {
                 </div>
               )}
               {isQuiz && quizSubmitted && <QuizResultsScreen submitted={quizSubmitted} />}
-              <SessionSummaryScreen
-                autoPlay={autoPlay}
-                summary={summary}
-                onReplay={handleReplay}
-                replayPending={startReplay.isPending}
-              />
+              {!(submitError && !completedPosted) && (
+                <SessionSummaryScreen
+                  autoPlay={autoPlay}
+                  summary={summary}
+                  onReplay={handleReplay}
+                  replayPending={startReplay.isPending}
+                  replayError={startReplay.isError ? errorMessage(startReplay.error) : null}
+                />
+              )}
             </>
           ) : chunkDone ? (
             <div className="session-done">
@@ -269,6 +277,10 @@ export default function SessionPlayer() {
                 </button>
               )}
             </div>
+          ) : profiles.isPending ? (
+            // The Problem's auto-play must know the Profile's `auto_play` before it opens
+            // (usually already cached from Home), or it could speak against the setting.
+            <p>Đang tải…</p>
           ) : (
             <>
               {isQuiz && (
@@ -312,6 +324,7 @@ interface SessionSummaryScreenProps {
   summary: UseQueryResult<SummaryOut, unknown>
   onReplay: () => void
   replayPending: boolean
+  replayError: string | null
 }
 
 /** The real summary screen (Story 2.10): shown once at the true end of a Session, after
@@ -325,6 +338,7 @@ function SessionSummaryScreen({
   summary,
   onReplay,
   replayPending,
+  replayError,
 }: SessionSummaryScreenProps) {
   const newBadges = summary.data?.new_badges ?? []
   // Story 3.2: fanfare + 🔊 the moment the summary resolves with 1+ newly earned badges
@@ -390,6 +404,11 @@ function SessionSummaryScreen({
         <button type="button" onClick={onReplay} disabled={replayPending}>
           {phrase('practice_wrong_again')}
         </button>
+      )}
+      {replayError && (
+        <p role="alert" className="form-error">
+          {replayError}
+        </p>
       )}
     </div>
   )

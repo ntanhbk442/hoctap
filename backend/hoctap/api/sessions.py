@@ -162,6 +162,8 @@ class BundleProblemOut(BaseModel):
     page_urls: list[str]
     audio: dict[str, str]
     attempted: bool
+    # Session-scoped "finished in this Session" (every mode); the player resumes after it.
+    done_in_session: bool = False
 
 
 class BundleOut(BaseModel):
@@ -188,6 +190,7 @@ def _bundle_out(b: service.BundleOut) -> BundleOut:
                 page_urls=p.page_urls,
                 audio=p.audio,
                 attempted=p.attempted,
+                done_in_session=p.done_in_session,
             )
             for p in b.problems
         ],

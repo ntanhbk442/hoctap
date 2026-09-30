@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { ChildPart, WidgetProps } from './types'
 import './widgets.css'
 
@@ -27,12 +27,13 @@ export default function MatchWidget({
   onRemovePair,
   slotState,
   disabled,
+  imageUrl,
 }: WidgetProps<MatchView>) {
   const containerRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef(new Map<string, HTMLElement>())
   const [lines, setLines] = useState<Line[]>([])
 
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     const container = containerRef.current
     if (!container) return
     const rect = container.getBoundingClientRect()
@@ -55,6 +56,19 @@ export default function MatchWidget({
     setLines(next)
   }, [pairs])
 
+  useLayoutEffect(() => {
+    measure()
+  }, [measure])
+
+  // A tablet rotation / window resize moves the items without changing `pairs`.
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measure())
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [measure])
+
   const graded = slotState('__all__')
   const variant = graded === 'correct' ? 'correct' : graded === 'wrong' ? 'wrong' : undefined
   const pairedRight = new Set(Object.values(pairs))
@@ -64,6 +78,13 @@ export default function MatchWidget({
       if (el) itemRefs.current.set(key, el)
       else itemRefs.current.delete(key)
     }
+  }
+
+  function renderItem(item: MatchView['left'][number]) {
+    if (item.text != null) return item.text
+    const url = item.image_key ? imageUrl(item.image_key) : undefined
+    if (url) return <img src={url} alt="" />
+    return item.image_key ? <span aria-hidden="true">{item.item_key}</span> : null
   }
 
   return (
@@ -97,7 +118,7 @@ export default function MatchWidget({
               disabled={disabled}
               onClick={() => (paired ? onRemovePair(item.item_key) : onPickItem(item.item_key))}
             >
-              {item.text ?? (item.image_key && <span aria-hidden="true">{item.item_key}</span>)}
+              {renderItem(item)}
             </button>
           )
         })}
@@ -122,7 +143,7 @@ export default function MatchWidget({
                 }
               }}
             >
-              {item.text ?? (item.image_key && <span aria-hidden="true">{item.item_key}</span>)}
+              {renderItem(item)}
             </button>
           )
         })}

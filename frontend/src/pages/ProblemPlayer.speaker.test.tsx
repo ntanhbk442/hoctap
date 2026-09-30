@@ -55,6 +55,7 @@ function bundleProblem(): BundleProblemOut {
     page_urls: ['/assets-data/pages/toan1-2020-q1/p012.jpg'],
     audio: {},
     attempted: false,
+    done_in_session: false,
   }
 }
 

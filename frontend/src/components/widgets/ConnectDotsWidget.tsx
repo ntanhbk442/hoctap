@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChildPart, WidgetProps } from './types'
 import './widgets.css'
 
@@ -21,6 +21,8 @@ export default function ConnectDotsWidget({
   imageUrl,
 }: WidgetProps<ConnectDotsView>) {
   const [wiggling, setWiggling] = useState<number | null>(null)
+  const wiggleTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(wiggleTimer.current), [])
   const url = imageUrl(part.image_key)
   const graded = slotState('__all__')
   const variant = graded === 'correct' ? 'correct' : graded === 'wrong' ? 'wrong' : undefined
@@ -30,7 +32,8 @@ export default function ConnectDotsWidget({
     const accepted = onTapDot(n)
     if (!accepted) {
       setWiggling(n)
-      window.setTimeout(() => setWiggling((current) => (current === n ? null : current)), WIGGLE_MS)
+      window.clearTimeout(wiggleTimer.current)
+      wiggleTimer.current = window.setTimeout(() => setWiggling((current) => (current === n ? null : current)), WIGGLE_MS)
     }
   }
 

@@ -213,7 +213,11 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
         ).scalar_one_or_none()
         if grade is None:
             raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
-        lesson = library.home_lesson(conn, grade)
+        lesson = library.home_lesson(
+            conn,
+            grade,
+            lambda book_id: learning_progress.attempted_lesson_counts(conn, book_id, profile_id),
+        )
         unfinished = learning_sessions.find_unfinished_session(conn, profile_id)
         today = now.astimezone(LOCAL_TZ).date()
         due = learning_assignments.home_assignment(conn, profile_id, today)

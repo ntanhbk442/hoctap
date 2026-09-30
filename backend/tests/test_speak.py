@@ -375,3 +375,57 @@ def test_cli_edge_tts_proceeds_without_yes_spend(
     code = cli.main(["build", "speak-missing"])
     assert code == 0
     assert len(fake.calls) > 0
+
+
+def _google_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config = tmp_path / "hoctap.toml"
+    config.write_text('[build]\ntts_engine = "google-tts"\n', encoding="utf-8")
+    monkeypatch.setenv("HOCTAP_CONFIG", str(config))
+
+
+def test_cli_cloud_engine_with_yes_spend_and_generous_cap_synthesizes(
+    monkeypatch: pytest.MonkeyPatch, cli_env: Path, tmp_path: Path
+) -> None:
+    _google_config(monkeypatch, tmp_path)
+    fake = FakeTtsEngine()
+    monkeypatch.setattr(cli, "_tts_client", lambda settings: fake)
+    code = cli.main(["build", "speak-missing", "--yes-spend", "--max-total-usd", "100"])
+    assert code == 0
+    assert len(fake.calls) > 0
+
+
+def test_cli_spend_cap_stops_cloud_calls_and_exits_1(
+    monkeypatch: pytest.MonkeyPatch, cli_env: Path, tmp_path: Path
+) -> None:
+    """A cap below the cost of any single clip starts no call at all; every key is
+    reported as failed (budget reached), so the run exits 1."""
+    _google_config(monkeypatch, tmp_path)
+    fake = FakeTtsEngine()
+    monkeypatch.setattr(cli, "_tts_client", lambda settings: fake)
+    code = cli.main(["build", "speak-missing", "--yes-spend", "--max-total-usd", "0.0000001"])
+    assert code == 1
+    assert fake.calls == []
+
+
+def test_cli_exits_1_when_an_engine_call_fails(
+    monkeypatch: pytest.MonkeyPatch, cli_env: Path
+) -> None:
+    def broken(text: str, voice_id: str) -> bytes:
+        raise TtsError("boom")
+
+    monkeypatch.setattr(cli, "_tts_client", lambda settings: FakeTtsEngine(responder=broken))
+    assert cli.main(["build", "speak-missing"]) == 1
+
+
+def test_empty_audio_is_a_recorded_failure_and_writes_no_file(
+    engine: Engine, repo_root: Path, data_dir: Path
+) -> None:
+    """Never write a zero-byte mp3: a later run would treat the file as already done."""
+    publish(engine, make_doc())
+    fake = FakeTtsEngine(responder=lambda text, voice_id: b"")
+    report = speak.run_speak(engine, data_dir, repo_root, fake, VOICE)
+    assert report.synthesized == 0
+    assert report.failed
+    with engine.connect() as conn:
+        refs = speak.collect_refs(conn, repo_root, VOICE)
+    assert speak.pending_keys(data_dir, refs) == sorted(refs)

@@ -86,24 +86,21 @@ def session_wrong_problem_ids(conn: Any, session_id: str) -> list[str]:
     """The frozen `problem_ids` of `session_id` that were NOT answered correctly on the
     first try, in their original Session order.
 
-    Reads ONLY `attempt` events, per the frozen spec text ("find the EARLIEST stored
-    `attempt` event ... and check its stored `correct` field") and the Story 2.8
-    `deferred-work.md` entry it echoes: `self_marked`/`fallback_revealed` are a
-    self-report/telemetry marker, never a `grade_part()` verdict, and must NOT be counted
-    into first-try accuracy. Every `attempt` event's Part gets its own earliest-by-rowid
-    verdict (the same insertion-order tiebreak `_part_currently_correct()` established in
+    A graded Problem reads `attempt` events (per the frozen spec text: find the EARLIEST
+    stored `attempt` event of each Part and check its stored `correct` field; earliest by
+    rowid, the same insertion-order tiebreak `_part_currently_correct()` established in
     Story 2.5 -- `received_at`/the client id are not reliable orderings within one batch).
     The Problem counts as first-try-correct only if EVERY Part it has any `attempt` for was
     correct on that Part's own earliest attempt (implementer's call for a multi-Part
     Problem -- documented in this story's Implementation Notes).
 
-    A Problem with NO `attempt` event within this Session at all -- either a `fallback`-type
-    Problem (Story 2.8's self-check never posts `attempt`, only `self_marked`) or an
-    unsupported Part type skipped straight past -- is treated as NOT first-try-correct:
-    absence of evidence is not evidence of a correct first try. This is a known, documented
-    limitation for fallback Problems specifically (a child who self-marked "đúng" still
-    sees that Problem counted as "wrong"/offered for replay) -- see this story's
-    Implementation Notes and the extended `deferred-work.md` entry.
+    A `fallback`-type Problem never posts an `attempt` (Story 2.8's self-check only posts
+    `self_marked`). Epic 2 review decision (reversing Story 2.10's original wording): its
+    first-try result is the `correct` flag of the EARLIEST `self_marked` event for it in
+    this Session -- true counts as correct, false as wrong. A Problem with neither an
+    `attempt` nor a `self_marked` event in this Session is still NOT first-try-correct:
+    absence of evidence is not evidence of a correct first try. `fallback_revealed` is pure
+    telemetry and never counts.
     """
     session = conn.execute(
         select(progress_sessions.c.problem_ids_json).where(progress_sessions.c.id == session_id)
@@ -137,10 +134,28 @@ def session_wrong_problem_ids(conn: Any, session_id: str) -> list[str]:
         correct = payload.get("correct")
         parts[part_key] = bool(correct)
 
+    # problem_id -> first-seen self-mark `correct` (fallback Problems only have these).
+    first_self_mark: dict[str, bool] = {}
+    for row in conn.execute(
+        select(progress_events.c.problem_id, progress_events.c.payload_json)
+        .where(
+            progress_events.c.session_id == session_id,
+            progress_events.c.kind == "self_marked",
+        )
+        .order_by(text("progress_events.rowid ASC"))
+    ):
+        if row.problem_id is None or row.problem_id in first_self_mark:
+            continue
+        first_self_mark[row.problem_id] = json.loads(row.payload_json).get("correct") is True
+
     wrong: list[str] = []
     for problem_id in problem_ids:
         parts = first_seen.get(problem_id)
-        if not parts or not all(parts.values()):
+        if parts:
+            ok = all(parts.values())
+        else:
+            ok = first_self_mark.get(problem_id, False)
+        if not ok:
             wrong.append(problem_id)
     return wrong
 

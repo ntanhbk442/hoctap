@@ -561,3 +561,44 @@ describe('Home', () => {
     })
   })
 })
+
+describe('Home: double-tap guard on the other cards (Epic 2 review)', () => {
+  function pendingStart(homeBody: unknown) {
+    const json = { 'Content-Type': 'application/json' }
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') return new Promise<Response>(() => {})
+      const path = url.split('?')[0]
+      const body =
+        path === '/api/v1/setup/status'
+          ? SETUP_OK.body
+          : path === '/api/v1/profiles'
+            ? ONE_PROFILE
+            : homeBody
+      return new Response(JSON.stringify(body), { status: 200, headers: json })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return () => fetchMock.mock.calls.filter(([, i]) => i?.method === 'POST').length
+  }
+
+  it('"Học tiếp" starts only one Session on rapid taps', async () => {
+    const posts = pendingStart(HOME_WITH_LESSON.body)
+    renderAt('/', <Home />)
+    const card = await screen.findByRole('button', { name: 'Học tiếp' })
+    fireEvent.click(card)
+    fireEvent.click(card)
+    await waitFor(() => expect(posts()).toBe(1))
+    fireEvent.click(card)
+    expect(posts()).toBe(1)
+  })
+
+  it('"Luyện lại" starts only one Session on rapid taps', async () => {
+    const posts = pendingStart(HOME_WITH_RETRY_DUE.body)
+    renderAt('/', <Home />)
+    const card = await screen.findByRole('button', { name: 'Luyện lại' })
+    fireEvent.click(card)
+    fireEvent.click(card)
+    await waitFor(() => expect(posts()).toBe(1))
+    fireEvent.click(card)
+    expect(posts()).toBe(1)
+  })
+})

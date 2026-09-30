@@ -95,7 +95,62 @@ describe('postEventsOrQueue', () => {
   })
 })
 
+describe('postEventsOrQueue ordering (Epic 2 review)', () => {
+  function recordingFetch() {
+    const order: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse((init?.body as string) ?? '{}')
+        order.push(...body.events.map((e: { id: string }) => e.id))
+        return new Response(JSON.stringify(body.events.map((e: { id: string }) => eventOut(e.id))), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }),
+    )
+    return order
+  }
+
+  it('flushes older queued events first, then posts the new one', async () => {
+    const store = new MemoryOutboxStore()
+    await store.add({ id: 'old', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('old') })
+    const order = recordingFetch()
+    await postEventsOrQueue(store, SESSION_ID, PROFILE_ID, [attemptEvent('new')])
+    expect(order).toEqual(['old', 'new'])
+    expect(await store.count()).toBe(0)
+  })
+
+  it('queues the new event behind older ones (without posting it) when the flush cannot finish', async () => {
+    const store = new MemoryOutboxStore()
+    await store.add({ id: 'old', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('old') })
+    const fetchMock = mockApi({ 'POST /api/v1/sessions/session-1/events': { status: 502 } })
+    await expect(
+      postEventsOrQueue(store, SESSION_ID, PROFILE_ID, [attemptEvent('new')]),
+    ).rejects.toBeInstanceOf(QueuedOfflineError)
+    expect((await store.listAll()).map((i) => i.id)).toEqual(['old', 'new'])
+    expect(fetchMock).toHaveBeenCalledTimes(1) // only the old event was tried
+  })
+})
+
 describe('flushOutbox', () => {
+  it('is single-flight: concurrent callers share one run and post each event once', async () => {
+    const store = new MemoryOutboxStore()
+    await store.add({ id: 'e1', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('e1') })
+    await store.add({ id: 'e2', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('e2') })
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) ?? '{}')
+      return new Response(JSON.stringify([eventOut(body.events[0].id)]), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const [a, b] = await Promise.all([flushOutbox(store), flushOutbox(store)])
+    expect([a, b]).toEqual(['drained', 'drained'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('drains an empty store as a no-op', async () => {
     const store = new MemoryOutboxStore()
     await expect(flushOutbox(store)).resolves.toBe('drained')

@@ -32,14 +32,32 @@ export async function postEventsOrQueue(
   profileId: string,
   events: EventIn[],
 ): Promise<EventOut[]> {
+  // Strict FIFO (AD-10): never post a new event ahead of older queued ones. Drain first
+  // (serialised with any other flush); if anything is still queued, queue behind it.
+  if ((await store.count()) > 0) {
+    await flushOutbox(store)
+    if ((await store.count()) > 0) {
+      await queueEvents(store, sessionId, profileId, events)
+      throw new QueuedOfflineError()
+    }
+  }
   try {
     return await postSessionEvents(sessionId, profileId, events)
   } catch (err) {
     if (!(err instanceof NetworkError)) throw err
-    for (const event of events) {
-      await store.add({ id: event.id, sessionId, profileId, event })
-    }
+    await queueEvents(store, sessionId, profileId, events)
     throw new QueuedOfflineError()
+  }
+}
+
+async function queueEvents(
+  store: OutboxStore,
+  sessionId: string,
+  profileId: string,
+  events: EventIn[],
+): Promise<void> {
+  for (const event of events) {
+    await store.add({ id: event.id, sessionId, profileId, event })
   }
 }
 
@@ -67,7 +85,20 @@ export type FlushOutcome = 'drained' | 'stopped'
  * queue, and no different in kind from `progress_events` already being append-only/never
  * silently discarded elsewhere in this codebase.
  */
-export async function flushOutbox(store: OutboxStore): Promise<FlushOutcome> {
+export function flushOutbox(store: OutboxStore): Promise<FlushOutcome> {
+  // Single-flight per store: concurrent callers (mount, `online`, manual retry, StrictMode,
+  // a new event flushing first) share one run instead of racing to post the same item.
+  let run = inFlight.get(store)
+  if (!run) {
+    run = drain(store).finally(() => inFlight.delete(store))
+    inFlight.set(store, run)
+  }
+  return run
+}
+
+const inFlight = new WeakMap<OutboxStore, Promise<FlushOutcome>>()
+
+async function drain(store: OutboxStore): Promise<FlushOutcome> {
   for (;;) {
     const items = await store.listAll()
     if (items.length === 0) return 'drained'
