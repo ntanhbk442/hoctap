@@ -89,6 +89,7 @@ function dashboard(over: Partial<DashboardOut> = {}): DashboardOut {
         display_label: "Bài 2",
         completed_at: "x",
         parts: [{ part_key: "a", child_answer: "9", correct_answer: "5" }],
+        reported: false,
       },
     ],
     assignments: [],
@@ -238,5 +239,44 @@ describe("Dashboard", () => {
     });
     renderAt("/parent/dashboard", <Dashboard />);
     expect(await screen.findByText("login screen")).toBeInTheDocument();
+  });
+
+  it("links a mistake to the preview and offers Báo lỗi; a reported row shows its state", async () => {
+    mockApi({
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": {
+        status: 200,
+        body: dashboard(),
+      },
+      "POST /api/v1/parent/review/problems/pr/reports": {
+        status: 200,
+        body: {
+          id: "r",
+          problem_id: "pr",
+          kind: "parent",
+          note: "",
+          status: "open",
+          created_at: "x",
+          resolved_at: null,
+        },
+      },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    const link = await screen.findByRole("link", { name: "Bài 2" });
+    expect(link).toHaveAttribute("href", "/parent/problems/pr");
+    fireEvent.click(screen.getByRole("button", { name: "Báo lỗi" }));
+    expect(await screen.findByText(/Đã báo lỗi\./)).toBeInTheDocument();
+  });
+
+  it("marks a reported mistake and hides its button", async () => {
+    const d = dashboard();
+    d.recent_mistakes[0].reported = true;
+    mockApi({
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": { status: 200, body: d },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(await screen.findByText(/· Đã báo lỗi/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Báo lỗi" })).not.toBeInTheDocument();
   });
 });

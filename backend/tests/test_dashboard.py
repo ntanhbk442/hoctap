@@ -322,3 +322,28 @@ def test_switching_child_shows_only_that_child(
     assert _dash(client, profile_id)["week"]["sessions"] == 1
     d = _dash(client, other)
     assert d["name"] == "Na" and d["week"]["sessions"] == 0
+
+
+def test_recent_mistake_reported_flag(client: TestClient, engine: Engine, profile_id: str) -> None:
+    from hoctap.content.review import service as review
+
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    pid = doc["problem_id"]
+    _session(
+        engine,
+        profile_id,
+        "2026-09-29T03:42:00+00:00",
+        [pid],
+        attempts=[(pid, "a", False, [{"key": "s1", "value": "9"}])],
+    )
+    (m,) = _dash(client, profile_id)["recent_mistakes"]
+    assert m["reported"] is False
+    with engine.begin() as conn:
+        rid = review.add_error_report(conn, pid, "parent")
+    (m,) = _dash(client, profile_id)["recent_mistakes"]
+    assert m["reported"] is True
+    with engine.begin() as conn:
+        review.resolve_report(conn, rid)
+    (m,) = _dash(client, profile_id)["recent_mistakes"]
+    assert m["reported"] is False

@@ -18,6 +18,7 @@ import {
 import { errorMessage } from '../../api/errors'
 import { queryKeys, useReviewProblem } from '../../api/queries'
 import { Badges } from './ProblemList'
+import ReportProblem from './ReportProblem'
 
 // Answers edited as one input per key.
 const KEYED_TYPES = new Set([
@@ -491,9 +492,13 @@ function EditorForm({
           )}
         </section>
       )}
-      {detail.reports.length > 0 && (
-        <section>
-          <h2>Báo lỗi</h2>
+      <section>
+        <h2>Báo lỗi</h2>
+        <ReportProblem
+          problemId={detail.summary.problem_id}
+          reported={detail.reports.some((r) => r.kind === 'parent' && r.status === 'open')}
+        />
+        {detail.reports.length > 0 && (
           <ul>
             {detail.reports.map((r) => (
               <li key={r.id}>
@@ -507,8 +512,8 @@ function EditorForm({
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
     </form>
   )
 }

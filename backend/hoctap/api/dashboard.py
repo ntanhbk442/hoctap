@@ -79,6 +79,7 @@ class MistakeOut(_Out):
     display_label: str
     completed_at: str
     parts: list[MistakePartOut]
+    reported: bool
 
 
 class DashboardBadge(_Out):

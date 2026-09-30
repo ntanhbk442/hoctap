@@ -11,6 +11,7 @@ import LessonDetail from './pages/LessonDetail.tsx'
 import Library from './pages/Library.tsx'
 import ParentHome from './pages/ParentHome.tsx'
 import ParentLogin from './pages/ParentLogin.tsx'
+import ProblemPreview from './pages/ProblemPreview.tsx'
 import ProblemEditor from './pages/review/ProblemEditor.tsx'
 import ReviewPage from './pages/review/ReviewPage.tsx'
 import SessionPlayer from './pages/SessionPlayer.tsx'
@@ -32,6 +33,7 @@ const routes = [
   { path: '/parent/settings', element: <Settings /> },
   { path: '/parent/review', element: <ReviewPage /> },
   { path: '/parent/review/problems/:problemId', element: <ProblemEditor /> },
+  { path: '/parent/problems/:problemId', element: <ProblemPreview /> },
   { path: '/parent/extraction', element: <ExtractionPage /> },
   // Unknown client routes fall back to Home until later stories add screens.
   { path: '*', element: <Home /> },

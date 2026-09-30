@@ -23,6 +23,7 @@ import { cacheBundleAssets } from '../offline/assetCache'
 import OfflineScreen from '../offline/OfflineScreen'
 import { defaultOutboxStore, flushOutbox, QueuedOfflineError } from '../offline/outbox'
 import { getCurrentProfileId } from '../profile'
+import FlagButton from '../components/FlagButton/FlagButton'
 import ProblemPlayer from './ProblemPlayer'
 
 /**
@@ -258,6 +259,11 @@ export default function SessionPlayer() {
                   )}
                 />
               )}
+              <FlagButton
+                key={`flag-${problems[problemIndex].problem.problem_id}`}
+                problemId={problems[problemIndex].problem.problem_id}
+                profileId={profileId}
+              />
               <ProblemPlayer
                 key={problems[problemIndex].problem.problem_id}
                 sessionId={sessionId}

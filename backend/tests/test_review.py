@@ -808,3 +808,58 @@ def test_retired_problem_actions(client: TestClient, engine: Engine, pub: Pub) -
     with engine.begin() as conn, pytest.raises(AppError) as exc:
         review.add_error_report(conn, pid("nope"), "parent")
     assert exc.value.status_code == 404
+
+
+# --------------------------------------------------------------------- Story 4.4 reports
+
+
+def test_parent_report_route_hides_dedupes_and_resolves(
+    client: TestClient, engine: Engine, pub: Pub
+) -> None:
+    p = pid("bai-1")
+    pub(make_doc("bai-1"))
+    resp = client.post(f"{API}/problems/{p}/reports", json={"note": "  Sai đáp án  "})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert (body["kind"], body["status"], body["note"]) == ("parent", "open", "Sai đáp án")
+    assert visible_ids(engine) == []
+    assert p in queue_ids(client)
+    again = client.post(f"{API}/problems/{p}/reports", json={})
+    assert again.json()["id"] == body["id"]
+    assert len(detail(client, p)["reports"]) == 1
+    client.post(f"{API}/reports/{body['id']}/resolve")
+    assert visible_ids(engine) == [p]
+
+
+def test_parent_report_errors(client: TestClient, pub: Pub) -> None:
+    p = pid("bai-1")
+    pub(make_doc("bai-1"))
+    resp = client.post(f"{API}/problems/{pid('nope')}/reports", json={})
+    assert resp.status_code == 404 and err(resp) == "PROBLEM_NOT_FOUND"
+    resp = client.post(f"{API}/problems/{p}/reports", json={"note": "x" * 501})
+    assert resp.status_code == 422
+    client.cookies.clear()
+    assert client.post(f"{API}/problems/{p}/reports", json={}).status_code == 401
+
+
+def test_child_flag_route_no_pin(client: TestClient, engine: Engine, pub: Pub) -> None:
+    p = pid("bai-1")
+    pub(make_doc("bai-1"))
+    profile_id = client.get("/api/v1/profiles").json()[0]["id"]
+    client.cookies.clear()  # no PIN cookie
+    url = f"/api/v1/problems/{p}/flag"
+    assert client.post(url, json={"profile_id": "nope"}).status_code == 404
+    resp = client.post(url, json={"profile_id": "nope"})
+    assert resp.json()["error"]["code"] == "PROFILE_NOT_FOUND"
+    assert (
+        client.post(f"/api/v1/problems/{pid('nope')}/flag", json={"profile_id": profile_id}).json()[
+            "error"
+        ]["code"]
+        == "PROBLEM_NOT_FOUND"
+    )
+    assert client.post(url, json={"profile_id": profile_id}).status_code == 200
+    assert client.post(url, json={"profile_id": profile_id}).status_code == 200  # twice
+    assert visible_ids(engine) == [p]  # stays visible
+    with engine.connect() as conn:
+        (r,) = review.list_reports(conn, p)
+    assert (r.kind, r.note, r.status) == ("child", "", "open")

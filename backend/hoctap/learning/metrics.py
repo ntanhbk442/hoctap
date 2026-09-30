@@ -112,6 +112,17 @@ class RecentMistake:
     display_label: str
     completed_at: str
     parts: list[MistakePart]
+    reported: bool = False
+
+
+def _visible_but_report(state: effective.EffectiveProblem) -> bool:
+    """Would the Problem be visible if its open parent report were resolved?"""
+    return (
+        not state.retired
+        and not state.hidden
+        and not state.has_conflict
+        and not state.awaiting_approval
+    )
 
 
 @dataclass(frozen=True)
@@ -397,12 +408,19 @@ def dashboard(conn: Any, profile_id: str, today: date) -> Dashboard:
             state = states.get(pid)
             if pid not in s.wrong or pid in s.fallback or state is None:
                 continue
-            if not state.visible or state.doc is None:
+            reported = bool(state.open_reports.get("parent"))
+            # A parent-reported Problem is hidden from the child but keeps its row here,
+            # marked, until the report is resolved.
+            if state.doc is None or not (
+                state.visible or (reported and _visible_but_report(state))
+            ):
                 continue
             parts = _wrong_parts(conn, s.id, pid, state)
             if not parts:
                 continue
-            mistakes.append(RecentMistake(pid, state.doc.display_label, s.completed_at, parts))
+            mistakes.append(
+                RecentMistake(pid, state.doc.display_label, s.completed_at, parts, reported)
+            )
             if len(mistakes) >= RECENT_MISTAKES_LIMIT:
                 break
 

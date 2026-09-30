@@ -13,6 +13,7 @@ from hoctap.api import (
     assignments,
     build,
     dashboard,
+    flags,
     health,
     library,
     parent,
@@ -52,6 +53,7 @@ def build_api_router() -> APIRouter:
     api.include_router(review.router)
     api.include_router(profiles.router)
     api.include_router(library.router)
+    api.include_router(flags.router)
     api.include_router(sessions.router)
     api.include_router(build.router)
     return api

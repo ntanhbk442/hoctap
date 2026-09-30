@@ -23,6 +23,7 @@ from hoctap.content.review.schemas import (
     ProblemPage,
     ProblemSummary,
     RenameIn,
+    ReportIn,
     ReportOut,
     ReviewBook,
     SpotCheckOut,
@@ -144,6 +145,19 @@ def unhide(problem_id: str, engine: EngineDep, now: NowDep) -> ProblemDetail:
     with engine.begin() as conn:
         service.set_hidden(conn, problem_id, False, now)
         return service.problem_detail(conn, problem_id)
+
+
+@router.post(
+    "/problems/{problem_id}/reports",
+    response_model=ReportOut,
+    operation_id="report_review_problem",
+    responses={404: {"model": ErrorResponse, "description": "PROBLEM_NOT_FOUND"}},
+)
+def report_problem(problem_id: str, body: ReportIn, engine: EngineDep, now: NowDep) -> ReportOut:
+    """Báo lỗi (parent): an open `parent` report hides the Problem from the child."""
+    with engine.begin() as conn:
+        report_id = service.add_error_report(conn, problem_id, "parent", body.note, now)
+        return service.report_out(conn, report_id)
 
 
 @router.post(

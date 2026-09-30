@@ -7,6 +7,7 @@ import {
   useParentSession,
   useProfiles,
 } from "../api/queries";
+import ReportProblem from "./review/ReportProblem";
 import { statusText } from "./assignmentUtils";
 import "./Dashboard.css";
 
@@ -161,13 +162,19 @@ function Report({ data }: { data: DashboardOut }) {
                   key={`${m.problem_id}-${m.completed_at}`}
                   className="dashboard-mistake"
                 >
-                  <strong>{m.display_label}</strong>
+                  <strong>
+                    <Link to={`/parent/problems/${m.problem_id}`}>
+                      {m.display_label}
+                    </Link>
+                  </strong>
+                  {m.reported && <span> · Đã báo lỗi</span>}
                   {m.parts.map((p) => (
                     <div key={p.part_key}>
                       Bé trả lời: {p.child_answer || "(bỏ trống)"} · Đáp án:{" "}
                       {p.correct_answer}
                     </div>
                   ))}
+                  {!m.reported && <ReportProblem problemId={m.problem_id} />}
                 </li>
               ))}
             </ul>

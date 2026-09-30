@@ -41,5 +41,11 @@
   "quiz_results_title": "Kết quả bài kiểm tra",
   "quiz_result_right": "Em làm đúng rồi",
   "quiz_result_retry": "Mình cùng xem lại bài này nhé",
-  "quiz_retake_no_stars": "Bài này em đã nộp rồi, nên lần này không có thêm ngôi sao nhé."
+  "quiz_retake_no_stars": "Bài này em đã nộp rồi, nên lần này không có thêm ngôi sao nhé.",
+  "flag_button": "Báo cho bố mẹ",
+  "flag_confirm": "Báo cho bố mẹ bài này nhé?",
+  "flag_yes": "Có",
+  "flag_no": "Không",
+  "flag_done": "Đã báo cho bố mẹ",
+  "flag_failed": "Chưa gửi được, thử lại nhé"
 }

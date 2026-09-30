@@ -364,6 +364,14 @@ export function setProblemHidden(problemId: string, hidden: boolean): Promise<Pr
   return apiPost<ProblemDetail>(`${REVIEW}/problems/${enc(problemId)}/${hidden ? 'hide' : 'unhide'}`)
 }
 
+export function reportProblem(problemId: string, note: string): Promise<Schemas['ReportOut']> {
+  return apiPost<Schemas['ReportOut']>(`${REVIEW}/problems/${enc(problemId)}/reports`, { note })
+}
+
+export function flagProblem(problemId: string, profileId: string): Promise<void> {
+  return apiPost<void>(`/problems/${enc(problemId)}/flag`, { profile_id: profileId })
+}
+
 export function resolveReport(reportId: string): Promise<Schemas['ReportOut']> {
   return apiPost<Schemas['ReportOut']>(`${REVIEW}/reports/${enc(reportId)}/resolve`)
 }

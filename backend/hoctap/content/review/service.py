@@ -534,22 +534,35 @@ def set_hidden(
 # --------------------------------------------------------------------------- reports
 
 REPORT_KINDS = ("parent", "child")
+REPORT_NOTE_MAX = 500
 
 
 def add_error_report(
     conn: Connection, problem_id: str, kind: str, note: str = "", now: datetime | None = None
 ) -> str:
-    """Stores an open Error Report (created from the UI in Story 4.4)."""
+    """Stores an open Error Report (Story 4.4). One open report per kind per Problem: a
+    repeat returns the existing report's id. The note is trimmed and capped."""
     if kind not in REPORT_KINDS:
         raise ValueError(f"unknown report kind {kind!r}")
     _state(conn, problem_id)
+    t = content_review_error_reports
+    existing = conn.execute(
+        select(t.c.id)
+        .where(t.c.problem_id == problem_id, t.c.kind == kind, t.c.status == "open")
+        .order_by(t.c.created_at, t.c.id)
+    ).first()
+    if existing is not None:
+        return str(existing.id)
+    note = unicodedata.normalize("NFC", note).strip()
+    if len(note) > REPORT_NOTE_MAX:
+        raise AppError(422, "NOTE_TOO_LONG", f"Ghi chú tối đa {REPORT_NOTE_MAX} ký tự.")
     report_id = new_id()
     conn.execute(
         insert(content_review_error_reports).values(
             id=report_id,
             problem_id=problem_id,
             kind=kind,
-            note=unicodedata.normalize("NFC", note),
+            note=note,
             status="open",
             created_at=to_iso(now or utc_now()),
             resolved_at=None,

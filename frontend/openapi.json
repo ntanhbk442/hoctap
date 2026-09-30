@@ -1406,6 +1406,89 @@
         }
       }
     },
+    "/api/v1/parent/review/problems/{problem_id}/reports": {
+      "post": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Report Problem",
+        "description": "Báo lỗi (parent): an open `parent` report hides the Problem from the child.",
+        "operationId": "report_review_problem",
+        "parameters": [
+          {
+            "name": "problem_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Problem Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PROBLEM_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Setup required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parent/review/reports/{report_id}/resolve": {
       "post": {
         "tags": [
@@ -2421,6 +2504,68 @@
           },
           "404": {
             "description": "Unknown profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/problems/{problem_id}/flag": {
+      "post": {
+        "tags": [
+          "flags"
+        ],
+        "summary": "Flag Problem",
+        "operationId": "flag_problem",
+        "parameters": [
+          {
+            "name": "problem_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Problem Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlagIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlagOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PROFILE_NOT_FOUND or PROBLEM_NOT_FOUND",
             "content": {
               "application/json": {
                 "schema": {
@@ -5637,6 +5782,31 @@
         ],
         "title": "FallbackView"
       },
+      "FlagIn": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "profile_id"
+        ],
+        "title": "FlagIn"
+      },
+      "FlagOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "FlagOut"
+      },
       "GateApproval": {
         "properties": {
           "id": {
@@ -6826,6 +6996,10 @@
             },
             "type": "array",
             "title": "Parts"
+          },
+          "reported": {
+            "type": "boolean",
+            "title": "Reported"
           }
         },
         "type": "object",
@@ -6833,7 +7007,8 @@
           "problem_id",
           "display_label",
           "completed_at",
-          "parts"
+          "parts",
+          "reported"
         ],
         "title": "MistakeOut"
       },
@@ -8217,6 +8392,19 @@
         ],
         "title": "ReplayRefIn",
         "description": "Story 2.10's \"Luyện lại bài sai\": a new Session made of one earlier (\"source\")\nSession's own wrong Problem ids."
+      },
+      "ReportIn": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReportIn"
       },
       "ReportOut": {
         "properties": {

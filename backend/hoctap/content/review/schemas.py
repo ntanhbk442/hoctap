@@ -85,6 +85,12 @@ class ReportOut(BaseModel):
     resolved_at: str | None
 
 
+class ReportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(default="", max_length=500)
+
+
 class ReviewStatusOut(BaseModel):
     needs_review: bool = Field(description="the extracted flag (answers disagreed)")
     verify_status: str

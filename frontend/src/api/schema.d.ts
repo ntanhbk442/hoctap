@@ -329,6 +329,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parent/review/problems/{problem_id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report Problem
+         * @description Báo lỗi (parent): an open `parent` report hides the Problem from the child.
+         */
+        post: operations["report_review_problem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parent/review/reports/{report_id}/resolve": {
         parameters: {
             query?: never;
@@ -584,6 +604,23 @@ export interface paths {
         get: operations["get_library_home"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/problems/{problem_id}/flag": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Flag Problem */
+        post: operations["flag_problem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1670,6 +1707,19 @@ export interface components {
              */
             image_key: string;
         };
+        /** FlagIn */
+        FlagIn: {
+            /** Profile Id */
+            profile_id: string;
+        };
+        /** FlagOut */
+        FlagOut: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+        };
         /** GateApproval */
         GateApproval: {
             /** Id */
@@ -2160,6 +2210,8 @@ export interface components {
             completed_at: string;
             /** Parts */
             parts: components["schemas"]["MistakePartOut"][];
+            /** Reported */
+            reported: boolean;
         };
         /** MistakePartOut */
         MistakePartOut: {
@@ -2709,6 +2761,14 @@ export interface components {
             kind: "replay";
             /** Source Session Id */
             source_session_id: string;
+        };
+        /** ReportIn */
+        ReportIn: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /** ReportOut */
         ReportOut: {
@@ -4342,6 +4402,68 @@ export interface operations {
             };
         };
     };
+    report_review_problem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Setup required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description PROBLEM_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     resolve_review_report: {
         parameters: {
             query?: never;
@@ -5136,6 +5258,50 @@ export interface operations {
                 };
             };
             /** @description Unknown profile */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    flag_problem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                problem_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlagIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FlagOut"];
+                };
+            };
+            /** @description PROFILE_NOT_FOUND or PROBLEM_NOT_FOUND */
             404: {
                 headers: {
                     [name: string]: unknown;
