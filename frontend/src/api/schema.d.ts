@@ -140,6 +140,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/parent/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Assignments */
+        get: operations["list_assignments"];
+        put?: never;
+        /** Create Assignment */
+        post: operations["create_assignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parent/assignments/{assignment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Assignment */
+        delete: operations["delete_assignment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parent/review/queue": {
         parameters: {
             query?: never;
@@ -874,6 +909,53 @@ export interface components {
              */
             enough_problems: boolean;
         };
+        /** AssignmentIn */
+        AssignmentIn: {
+            /** Profile Id */
+            profile_id: string;
+            /** Book Id */
+            book_id: string;
+            /** Unit Key */
+            unit_key: string;
+            /** Lesson Key */
+            lesson_key: string;
+            /**
+             * Assigned Date
+             * Format: date
+             */
+            assigned_date: string;
+        };
+        /** AssignmentOut */
+        AssignmentOut: {
+            /** Id */
+            id: string;
+            /** Profile Id */
+            profile_id: string;
+            /** Book Id */
+            book_id: string;
+            /** Unit Key */
+            unit_key: string;
+            /** Lesson Key */
+            lesson_key: string;
+            /** Assigned Date */
+            assigned_date: string;
+            /** Status */
+            status: string;
+            /** Part */
+            part?: number | null;
+            /** Part Count */
+            part_count?: number | null;
+            /** Carried Over */
+            carried_over: boolean;
+            /** Book Title Vi */
+            book_title_vi: string;
+            /** Unit Label */
+            unit_label: string;
+            /** Lesson Label */
+            lesson_label: string;
+            /** Lesson Title */
+            lesson_title: string;
+        };
         /** BadgeOut */
         BadgeOut: {
             /** Badge Key */
@@ -1310,6 +1392,8 @@ export interface components {
             weak_concepts: components["schemas"]["WeakConceptOut"][];
             /** Recent Mistakes */
             recent_mistakes: components["schemas"]["MistakeOut"][];
+            /** Assignments */
+            assignments: components["schemas"]["AssignmentOut"][];
         };
         /** DashboardUnit */
         DashboardUnit: {
@@ -1751,6 +1835,43 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * HomeAssignmentOut
+         * @description Story 4.3's "Bài hôm nay" card. `session_id` is the unfinished linked Session to
+         *     resume (set only while `status == "doing"`); otherwise the card starts one from the
+         *     Lesson, linked by `id`.
+         */
+        HomeAssignmentOut: {
+            /** Id */
+            id: string;
+            /** Book Id */
+            book_id: string;
+            /** Book Title Vi */
+            book_title_vi: string;
+            /** Unit Key */
+            unit_key: string;
+            /** Lesson Key */
+            lesson_key: string;
+            /** Lesson Label */
+            lesson_label: string;
+            /** Lesson Title */
+            lesson_title: string;
+            /** Assigned Date */
+            assigned_date: string;
+            /** Status */
+            status: string;
+            /** Part */
+            part?: number | null;
+            /** Part Count */
+            part_count?: number | null;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Carried Over
+             * @default false
+             */
+            carried_over: boolean;
+        };
         /** HomeLessonOut */
         HomeLessonOut: {
             /** Book Id */
@@ -1905,6 +2026,7 @@ export interface components {
              * @default 0
              */
             retry_due_count: number;
+            assignment?: components["schemas"]["HomeAssignmentOut"] | null;
         };
         /** LibraryLesson */
         LibraryLesson: {
@@ -2984,6 +3106,8 @@ export interface components {
              * @enum {string}
              */
             mode: "practice" | "replay" | "retry";
+            /** Assignment Id */
+            assignment_id?: string | null;
         };
         /** SummaryOut */
         SummaryOut: {
@@ -3483,6 +3607,135 @@ export interface operations {
             };
             /** @description PROFILE_NOT_FOUND */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_assignments: {
+        parameters: {
+            query: {
+                profile_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentOut"][];
+                };
+            };
+            /** @description PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_assignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignmentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentOut"];
+                };
+            };
+            /** @description PROFILE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description DATE_IN_PAST or EMPTY_PROBLEM_SET */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_assignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ASSIGNMENT_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ASSIGNMENT_DONE */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4924,8 +5177,17 @@ export interface operations {
                     "application/json": components["schemas"]["SessionOut"];
                 };
             };
-            /** @description Unknown profile */
+            /** @description Unknown profile or Assignment */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ASSIGNMENT_DONE */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

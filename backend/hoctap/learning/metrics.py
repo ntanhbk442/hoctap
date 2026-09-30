@@ -26,6 +26,7 @@ from sqlalchemy import func, select, text
 from hoctap.content import effective, library
 from hoctap.content.review.models import content_review_concepts
 from hoctap.ids import from_iso
+from hoctap.learning import assignments as learning_assignments
 from hoctap.learning import badges as learning_badges
 from hoctap.learning import progress as learning_progress
 from hoctap.learning import retry as learning_retry
@@ -137,6 +138,7 @@ class Dashboard:
     books: list[BookProgress]
     weak_concepts: list[WeakConcept]
     recent_mistakes: list[RecentMistake]
+    assignments: list[learning_assignments.AssignmentInfo]
 
 
 @dataclass
@@ -432,4 +434,5 @@ def dashboard(conn: Any, profile_id: str, today: date) -> Dashboard:
         books=_book_progress(conn, profile.grade, profile_id),
         weak_concepts=weak,
         recent_mistakes=mistakes,
+        assignments=learning_assignments.list_for_profile(conn, profile_id, today),
     )

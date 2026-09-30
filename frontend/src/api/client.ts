@@ -50,6 +50,9 @@ export type QuizResultOut = Schemas['QuizResultOut']
 export type BadgeOut = Schemas['BadgeOut']
 export type BadgeKey = BadgeOut['badge_key']
 export type DashboardOut = Schemas['DashboardOut']
+export type AssignmentOut = Schemas['AssignmentOut']
+export type AssignmentIn = Schemas['AssignmentIn']
+export type HomeAssignmentOut = Schemas['HomeAssignmentOut']
 
 export const API_BASE = '/api/v1'
 
@@ -207,6 +210,22 @@ export function getParentDashboard(profileId: string, signal?: AbortSignal): Pro
   return apiGet<DashboardOut>(`/parent/dashboard/${enc(profileId)}`, { signal })
 }
 
+// --- Assignments (Story 4.3) -----------------------------------------------------------
+
+export function getAssignments(profileId: string, signal?: AbortSignal): Promise<AssignmentOut[]> {
+  return apiGet<AssignmentOut[]>(`/parent/assignments?profile_id=${encodeURIComponent(profileId)}`, {
+    signal,
+  })
+}
+
+export function createAssignment(body: AssignmentIn): Promise<AssignmentOut> {
+  return apiPost<AssignmentOut>('/parent/assignments', body)
+}
+
+export function deleteAssignment(id: string): Promise<void> {
+  return apiDelete<void>(`/parent/assignments/${encodeURIComponent(id)}`)
+}
+
 // --- Child Library (Sách, Story 2.3) ------------------------------------------------
 
 const LIBRARY = '/library'
@@ -247,8 +266,14 @@ export function startSession(
   profileId: string,
   ref: StartSessionRefIn,
   mode?: 'practice' | 'replay' | 'retry',
+  assignmentId?: string,
 ): Promise<SessionOut> {
-  return apiPost<SessionOut>(SESSIONS, { profile_id: profileId, ref, mode })
+  return apiPost<SessionOut>(SESSIONS, {
+    profile_id: profileId,
+    ref,
+    mode,
+    assignment_id: assignmentId,
+  })
 }
 
 export function getSessionSummary(

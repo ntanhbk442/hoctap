@@ -1,7 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  type AssignmentIn,
   changeParentPin,
+  createAssignment,
   createProfile,
+  deleteAssignment,
+  getAssignments,
   deleteProfile,
   type EventIn,
   getCatalogueBooks,
@@ -62,6 +66,7 @@ export const queryKeys = {
   sessionSummary: (sessionId: string, profileId: string) =>
     ['sessions', sessionId, 'summary', profileId] as const,
   parentDashboard: (profileId: string) => ['parent', 'dashboard', profileId] as const,
+  assignments: (profileId: string) => ['parent', 'assignments', profileId] as const,
   profileBadges: (profileId: string) => ['profiles', profileId, 'badges'] as const,
 }
 
@@ -232,6 +237,38 @@ export function useParentDashboard(profileId: string) {
   })
 }
 
+/** Story 4.3: the Parent's Assignment list and its writes; each refreshes the list, the
+ * Dashboard (statuses) and Home (the card). */
+export function useAssignments(profileId: string) {
+  return useQuery({
+    queryKey: queryKeys.assignments(profileId),
+    queryFn: ({ signal }) => getAssignments(profileId, signal),
+    enabled: profileId !== '',
+  })
+}
+
+export function useCreateAssignment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AssignmentIn) => createAssignment(body),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['parent'] }),
+      queryClient.invalidateQueries({ queryKey: ['library', 'home'] }),
+    ]),
+  })
+}
+
+export function useDeleteAssignment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => deleteAssignment(id),
+    onSuccess: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['parent'] }),
+      queryClient.invalidateQueries({ queryKey: ['library', 'home'] }),
+    ]),
+  })
+}
+
 export function useProfileBadges(profileId: string) {
   return useQuery({
     queryKey: queryKeys.profileBadges(profileId),
@@ -250,11 +287,13 @@ export function useStartSession() {
       profileId,
       ref,
       mode,
+      assignmentId,
     }: {
       profileId: string
       ref: StartSessionRefIn
       mode?: 'practice' | 'replay' | 'retry'
-    }) => startSession(profileId, ref, mode),
+      assignmentId?: string
+    }) => startSession(profileId, ref, mode, assignmentId),
   })
 }
 

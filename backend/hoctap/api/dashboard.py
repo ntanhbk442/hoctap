@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Engine
 
+from hoctap.api.assignments import AssignmentOut
 from hoctap.api.deps import get_engine, get_now
 from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.learning import metrics
@@ -102,6 +103,7 @@ class DashboardOut(_Out):
     books: list[DashboardBook]
     weak_concepts: list[WeakConceptOut]
     recent_mistakes: list[MistakeOut]
+    assignments: list[AssignmentOut]
 
 
 @router.get(

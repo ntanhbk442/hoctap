@@ -80,6 +80,8 @@ class StartSessionIn(BaseModel):
     # `ref.kind: "replay"` -- kept as an independent field (not derived from `ref.kind`)
     # per this story's frozen Boundaries & Constraints wording.
     mode: Literal["practice", "replay", "retry"] = "practice"
+    # Story 4.3: the Assignment this Session is started from (Home's "Bài hôm nay" card).
+    assignment_id: str | None = None
 
 
 class SessionOut(BaseModel):
@@ -110,7 +112,8 @@ def _session_out(s: service.SessionOut) -> SessionOut:
     status_code=201,
     operation_id="start_session",
     responses={
-        404: {"model": ErrorResponse, "description": "Unknown profile"},
+        404: {"model": ErrorResponse, "description": "Unknown profile or Assignment"},
+        409: {"model": ErrorResponse, "description": "ASSIGNMENT_DONE"},
         422: {
             "model": ErrorResponse,
             "description": (
@@ -138,7 +141,11 @@ def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> Sessi
             conn, ref.book_id, ref.unit_key, ref.lesson_key
         ):
             mode = "quiz"
-        return _session_out(service.start_session(conn, now, body.profile_id, ref, mode=mode))
+        return _session_out(
+            service.start_session(
+                conn, now, body.profile_id, ref, mode=mode, assignment_id=body.assignment_id
+            )
+        )
 
 
 class BundleProblemOut(BaseModel):

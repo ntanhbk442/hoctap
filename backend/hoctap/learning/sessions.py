@@ -22,10 +22,11 @@ from hoctap.content.schema import FallbackPart, Part
 from hoctap.content.speech import problem_speech_refs, speech_url
 from hoctap.content.views import ChildProblemView, child_view
 from hoctap.ids import new_id, to_iso
+from hoctap.learning import assignments
 from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_sessions
-from hoctap.learning.problem_sets import ProblemSetRef, ref_key, resolve
+from hoctap.learning.problem_sets import LessonRef, ProblemSetRef, ref_key, resolve
 from hoctap.learning.retry import add_retry_item, maybe_resolve_retry_item
 from hoctap.learning.scoring import (
     award_quiz_stars,
@@ -73,7 +74,12 @@ class SessionOut:
 
 
 def start_session(
-    conn: Any, now: datetime, profile_id: str, ref: ProblemSetRef, mode: str = "practice"
+    conn: Any,
+    now: datetime,
+    profile_id: str,
+    ref: ProblemSetRef,
+    mode: str = "practice",
+    assignment_id: str | None = None,
 ) -> SessionOut:
     """Resolves `ref`, refuses an empty set (422), creates the Session, writes its
     `session_started` event (server-generated id -- the Session doesn't exist yet for the
@@ -89,6 +95,12 @@ def start_session(
     ).scalar_one_or_none()
     if profile_exists is None:
         raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
+
+    if assignment_id is not None:
+        # Story 4.3: only a Lesson ref can carry an Assignment.
+        if not isinstance(ref, LessonRef):
+            raise AppError(422, "ASSIGNMENT_REF_MISMATCH", "Bài học không khớp với bài được giao.")
+        assignments.check_startable(conn, assignment_id, profile_id, ref)
 
     problem_ids = resolve(conn, ref, profile_id, now=now)
     if not problem_ids:
@@ -111,6 +123,7 @@ def start_session(
             chunk_size=CHUNK_SIZE,
             started_at=started_at,
             completed_at=None,
+            assignment_id=assignment_id,
         )
     )
     conn.execute(

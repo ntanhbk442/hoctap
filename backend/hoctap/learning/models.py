@@ -53,6 +53,8 @@ progress_sessions = Table(
     Column("chunk_size", Integer, nullable=False, server_default="10"),
     Column("started_at", Text, nullable=False),
     Column("completed_at", Text, nullable=True),
+    # Story 4.3: the Assignment this Session was started from (Home's "Bài hôm nay" card).
+    Column("assignment_id", Text, nullable=True),
     CheckConstraint(
         "mode IN ('practice', 'retry', 'concept', 'quiz', 'replay')",
         name="ck_progress_sessions_mode",
@@ -114,6 +116,27 @@ progress_badges = Table(
     ),
 )
 
+progress_assignments = Table(
+    "progress_assignments",
+    metadata,
+    Column("id", Text, primary_key=True),  # UUIDv7
+    Column("profile_id", Text, nullable=False),
+    Column("ref_kind", Text, nullable=False),
+    Column("ref_key", Text, nullable=False),
+    Column("book_id", Text, nullable=False),
+    Column("unit_key", Text, nullable=False),
+    Column("lesson_key", Text, nullable=False),
+    Column("assigned_date", Text, nullable=False),  # local YYYY-MM-DD
+    Column("created_at", Text, nullable=False),
+    Column("deleted_at", Text, nullable=True),
+)
+
+Index("ix_progress_sessions_assignment_id", progress_sessions.c.assignment_id)
+Index(
+    "ix_progress_assignments_profile_date",
+    progress_assignments.c.profile_id,
+    progress_assignments.c.assigned_date,
+)
 Index("ix_progress_sessions_profile_id", progress_sessions.c.profile_id)
 Index("ix_progress_events_session_id", progress_events.c.session_id)
 Index(

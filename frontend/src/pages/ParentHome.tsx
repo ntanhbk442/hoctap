@@ -45,6 +45,9 @@ export default function ParentHome() {
                 <Link to="/parent/dashboard">Tiến độ của bé</Link>
               </li>
               <li>
+                <Link to="/parent/assignments">Giao bài</Link>
+              </li>
+              <li>
                 <Link to="/parent/settings">Cài đặt</Link>
               </li>
               <li>

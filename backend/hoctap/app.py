@@ -9,7 +9,18 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 
 from hoctap import __version__
-from hoctap.api import build, dashboard, health, library, parent, profiles, review, sessions, setup
+from hoctap.api import (
+    assignments,
+    build,
+    dashboard,
+    health,
+    library,
+    parent,
+    profiles,
+    review,
+    sessions,
+    setup,
+)
 from hoctap.api.assets import build_assets_router
 from hoctap.api.errors import ErrorResponse, install_error_handlers
 from hoctap.api.spa import build_spa_router
@@ -37,6 +48,7 @@ def build_api_router() -> APIRouter:
     api.include_router(setup.router)
     api.include_router(parent.router)
     api.include_router(dashboard.router)
+    api.include_router(assignments.router)
     api.include_router(review.router)
     api.include_router(profiles.router)
     api.include_router(library.router)

@@ -123,6 +123,31 @@ function HomeContent({ profile }: { profile: Profile }) {
     )
   }
 
+  const assignment = home.data?.assignment
+  const todayLabel = phrase('home_today_lesson')
+  const yesterdayLabel = phrase('home_yesterday')
+
+  const openAssignment = () => {
+    if (!assignment) return
+    if (assignment.session_id) {
+      navigate(`/sessions/${assignment.session_id}`)
+      return
+    }
+    startSession.mutate(
+      {
+        profileId: profile.id,
+        assignmentId: assignment.id,
+        ref: {
+          kind: 'lesson',
+          book_id: assignment.book_id,
+          unit_key: assignment.unit_key,
+          lesson_key: assignment.lesson_key,
+        },
+      },
+      { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
+    )
+  }
+
   const startRetry = () => {
     startSession.mutate(
       { profileId: profile.id, ref: { kind: 'retry' }, mode: 'retry' },
@@ -154,6 +179,35 @@ function HomeContent({ profile }: { profile: Profile }) {
         </div>
       )}
       <div className="home-cards">
+        {assignment && (
+          <div className="home-card-slot" data-testid="home-assignment">
+            {assignment.carried_over && (
+              <span className="home-ribbon" data-testid="home-assignment-ribbon">
+                {yesterdayLabel}
+              </span>
+            )}
+            <HomeCard
+              title={todayLabel}
+              icon="⭐"
+              wide
+              onClick={openAssignment}
+              onLongPress={() => void speak(todayLabel)}
+            >
+              <span className="home-card-subtitle">
+                {assignment.lesson_label}
+                {assignment.part != null &&
+                  assignment.part_count != null &&
+                  ` · Phần ${assignment.part}/${assignment.part_count}`}
+              </span>
+            </HomeCard>
+            <SpeakerButton label={`Nghe: ${todayLabel}`} onClick={() => void speak(todayLabel)} />
+            {startSession.isError && (
+              <p role="alert" className="form-error">
+                {errorMessage(startSession.error)}
+              </p>
+            )}
+          </div>
+        )}
         <div className="home-card-slot">
           {home.isPending ? (
             <p>Đang tải…</p>
@@ -179,7 +233,7 @@ function HomeContent({ profile }: { profile: Profile }) {
                 label={`Nghe: ${keepLearningLabel}`}
                 onClick={() => void speak(keepLearningLabel)}
               />
-              {startSession.isError && (
+              {startSession.isError && !assignment && (
                 <p role="alert" className="form-error">
                   {errorMessage(startSession.error)}
                 </p>

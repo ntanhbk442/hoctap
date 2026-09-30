@@ -7,6 +7,7 @@ import {
   useParentSession,
   useProfiles,
 } from "../api/queries";
+import { statusText } from "./assignmentUtils";
 import "./Dashboard.css";
 
 const BADGE_LABEL: Record<string, string> = {
@@ -54,6 +55,23 @@ function Report({ data }: { data: DashboardOut }) {
                 .filter((b) => b.earned)
                 .map((b) => BADGE_LABEL[b.badge_key] ?? b.badge_key)
                 .join(", ")}
+        </p>
+      </section>
+
+      <section aria-labelledby="dash-assignments">
+        <h2 id="dash-assignments">Bài được giao</h2>
+        {data.assignments.length === 0 && <p>Chưa giao bài nào.</p>}
+        <ul className="dashboard-list">
+          {data.assignments.map((a) => (
+            <li key={a.id} data-testid={`dash-assignment-${a.id}`}>
+              {shortDate(a.assigned_date)} · {a.unit_label} {a.lesson_label}:{" "}
+              <strong>{statusText(a)}</strong>
+              {a.carried_over && " · Hôm qua"}
+            </li>
+          ))}
+        </ul>
+        <p>
+          <Link to="/parent/assignments">Giao bài mới</Link>
         </p>
       </section>
 

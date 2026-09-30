@@ -16,6 +16,7 @@ from hoctap.api.deps import get_engine, get_now
 from hoctap.api.errors import AppError, ErrorResponse
 from hoctap.content import library
 from hoctap.content.views import ChildProblemView
+from hoctap.learning import assignments as learning_assignments
 from hoctap.learning import badges as learning_badges
 from hoctap.learning import progress as learning_progress
 from hoctap.learning import retry as learning_retry
@@ -158,6 +159,26 @@ class ContinueSessionOut(BaseModel):
     session_id: str
 
 
+class HomeAssignmentOut(BaseModel):
+    """Story 4.3's "Bài hôm nay" card. `session_id` is the unfinished linked Session to
+    resume (set only while `status == "doing"`); otherwise the card starts one from the
+    Lesson, linked by `id`."""
+
+    id: str
+    book_id: str
+    book_title_vi: str
+    unit_key: str
+    lesson_key: str
+    lesson_label: str
+    lesson_title: str
+    assigned_date: str
+    status: str
+    part: int | None = None
+    part_count: int | None = None
+    session_id: str | None = None
+    carried_over: bool = False
+
+
 class LibraryHomeOut(BaseModel):
     profile_id: str
     grade: int
@@ -175,6 +196,8 @@ class LibraryHomeOut(BaseModel):
     # Story 3.3: number of DUE Retry Queue Problems (last wrong Attempt on an earlier local
     # calendar day). Home shows the "Luyện lại" card only when > 0.
     retry_due_count: int = 0
+    # Story 4.3: the one "Bài hôm nay" card (oldest not-done Assignment due today or earlier).
+    assignment: HomeAssignmentOut | None = None
 
 
 @router.get(
@@ -193,6 +216,7 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
         lesson = library.home_lesson(conn, grade)
         unfinished = learning_sessions.find_unfinished_session(conn, profile_id)
         today = now.astimezone(LOCAL_TZ).date()
+        due = learning_assignments.home_assignment(conn, profile_id, today)
         return LibraryHomeOut(
             profile_id=profile_id,
             grade=grade,
@@ -213,4 +237,21 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
             streak=compute_streak(conn, profile_id, today),
             recent_badges=learning_badges.recent_badges(conn, profile_id),
             retry_due_count=len(learning_retry.due_problem_ids(conn, profile_id, today)),
+            assignment=None
+            if due is None
+            else HomeAssignmentOut(
+                id=due.id,
+                book_id=due.book_id,
+                book_title_vi=due.book_title_vi,
+                unit_key=due.unit_key,
+                lesson_key=due.lesson_key,
+                lesson_label=due.lesson_label,
+                lesson_title=due.lesson_title,
+                assigned_date=due.assigned_date,
+                status=due.status,
+                part=due.part,
+                part_count=due.part_count,
+                session_id=due.session_id,
+                carried_over=due.carried_over,
+            ),
         )

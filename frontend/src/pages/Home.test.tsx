@@ -418,4 +418,86 @@ describe('Home', () => {
       expect(screen.queryByText('login screen')).not.toBeInTheDocument()
     })
   })
+
+  describe('Bài hôm nay card', () => {
+    const CARD = {
+      id: 'as1',
+      book_id: 'toan1-2020-q1',
+      book_title_vi: 'Toán 1',
+      unit_key: 'tuan-5',
+      lesson_key: 'tiet-2',
+      lesson_label: 'Tiết 2',
+      lesson_title: '',
+      assigned_date: '2026-09-30',
+      status: 'todo',
+      carried_over: false,
+    }
+    const homeWith = (assignment: unknown) => ({
+      status: 200,
+      body: { ...HOME_WITH_LESSON.body, assignment },
+    })
+    const sessionReply = {
+      status: 201,
+      body: {
+        id: 'session-a',
+        profile_id: 'p1',
+        ref_kind: 'lesson',
+        problem_ids: ['x'],
+        chunk_size: 10,
+        mode: 'practice',
+        started_at: '2026-09-30T05:00:00+00:00',
+      },
+    }
+
+    it('comes before Học tiếp and starts a Session linked to the Assignment', async () => {
+      const fetchMock = mockApi({
+        'GET /api/v1/setup/status': SETUP_OK,
+        'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+        'GET /api/v1/library/home/p1': homeWith(CARD),
+        'POST /api/v1/sessions': sessionReply,
+      })
+      renderAt('/', <Home />)
+      const card = await screen.findByRole('button', { name: /^⭐?\s*Bài hôm nay/ })
+      const keep = screen.getByRole('button', { name: 'Học tiếp' })
+      expect(card.compareDocumentPosition(keep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(screen.queryByTestId('home-assignment-ribbon')).not.toBeInTheDocument()
+      fireEvent.click(card)
+      expect(await screen.findByText('session player screen')).toBeInTheDocument()
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+      expect(JSON.parse(post?.[1]?.body as string).assignment_id).toBe('as1')
+    })
+
+    it('shows the Hôm qua ribbon and resumes the linked Session with Phần i/n', async () => {
+      mockApi({
+        'GET /api/v1/setup/status': SETUP_OK,
+        'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+        'GET /api/v1/library/home/p1': homeWith({
+          ...CARD,
+          assigned_date: '2026-09-29',
+          carried_over: true,
+          status: 'doing',
+          part: 2,
+          part_count: 2,
+          session_id: 'session-9',
+        }),
+      })
+      renderAt('/', <Home />)
+      expect(await screen.findByTestId('home-assignment-ribbon')).toHaveTextContent('Hôm qua')
+      const card = screen.getByRole('button', { name: /^⭐?\s*Bài hôm nay/ })
+      expect(card).toHaveTextContent('Phần 2/2')
+      fireEvent.click(card)
+      expect(await screen.findByText('session player screen')).toBeInTheDocument()
+    })
+
+    it('is absent when nothing is assigned', async () => {
+      mockApi({
+        'GET /api/v1/setup/status': SETUP_OK,
+        'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+        'GET /api/v1/library/home/p1': HOME_WITH_LESSON,
+      })
+      renderAt('/', <Home />)
+      expect(await screen.findByRole('button', { name: 'Học tiếp' })).toBeInTheDocument()
+      expect(screen.queryByTestId('home-assignment')).not.toBeInTheDocument()
+    })
+  })
 })

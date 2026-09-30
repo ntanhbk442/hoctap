@@ -656,3 +656,18 @@ body {
 .settings-section {
   margin-bottom: 2rem;
 }
+
+.home-ribbon {
+  align-self: flex-start;
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: var(--primary-pressed, #1a5fb4);
+  color: #fff;
+  font-weight: 600;
+}
+
+.home-card-subtitle {
+  display: block;
+  font-size: 0.9em;
+  opacity: 0.8;
+}

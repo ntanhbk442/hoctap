@@ -463,6 +463,166 @@
         }
       }
     },
+    "/api/v1/parent/assignments": {
+      "post": {
+        "tags": [
+          "parent"
+        ],
+        "summary": "Create Assignment",
+        "operationId": "create_assignment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PROFILE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "DATE_IN_PAST or EMPTY_PROBLEM_SET",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "parent"
+        ],
+        "summary": "List Assignments",
+        "operationId": "list_assignments",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssignmentOut"
+                  },
+                  "title": "Response List Assignments"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PROFILE_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/parent/assignments/{assignment_id}": {
+      "delete": {
+        "tags": [
+          "parent"
+        ],
+        "summary": "Delete Assignment",
+        "operationId": "delete_assignment",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "ASSIGNMENT_NOT_FOUND",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ASSIGNMENT_DONE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/parent/review/queue": {
       "get": {
         "tags": [
@@ -2311,7 +2471,7 @@
             }
           },
           "404": {
-            "description": "Unknown profile",
+            "description": "Unknown profile or Assignment",
             "content": {
               "application/json": {
                 "schema": {
@@ -2322,6 +2482,16 @@
           },
           "422": {
             "description": "Empty Problem set, or (replay) an unknown/foreign/all-correct source Session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ASSIGNMENT_DONE",
             "content": {
               "application/json": {
                 "schema": {
@@ -3535,6 +3705,130 @@
         ],
         "title": "AccuracyCheck"
       },
+      "AssignmentIn": {
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "lesson_key": {
+            "type": "string",
+            "title": "Lesson Key"
+          },
+          "assigned_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Assigned Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_id",
+          "book_id",
+          "unit_key",
+          "lesson_key",
+          "assigned_date"
+        ],
+        "title": "AssignmentIn"
+      },
+      "AssignmentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "lesson_key": {
+            "type": "string",
+            "title": "Lesson Key"
+          },
+          "assigned_date": {
+            "type": "string",
+            "title": "Assigned Date"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "part": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part"
+          },
+          "part_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Count"
+          },
+          "carried_over": {
+            "type": "boolean",
+            "title": "Carried Over"
+          },
+          "book_title_vi": {
+            "type": "string",
+            "title": "Book Title Vi"
+          },
+          "unit_label": {
+            "type": "string",
+            "title": "Unit Label"
+          },
+          "lesson_label": {
+            "type": "string",
+            "title": "Lesson Label"
+          },
+          "lesson_title": {
+            "type": "string",
+            "title": "Lesson Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "book_id",
+          "unit_key",
+          "lesson_key",
+          "assigned_date",
+          "status",
+          "carried_over",
+          "book_title_vi",
+          "unit_label",
+          "lesson_label",
+          "lesson_title"
+        ],
+        "title": "AssignmentOut"
+      },
       "BadgeOut": {
         "properties": {
           "badge_key": {
@@ -4637,6 +4931,13 @@
             },
             "type": "array",
             "title": "Recent Mistakes"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentOut"
+            },
+            "type": "array",
+            "title": "Assignments"
           }
         },
         "type": "object",
@@ -4655,7 +4956,8 @@
           "week",
           "books",
           "weak_concepts",
-          "recent_mistakes"
+          "recent_mistakes",
+          "assignments"
         ],
         "title": "DashboardOut"
       },
@@ -5730,6 +6032,98 @@
         ],
         "title": "Health"
       },
+      "HomeAssignmentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "book_title_vi": {
+            "type": "string",
+            "title": "Book Title Vi"
+          },
+          "unit_key": {
+            "type": "string",
+            "title": "Unit Key"
+          },
+          "lesson_key": {
+            "type": "string",
+            "title": "Lesson Key"
+          },
+          "lesson_label": {
+            "type": "string",
+            "title": "Lesson Label"
+          },
+          "lesson_title": {
+            "type": "string",
+            "title": "Lesson Title"
+          },
+          "assigned_date": {
+            "type": "string",
+            "title": "Assigned Date"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "part": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part"
+          },
+          "part_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Count"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "carried_over": {
+            "type": "boolean",
+            "title": "Carried Over",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "book_id",
+          "book_title_vi",
+          "unit_key",
+          "lesson_key",
+          "lesson_label",
+          "lesson_title",
+          "assigned_date",
+          "status"
+        ],
+        "title": "HomeAssignmentOut",
+        "description": "Story 4.3's \"Bài hôm nay\" card. `session_id` is the unfinished linked Session to\nresume (set only while `status == \"doing\"`); otherwise the card starts one from the\nLesson, linked by `id`."
+      },
       "HomeLessonOut": {
         "properties": {
           "book_id": {
@@ -6080,6 +6474,16 @@
             "type": "integer",
             "title": "Retry Due Count",
             "default": 0
+          },
+          "assignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomeAssignmentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -8805,6 +9209,17 @@
             ],
             "title": "Mode",
             "default": "practice"
+          },
+          "assignment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignment Id"
           }
         },
         "type": "object",

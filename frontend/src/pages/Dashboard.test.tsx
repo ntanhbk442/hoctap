@@ -91,6 +91,7 @@ function dashboard(over: Partial<DashboardOut> = {}): DashboardOut {
         parts: [{ part_key: "a", child_answer: "9", correct_answer: "5" }],
       },
     ],
+    assignments: [],
     ...over,
   };
 }
@@ -124,6 +125,46 @@ describe("Dashboard", () => {
     expect(screen.getByText("Toán 1").closest("li")).toHaveTextContent("3/10");
     expect(screen.getByText(/Cộng trong phạm vi 10/)).toHaveTextContent("20%");
     expect(screen.getByText(/Bé trả lời: 9 · Đáp án: 5/)).toBeInTheDocument();
+  });
+
+  it("lists Assignment statuses with the chunk of a started one", async () => {
+    const base = {
+      profile_id: "p1",
+      book_id: "b",
+      unit_key: "u",
+      lesson_key: "l",
+      book_title_vi: "Toán 1",
+      unit_label: "TUẦN 5",
+      lesson_label: "Tiết 2",
+      lesson_title: "",
+    };
+    mockApi({
+      ...session,
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": {
+        status: 200,
+        body: dashboard({
+          assignments: [
+            { ...base, id: "a1", assigned_date: "2026-10-01", status: "todo", carried_over: false },
+            {
+              ...base,
+              id: "a2",
+              assigned_date: "2026-09-29",
+              status: "doing",
+              part: 2,
+              part_count: 2,
+              carried_over: true,
+            },
+            { ...base, id: "a3", assigned_date: "2026-09-28", status: "done", carried_over: false },
+          ],
+        }),
+      },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(await screen.findByTestId("dash-assignment-a1")).toHaveTextContent("Chưa làm");
+    expect(screen.getByTestId("dash-assignment-a2")).toHaveTextContent("Đang làm (Phần 2/2)");
+    expect(screen.getByTestId("dash-assignment-a2")).toHaveTextContent("Hôm qua");
+    expect(screen.getByTestId("dash-assignment-a3")).toHaveTextContent("Đã xong");
   });
 
   it("shows friendly empty states for a new child", async () => {
