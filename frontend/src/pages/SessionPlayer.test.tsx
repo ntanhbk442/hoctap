@@ -83,6 +83,22 @@ describe('SessionPlayer', () => {
     expect(screen.queryByText(/answer/i)).not.toBeInTheDocument()
   })
 
+  it('mounts the child FlagButton and posts the current Problem id with the profile id', async () => {
+    const fetchMock = mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      [`POST /api/v1/problems/${PROBLEM.problem_id}/flag`]: { status: 200, body: { ok: true } },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    fireEvent.click(await screen.findByRole('button', { name: 'Báo cho bố mẹ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Có' }))
+    expect(await screen.findByText('Đã báo cho bố mẹ')).toBeInTheDocument()
+    const post = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        init?.method === 'POST' && url === `/api/v1/problems/${PROBLEM.problem_id}/flag`,
+    )
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ profile_id: PROFILE_ID })
+  })
+
   it('shows a friendly message, not a crash, when every Problem in the chunk was skipped', async () => {
     mockApi({
       'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle({ problems: [] }) },

@@ -1,8 +1,9 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import type { Profile } from '../api/client'
 import { errorMessage } from '../api/errors'
-import { useLibraryHome, useProfiles, useSetupStatus, useStartSession } from '../api/queries'
+import { queryKeys, useLibraryHome, useProfiles, useSetupStatus, useStartSession } from '../api/queries'
 import { phrase } from '../audio/phrases'
 import { speak } from '../audio/speech'
 import Badge from '../components/Badge/Badge'
@@ -97,6 +98,9 @@ function HomeContent({ profile }: { profile: Profile }) {
   const navigate = useNavigate()
   const home = useLibraryHome(profile.id)
   const startSession = useStartSession()
+  const queryClient = useQueryClient()
+  // Which card started the failing/last Session, so its error shows next to that card.
+  const [startedFrom, setStartedFrom] = useState<'assignment' | 'lesson' | 'retry'>('lesson')
   const lesson = home.data?.lesson
   const continueSession = home.data?.continue_session
   const keepLearningLabel = phrase('home_keep_learning')
@@ -109,6 +113,7 @@ function HomeContent({ profile }: { profile: Profile }) {
 
   const startLesson = () => {
     if (!lesson) return
+    setStartedFrom('lesson')
     startSession.mutate(
       {
         profileId: profile.id,
@@ -133,6 +138,8 @@ function HomeContent({ profile }: { profile: Profile }) {
       navigate(`/sessions/${assignment.session_id}`)
       return
     }
+    if (startSession.isPending) return // a second tap must not start a second Session
+    setStartedFrom('assignment')
     startSession.mutate(
       {
         profileId: profile.id,
@@ -144,11 +151,17 @@ function HomeContent({ profile }: { profile: Profile }) {
           lesson_key: assignment.lesson_key,
         },
       },
-      { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
+      {
+        onSuccess: (session) => navigate(`/sessions/${session.id}`),
+        // E.g. ASSIGNMENT_DONE / 404: refetch Home so a stale card goes away.
+        onError: () =>
+          void queryClient.invalidateQueries({ queryKey: queryKeys.libraryHome(profile.id) }),
+      },
     )
   }
 
   const startRetry = () => {
+    setStartedFrom('retry')
     startSession.mutate(
       { profileId: profile.id, ref: { kind: 'retry' }, mode: 'retry' },
       { onSuccess: (session) => navigate(`/sessions/${session.id}`) },
@@ -201,7 +214,7 @@ function HomeContent({ profile }: { profile: Profile }) {
               </span>
             </HomeCard>
             <SpeakerButton label={`Nghe: ${todayLabel}`} onClick={() => void speak(todayLabel)} />
-            {startSession.isError && (
+            {startSession.isError && startedFrom === 'assignment' && (
               <p role="alert" className="form-error">
                 {errorMessage(startSession.error)}
               </p>
@@ -233,7 +246,7 @@ function HomeContent({ profile }: { profile: Profile }) {
                 label={`Nghe: ${keepLearningLabel}`}
                 onClick={() => void speak(keepLearningLabel)}
               />
-              {startSession.isError && !assignment && (
+              {startSession.isError && startedFrom === 'lesson' && (
                 <p role="alert" className="form-error">
                   {errorMessage(startSession.error)}
                 </p>
@@ -275,7 +288,7 @@ function HomeContent({ profile }: { profile: Profile }) {
               label={`Nghe: ${practiceAgainLabel}`}
               onClick={() => void speak(practiceAgainLabel)}
             />
-            {startSession.isError && !lesson && (
+            {startSession.isError && startedFrom === 'retry' && (
               <p role="alert" className="form-error">
                 {errorMessage(startSession.error)}
               </p>

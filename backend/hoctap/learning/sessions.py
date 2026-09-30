@@ -26,7 +26,7 @@ from hoctap.learning import assignments
 from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_sessions
-from hoctap.learning.problem_sets import LessonRef, ProblemSetRef, ref_key, resolve
+from hoctap.learning.problem_sets import CHUNK_SIZE, LessonRef, ProblemSetRef, ref_key, resolve
 from hoctap.learning.retry import add_retry_item, device_time_iso, maybe_resolve_retry_item
 from hoctap.learning.scoring import (
     award_quiz_stars,
@@ -37,7 +37,6 @@ from hoctap.learning.scoring import (
 from hoctap.learning.summary import SessionSummary, compute_summary
 from hoctap.parent.models import parent_profiles
 
-CHUNK_SIZE = 10
 EVENT_KINDS = frozenset(
     {
         "attempt",

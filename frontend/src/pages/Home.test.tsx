@@ -489,6 +489,66 @@ describe('Home', () => {
       expect(await screen.findByText('session player screen')).toBeInTheDocument()
     })
 
+    const routed = (
+      home: () => unknown,
+      onPost: () => Promise<Response> | Response,
+    ) => {
+      const json = { 'Content-Type': 'application/json' }
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        if (method === 'POST') return onPost()
+        const path = url.split('?')[0]
+        const body =
+          path === '/api/v1/setup/status'
+            ? SETUP_OK.body
+            : path === '/api/v1/profiles'
+              ? ONE_PROFILE
+              : home()
+        return new Response(JSON.stringify(body), { status: 200, headers: json })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+
+    it('ignores a second tap while the Session start is still pending', async () => {
+      const fetchMock = routed(
+        () => homeWith(CARD).body,
+        () => new Promise<Response>(() => {}),
+      )
+      renderAt('/', <Home />)
+      const card = await screen.findByRole('button', { name: /^⭐?\s*Bài hôm nay/ })
+      fireEvent.click(card)
+      fireEvent.click(card)
+      await waitFor(() =>
+        expect(fetchMock.mock.calls.filter(([, i]) => i?.method === 'POST')).toHaveLength(1),
+      )
+      fireEvent.click(card)
+      expect(fetchMock.mock.calls.filter(([, i]) => i?.method === 'POST')).toHaveLength(1)
+    })
+
+    it('refreshes Home and shows the error when starting the Assignment fails', async () => {
+      let assignment: unknown = CARD
+      const fetchMock = routed(
+        () => homeWith(assignment).body,
+        () => {
+          assignment = null // the server-side state that made the start fail
+          return new Response(
+            JSON.stringify({ error: { code: 'ASSIGNMENT_DONE', message: 'Bài này đã xong.' } }),
+            { status: 409, headers: { 'Content-Type': 'application/json' } },
+          )
+        },
+      )
+      renderAt('/', <Home />)
+      fireEvent.click(await screen.findByRole('button', { name: /^⭐?\s*Bài hôm nay/ }))
+      await waitFor(() =>
+        expect(screen.queryByTestId('home-assignment')).not.toBeInTheDocument(),
+      )
+      const homeGets = fetchMock.mock.calls.filter(
+        ([u, i]) => String(u).startsWith('/api/v1/library/home/') && i?.method !== 'POST',
+      )
+      expect(homeGets.length).toBeGreaterThanOrEqual(2)
+    })
+
     it('is absent when nothing is assigned', async () => {
       mockApi({
         'GET /api/v1/setup/status': SETUP_OK,

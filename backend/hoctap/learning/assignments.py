@@ -23,11 +23,10 @@ from hoctap.content.catalog.models import (
 )
 from hoctap.ids import new_id, to_iso
 from hoctap.learning.models import progress_assignments, progress_events, progress_sessions
-from hoctap.learning.problem_sets import LessonRef, ref_key, resolve
+from hoctap.learning.problem_sets import CHUNK_SIZE, LessonRef, ref_key, resolve
 from hoctap.learning.summary import LOCAL_TZ
 from hoctap.parent.models import parent_profiles
 
-CHUNK_SIZE = 10
 TODO, DOING, DONE = "todo", "doing", "done"
 
 

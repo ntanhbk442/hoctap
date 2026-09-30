@@ -34,7 +34,7 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-4-context.m
 | Child confirms 🚩 | `profile_id`, Bin taps "Có" | Open `child` report, note empty; Problem stays visible; Bin sees "Đã báo cho bố mẹ" | Unknown Profile: 404 `PROFILE_NOT_FOUND` |
 | Child cancels | Bin taps "Không" | Nothing stored, dialog closes | N/A |
 | Child flags twice | Open child report exists | Same friendly message, no duplicate row | N/A |
-| Reported mid-Session | Parent reports a Problem in a frozen Session | Existing `get_bundle` skip applies; Problem no longer served | N/A |
+| Reported mid-Session | Parent reports a Problem in a frozen Session | Session stays frozen (AD-9): the Problem is still served in that Session; new Sessions and the Library exclude it (human decision, code review 2026-09-30) | N/A |
 | Parent opens preview | Dashboard mistake row linked to `/parent/problems/:id` | Read-only Problem view with answer key, Concepts, existing reports and "Báo lỗi" | Unknown id: not-found state; no cookie: PIN gate |
 | Offline child | Flag call fails | Bin sees a neutral "Chưa gửi được, thử lại nhé"; nothing queued | Retry manually |
 | Resolved | Report resolved in Review | Problem visible again; dashboard row shows no reported state | N/A |

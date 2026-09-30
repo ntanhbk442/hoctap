@@ -13,6 +13,7 @@ from sqlalchemy import Connection, delete, select
 
 from hoctap.content import effective
 from hoctap.learning.models import (
+    progress_assignments,
     progress_badges,
     progress_events,
     progress_retry_items,
@@ -56,8 +57,16 @@ def attempted_lesson_counts(
 
 
 def delete_profile_progress(conn: Connection, profile_id: str) -> None:
-    """Removes every `progress_*` row of `profile_id` (Story 4.1). Runs inside the caller's
-    transaction; events and stars go before sessions (FK order). No FK cascades exist."""
-    for table in (progress_events, progress_stars, progress_retry_items, progress_badges):
+    """Removes every `progress_*` row of `profile_id` (Story 4.1), Assignments included
+    (Story 4.3). Runs inside the caller's transaction; events and stars go before sessions
+    (FK order). `progress_sessions.assignment_id` is a plain column (no FK), so the
+    Assignments can go in any order. No FK cascades exist."""
+    for table in (
+        progress_events,
+        progress_stars,
+        progress_retry_items,
+        progress_badges,
+        progress_assignments,
+    ):
         conn.execute(delete(table).where(table.c.profile_id == profile_id))
     conn.execute(delete(progress_sessions).where(progress_sessions.c.profile_id == profile_id))

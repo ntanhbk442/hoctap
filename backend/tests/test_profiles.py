@@ -13,6 +13,7 @@ from hoctap.app import create_app
 from hoctap.config import Settings
 from hoctap.ids import to_iso
 from hoctap.learning.models import (
+    progress_assignments,
     progress_badges,
     progress_events,
     progress_retry_items,
@@ -138,11 +139,26 @@ def test_delete_purges_progress(client: TestClient) -> None:
     gone = client.post(f"{API}/profiles", json=NEW).json()["id"]
     _seed_progress(client, keep)
     _seed_progress(client, gone)
+    with client.app.state.engine.begin() as conn:  # type: ignore[attr-defined]
+        for pid in (keep, gone):
+            conn.execute(
+                insert(progress_assignments).values(
+                    id=f"a-{pid}",
+                    profile_id=pid,
+                    ref_kind="lesson",
+                    ref_key="k",
+                    book_id="b",
+                    unit_key="u",
+                    lesson_key="l",
+                    assigned_date="2026-09-30",
+                    created_at=to_iso(FakeClock().now),
+                )  # fmt: skip
+            )
     assert client.delete(f"{API}/profiles/{gone}").status_code == 204
     assert _ids(client) == [keep]
     with client.app.state.engine.connect() as conn:  # type: ignore[attr-defined]
         for t in (progress_sessions, progress_events, progress_stars,
-                  progress_retry_items, progress_badges):  # fmt: skip
+                  progress_retry_items, progress_badges, progress_assignments):  # fmt: skip
             assert (
                 conn.execute(
                     select(func.count()).select_from(t).where(t.c.profile_id == gone)
@@ -191,8 +207,10 @@ def test_change_pin(client: TestClient, tmp_path: Path) -> None:
 
 def test_change_pin_wrong_current_locks(client: TestClient) -> None:
     body = {"current_pin": "0000", "new_pin": "4321", "new_pin_confirm": "4321"}
-    for _ in range(5):
-        assert client.post(f"{API}/parent/pin", json=body).status_code in (401, 429)
+    # The 5th wrong attempt sets the lock but is itself still answered 401; 429 starts after.
+    for _ in range(service.MAX_FAILED_ATTEMPTS):
+        assert client.post(f"{API}/parent/pin", json=body).status_code == 401
+    assert client.post(f"{API}/parent/pin", json=body).status_code == 429
     good = {**body, "current_pin": "1234"}
     assert client.post(f"{API}/parent/pin", json=good).status_code == 429
 

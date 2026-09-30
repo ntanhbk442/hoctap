@@ -27,6 +27,9 @@ from hoctap.api.errors import AppError
 from hoctap.content import library as content_library
 from hoctap.learning.summary import LOCAL_TZ
 
+# Problems per Session chunk ("Phần i/n"); shared by sessions and assignments.
+CHUNK_SIZE = 10
+
 RefKind = Literal["lesson", "concept", "retry", "replay"]
 
 

@@ -213,3 +213,13 @@ def test_start_validation(client: TestClient, engine: Engine, profile_id: str) -
     ).json()["id"]
     aid = _assign(client, profile_id, TODAY).json()["id"]
     assert _start(client, other, aid).status_code == 404
+
+    # Different Lesson, and non-lesson refs, cannot carry an Assignment.
+    other_lesson = {"kind": "lesson", "book_id": BOOK, "unit_key": UNIT, "lesson_key": "tiet-9"}
+    for ref in (other_lesson, {"kind": "retry"}, {"kind": "replay", "source_session_id": "x"}):
+        resp = client.post(
+            "/api/v1/sessions",
+            json={"profile_id": profile_id, "assignment_id": aid, "ref": ref},
+        )
+        assert resp.status_code == 422, ref
+        assert resp.json()["error"]["code"] == "ASSIGNMENT_REF_MISMATCH", ref
