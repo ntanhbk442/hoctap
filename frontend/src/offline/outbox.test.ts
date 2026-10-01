@@ -205,7 +205,7 @@ describe('flushOutbox', () => {
     mockApi({ 'POST /api/v1/sessions/session-1/events': { status: 422 } })
 
     const outcome = await flushOutbox(store)
-    expect(outcome).toBe('stopped')
+    expect(outcome).toBe('stopped-rejected')
     expect((await store.listAll()).map((i) => i.id)).toEqual(['e1', 'e2'])
   })
 
@@ -215,7 +215,7 @@ describe('flushOutbox', () => {
     stubOffline()
 
     const outcome = await flushOutbox(store)
-    expect(outcome).toBe('stopped')
+    expect(outcome).toBe('stopped-network')
     expect(await store.count()).toBe(1)
   })
 
@@ -265,7 +265,7 @@ describe('flushOutbox', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const outcome = await flushOutbox(store)
-    expect(outcome).toBe('stopped')
+    expect(outcome).toBe('stopped-rejected')
     expect((await store.listAll()).map((i) => i.id)).toEqual(['e2', 'e3'])
   })
 
@@ -274,7 +274,7 @@ describe('flushOutbox', () => {
     await store.add({ id: 'e1', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('e1') })
     await store.add({ id: 'e2', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('e2') })
     mockApi({ 'POST /api/v1/sessions/session-1/events': { status: 502 } })
-    expect(await flushOutbox(store)).toBe('stopped')
+    expect(await flushOutbox(store)).toBe('stopped-rejected')
     expect(await store.count()).toBe(2)
 
     const order: string[] = []
@@ -350,5 +350,67 @@ describe('db_epoch (Story 7.2)', () => {
     ).rejects.toMatchObject({ code: 'STALE_EPOCH' })
     expect(await store.count()).toBe(0)
     expect(staleEpochSnapshot()).toBe(true)
+  })
+})
+
+/** A store whose every operation throws, for Review Triage Log #11's "the store itself is
+ * broken" scenarios (quota exceeded, a blocked `onupgradeneeded`, a `VersionError` from
+ * another open tab) -- never actually reachable via `MemoryOutboxStore`. */
+class ThrowingOutboxStore {
+  async add(): Promise<void> {
+    throw new Error('store broken: add')
+  }
+  async listAll(): Promise<never[]> {
+    throw new Error('store broken: listAll')
+  }
+  async remove(): Promise<void> {
+    throw new Error('store broken: remove')
+  }
+  async count(): Promise<number> {
+    throw new Error('store broken: count')
+  }
+}
+
+describe('store-failure handling (Review Triage Log #11)', () => {
+  it('still posts normally when the server is reachable, even if the store itself is completely broken', async () => {
+    // The pre-flush FIFO check (`store.count()`) throwing must never prevent a normal,
+    // ONLINE post -- a broken store degrades "can't queue", never "can't post at all".
+    mockApi({
+      'POST /api/v1/sessions/session-1/events': { status: 201, body: [eventOut('e1')] },
+    })
+    const result = await postEventsOrQueue(
+      new ThrowingOutboxStore(),
+      SESSION_ID,
+      PROFILE_ID,
+      [attemptEvent('e1')],
+    )
+    expect(result).toEqual([eventOut('e1')])
+  })
+
+  it('rethrows the original NetworkError (not a false QueuedOfflineError) when the server is unreachable AND the store cannot queue the event either', async () => {
+    stubOffline()
+    await expect(
+      postEventsOrQueue(new ThrowingOutboxStore(), SESSION_ID, PROFILE_ID, [attemptEvent('e1')]),
+    ).rejects.toMatchObject({ name: 'NetworkError' })
+  })
+
+  it('flushOutbox resolves "stopped-store" (not an unhandled rejection) when the store fails mid-drain', async () => {
+    await expect(flushOutbox(new ThrowingOutboxStore())).resolves.toBe('stopped-store')
+  })
+
+  it('a transient store.add() failure is retried once and succeeds', async () => {
+    stubOffline()
+    const store = new MemoryOutboxStore()
+    const realAdd = store.add.bind(store)
+    let calls = 0
+    store.add = async (item) => {
+      calls += 1
+      if (calls === 1) throw new Error('transient')
+      return realAdd(item)
+    }
+    await expect(
+      postEventsOrQueue(store, SESSION_ID, PROFILE_ID, [attemptEvent('e1')]),
+    ).rejects.toBeInstanceOf(QueuedOfflineError)
+    expect(await store.count()).toBe(1)
   })
 })

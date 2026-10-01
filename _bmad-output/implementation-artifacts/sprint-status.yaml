@@ -49,7 +49,7 @@ development_status:
   1-11-https-on-the-lan-and-windows-runtime: review
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-design-tokens-nunito-and-core-components: done
   2-2-speech-normaliser-tts-adapter-and-speak-missing: done
   2-3-child-home-and-library: done
@@ -60,7 +60,7 @@ development_status:
   2-8-fallback-self-check: done
   2-9-audio-player-and-auto-play: done
   2-10-session-summary-and-luyện-lại-bài-sai: done
-  2-11-pwa-offline-shell-and-event-outbox: review
+  2-11-pwa-offline-shell-and-event-outbox: done
   epic-2-retrospective: optional
 
   epic-3: done

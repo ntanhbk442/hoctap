@@ -196,6 +196,65 @@ def test_start_unknown_profile_404(client: TestClient, engine: Engine) -> None:
     _envelope(resp, 404, "PROFILE_NOT_FOUND")
 
 
+def test_start_second_session_abandons_prior_unfinished_one(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Review Triage Log #12: starting a second Lesson while the first is still unfinished
+    (`completed_at IS NULL`) auto-completes the first instead of leaving it a permanent
+    zombie row -- `find_unfinished_session()` can then only ever surface the one genuinely
+    still in progress (the second one)."""
+    unit2, lesson2 = "tuan-6", "tiet-1"
+    pub = Pub(engine)  # registers the book first (FK target for both lessons below)
+    with engine.begin() as conn:
+        publish_problems(
+            conn,
+            BOOK,
+            units=[UnitRow(BOOK, unit2, "TUẦN 6", "", 600)],
+            lessons=[LessonRow(BOOK, unit2, lesson2, "Tiết 1", "", 601)],
+            problems=[
+                ProblemInput(
+                    doc={
+                        **make_doc("bai-0"),
+                        "problem_id": f"{BOOK}.{unit2}.{lesson2}.bai-0",
+                        "unit_key": unit2,
+                        "lesson_key": lesson2,
+                    },
+                    position=13000,
+                    needs_review=False,
+                    verify_status="agree",
+                    duplicate=False,
+                )
+            ],
+        )
+        review.record_concept_proposals(
+            conn, 1, {f"{BOOK}.{unit2}.{lesson2}.bai-0": []}
+        )
+    pub(make_doc("bai-1"))
+
+    first = _start(client, profile_id)
+
+    resp = client.post(
+        API,
+        json={
+            "profile_id": profile_id,
+            "ref": {"kind": "lesson", "book_id": BOOK, "unit_key": unit2, "lesson_key": lesson2},
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    second = resp.json()
+    assert second["id"] != first["id"]
+
+    with engine.connect() as conn:
+        rows = {
+            row.id: row.completed_at
+            for row in conn.execute(
+                select(progress_sessions).where(progress_sessions.c.profile_id == profile_id)
+            )
+        }
+    assert rows[first["id"]] is not None, "the first, now-abandoned Session must be completed"
+    assert rows[second["id"]] is None, "the second, just-started Session must still be open"
+
+
 # --- Bundle --------------------------------------------------------------------------
 
 

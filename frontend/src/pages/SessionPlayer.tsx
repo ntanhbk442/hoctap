@@ -22,6 +22,7 @@ import { newEventId } from '../ids'
 import { cacheBundleAssets } from '../offline/assetCache'
 import OfflineScreen from '../offline/OfflineScreen'
 import { defaultOutboxStore, flushOutbox, QueuedOfflineError } from '../offline/outbox'
+import { useOutboxAutoFlush } from '../offline/useOutboxAutoFlush'
 import { getCurrentProfileId } from '../profile'
 import ConceptGuide from '../components/ConceptGuide/ConceptGuide'
 import FlagButton from '../components/FlagButton/FlagButton'
@@ -73,6 +74,19 @@ function SessionPlayerInner() {
   const [offline, setOffline] = useState(false)
   const [retrying, setRetrying] = useState(false)
   const [retryTick, setRetryTick] = useState(0)
+  // Review Triage Log #9: true once a flush has confirmed the queue is stuck on something
+  // OTHER than "still offline" (a genuine server-side rejection, or a broken store) --
+  // `OfflineScreen` shows a different, honest message instead of claiming "chưa kết nối
+  // mạng" when the connection is actually fine.
+  const [stuckNotNetwork, setStuckNotNetwork] = useState(false)
+  // Kept in sync with `offline` so `useOutboxAutoFlush`'s `onDrained` callback below (whose
+  // closure is captured once, at mount) can read the CURRENT value rather than the stale
+  // one from whenever the effect first ran -- without this, every background flush (even a
+  // routine, nothing-queued one on ordinary mount) would needlessly bump `retryTick`.
+  const offlineRef = useRef(false)
+  useEffect(() => {
+    offlineRef.current = offline
+  }, [offline])
   // Guards the `session_completed` post against firing more than once per true end (the
   // effect below can re-run while the mutation is still in flight, e.g. a re-render from
   // an unrelated state change) -- a synchronous ref, not state, so it's checked-and-set
@@ -115,6 +129,22 @@ function SessionPlayerInner() {
   useEffect(() => {
     if (bundle.data) cacheBundleAssets(bundle.data)
   }, [bundle.data])
+
+  // Review Triage Log #10 (2026-10-01, medium): previously only this screen's OWN manual
+  // "Thử lại" (`handleRetryOnline` below) ever cleared `offline` -- the app-wide background
+  // sweep (mount/`online`, `useOutboxAutoFlush` in `App.tsx`) could silently drain the exact
+  // queue that caused this screen to show, leaving the child staring at "chưa kết nối mạng"
+  // with nothing left to actually retry. Subscribing here too means EITHER path clears it.
+  useOutboxAutoFlush((outcome) => {
+    if (!offlineRef.current) return
+    if (outcome === 'drained') {
+      setOffline(false)
+      setStuckNotNetwork(false)
+      setRetryTick((t) => t + 1)
+    } else if (outcome === 'stopped-rejected' || outcome === 'stopped-store') {
+      setStuckNotNetwork(true)
+    }
+  })
 
   useEffect(() => {
     if (!trueEnd || completedPosted || postingCompletedRef.current) return
@@ -171,7 +201,16 @@ function SessionPlayerInner() {
       const outcome = await flushOutbox(defaultOutboxStore())
       if (outcome === 'drained') {
         setOffline(false)
+        setStuckNotNetwork(false)
         setRetryTick((t) => t + 1)
+      } else if (outcome === 'stopped-rejected' || outcome === 'stopped-store') {
+        // Review Triage Log #9: the connection is fine -- something else (a server
+        // rejection, or the outbox store itself) is jamming the queue. Stay on the offline
+        // screen (there is still nothing to show for the un-gradeable Problem), but stop
+        // lying about why.
+        setStuckNotNetwork(true)
+      } else {
+        setStuckNotNetwork(false)
       }
     } finally {
       setRetrying(false)
@@ -224,7 +263,11 @@ function SessionPlayerInner() {
           {offline ? (
             // Story 2.11: replaces the whole Session view -- no local grading happens
             // while an event is queued in the offline outbox.
-            <OfflineScreen onRetry={() => void handleRetryOnline()} retrying={retrying} />
+            <OfflineScreen
+              onRetry={() => void handleRetryOnline()}
+              retrying={retrying}
+              stuckNotNetwork={stuckNotNetwork}
+            />
           ) : problems.length === 0 ? (
             <p className="home-empty">Phần này chưa có bài tập nào để hiển thị.</p>
           ) : trueEnd && isQuiz && !quizSubmitted ? (

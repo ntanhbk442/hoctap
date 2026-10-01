@@ -86,4 +86,20 @@ describe('useOutboxAutoFlush', () => {
     // no listener left to react to the event, so nothing was sent.
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('calls onDrained with the flush outcome after every mount/online flush (Review Triage Log #10)', async () => {
+    const store = defaultOutboxStore()
+    await store.add({ id: 'e1', sessionId: SESSION_ID, profileId: PROFILE_ID, event: attemptEvent('e1') })
+
+    const fetchMock = vi.fn(okResponse)
+    vi.stubGlobal('fetch', fetchMock)
+    const onDrained = vi.fn()
+
+    renderHook(() => useOutboxAutoFlush(onDrained))
+    await waitFor(() => expect(onDrained).toHaveBeenCalledWith('drained'))
+
+    onDrained.mockClear()
+    window.dispatchEvent(new Event('online'))
+    await waitFor(() => expect(onDrained).toHaveBeenCalledWith('drained'))
+  })
 })

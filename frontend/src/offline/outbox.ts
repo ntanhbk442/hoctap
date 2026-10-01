@@ -6,7 +6,7 @@
 import type { EventIn, EventOut } from '../api/client'
 import { ApiError, NetworkError, postSessionEvents } from '../api/client'
 import { epochForSession, noteStaleEpoch } from './dbEpoch'
-import { createOutboxStore, type OutboxStore } from './outboxStore'
+import { createOutboxStore, type OutboxStore, type QueuedItem } from './outboxStore'
 
 /** Thrown by `postEventsOrQueue()` instead of the original `NetworkError` once `events`
  * have been safely queued -- the caller (a Problem/Session screen) must show the "Máy
@@ -39,23 +39,52 @@ export async function postEventsOrQueue(
   if (epoch) events = events.map((e) => (e.db_epoch ? e : { ...e, db_epoch: epoch }))
   // Strict FIFO (AD-10): never post a new event ahead of older queued ones. Drain first
   // (serialised with any other flush); if anything is still queued, queue behind it.
-  if ((await store.count()) > 0) {
-    await flushOutbox(store)
+  //
+  // Review Triage Log #11 (2026-10-01, medium): this pre-flush check used to be
+  // unguarded -- a genuinely broken store (quota exceeded, a blocked `onupgradeneeded`, a
+  // `VersionError` from another open tab) throwing out of `store.count()`/`flushOutbox()`
+  // here would kill this call BEFORE it ever reached `postSessionEvents()` below, breaking
+  // normal ONLINE posting too, not just the offline-queuing path. A broken store degrades
+  // to "can't enforce FIFO queuing/can't queue" -- it must never also mean "can't post at
+  // all while genuinely online".
+  let storeBroken = false
+  try {
     if ((await store.count()) > 0) {
-      await queueEvents(store, sessionId, profileId, events)
-      throw new QueuedOfflineError()
+      await flushOutbox(store)
+      if ((await store.count()) > 0) {
+        await queueEvents(store, sessionId, profileId, events)
+        throw new QueuedOfflineError()
+      }
     }
+  } catch (err) {
+    if (err instanceof QueuedOfflineError) throw err
+    logStoreFailure('pre-flush check', err)
+    storeBroken = true
   }
   try {
     return await postSessionEvents(sessionId, profileId, events)
   } catch (err) {
     if (isStaleEpoch(err)) noteStaleEpoch()
     if (!(err instanceof NetworkError)) throw err
+    if (storeBroken) {
+      // Already know the store can't take this event either -- don't try again only to
+      // throw a second, swallowed error; surface the ORIGINAL `NetworkError` so the caller
+      // shows a real (if generic) error instead of a false "safely queued" claim, and the
+      // already-answered Part stays in its pre-submit state for the child to retry (see
+      // `ProblemPlayer.tsx`'s catch -- resetting to `answering` never discards the attempt).
+      throw err
+    }
     await queueEvents(store, sessionId, profileId, events)
     throw new QueuedOfflineError()
   }
 }
 
+/** Review Triage Log #11: wraps `store.add()` for every event, never silently losing an
+ * already-answered Problem to a broken store. A single retry covers a transient failure
+ * (e.g. a momentarily blocked `onupgradeneeded` from another tab); if it still fails, this
+ * loudly logs (so a human has a chance to notice a persistently broken store) and rethrows
+ * the ORIGINAL error -- never `QueuedOfflineError`, which would falsely tell the caller the
+ * event is safely queued when it was never actually written anywhere. */
 async function queueEvents(
   store: OutboxStore,
   sessionId: string,
@@ -63,11 +92,35 @@ async function queueEvents(
   events: EventIn[],
 ): Promise<void> {
   for (const event of events) {
-    await store.add({ id: event.id, sessionId, profileId, event })
+    const item = { id: event.id, sessionId, profileId, event }
+    try {
+      await store.add(item)
+    } catch (firstErr) {
+      try {
+        await store.add(item)
+      } catch (retryErr) {
+        logStoreFailure('queue (after one retry)', retryErr)
+        throw firstErr
+      }
+    }
   }
 }
 
-export type FlushOutcome = 'drained' | 'stopped'
+function logStoreFailure(where: string, err: unknown): void {
+  // Deliberate, loud `console.error`: a broken outbox store can otherwise lose an
+  // already-answered Problem with no other visible trace (Review Triage Log #11).
+  console.error(`[offline outbox] store failed during ${where}:`, err)
+}
+
+/** Review Triage Log #9 (2026-10-01, medium): `'stopped'` used to mean "any non-stale-epoch
+ * failure", collapsing a genuine `NetworkError` (still offline) and a real server-side
+ * rejection (e.g. a `problem_id` invalidated by a content edit after it was queued -- a
+ * perfectly good connection, just an unprocessable event) into the SAME outcome. Callers
+ * (`SessionPlayer`/`OfflineScreen`) need to tell these apart to avoid showing "chưa kết nối
+ * mạng" when the connection is actually fine. `'stopped-store'` is new too (Review Triage
+ * Log #11): the store itself (not the network, not the server) failed mid-drain -- also not
+ * a "not connected" situation. */
+export type FlushOutcome = 'drained' | 'stopped-network' | 'stopped-rejected' | 'stopped-store'
 
 /**
  * Flushes `store` in strict FIFO order (AD-10: "sent in order, applied once"), ONE event
@@ -110,18 +163,36 @@ function isStaleEpoch(err: unknown): boolean {
 
 async function drain(store: OutboxStore): Promise<FlushOutcome> {
   for (;;) {
-    const items = await store.listAll()
+    let items: QueuedItem[]
+    try {
+      items = await store.listAll()
+    } catch (err) {
+      // Review Triage Log #11: a store failure mid-drain is neither "still offline" nor a
+      // server rejection -- it must not be reported as either (finding #9's same concern).
+      logStoreFailure('drain listAll', err)
+      return 'stopped-store'
+    }
     if (items.length === 0) return 'drained'
     const next = items[0]
     try {
       await postSessionEvents(next.sessionId, next.profileId, [next.event])
     } catch (err) {
-      if (!isStaleEpoch(err)) return 'stopped'
+      if (!isStaleEpoch(err)) {
+        // Review Triage Log #9: distinguish "still offline" (`NetworkError`) from a real
+        // server-side rejection of THIS event (the server IS reachable) -- callers show a
+        // different, honest message for the latter instead of claiming "chưa kết nối mạng".
+        return err instanceof NetworkError ? 'stopped-network' : 'stopped-rejected'
+      }
       // Story 7.2: the data was restored since this event was made; it can never apply.
       // Discard it (and tell the user once) instead of jamming the queue behind it.
       noteStaleEpoch()
     }
-    await store.remove(next.id)
+    try {
+      await store.remove(next.id)
+    } catch (err) {
+      logStoreFailure('drain remove', err)
+      return 'stopped-store'
+    }
   }
 }
 

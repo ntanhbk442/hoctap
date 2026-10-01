@@ -279,6 +279,130 @@ into a Star/Retry-Queue transition it wasn't already eligible for).
   this story's changes — logged for awareness, not claimed as fixed). `npx tsc -b` — clean.
   `npx eslint .` — clean.
 
+### 2026-10-01: fixes for Review Triage Log findings #8–#12 (post-audit)
+
+Fixed, in priority order, the 5 actionable findings from the orchestrator's independent
+audit (#8/#10/#11/#9/#12 above); #13/#14 left as-is per their own rows ("no fix required").
+
+**#8 (high) — request timeout.** `api/client.ts`'s `request()` previously let a stalled
+connection hang `fetch()` forever (no `AbortSignal` at all). Added a module-level
+`REQUEST_TIMEOUT_MS = 12_000` constant and pass `AbortSignal.timeout(REQUEST_TIMEOUT_MS)`
+to `fetch()` — merged with any caller-supplied `signal` via `AbortSignal.any()` when one is
+given (e.g. a query's own unmount-cancellation), so neither cancellation path is lost. No
+new error branch was needed: `AbortSignal.timeout()` rejects `fetch()` itself, and the
+existing `catch` around `fetch()` already wraps ANY throw (DNS/TCP failure or now a
+timeout) in `NetworkError`, which is exactly what `outbox.ts`'s offline-queuing path
+already branches on. 12s is a judgment call for a LAN app (the server is always on the
+same Wi-Fi as the tablet, never over the public internet) — long enough that a slow SQLite
+write under WAL contention isn't mistaken for a dead connection, short enough to resolve
+well within a young child's patience. New test in `client.test.ts`: since
+`AbortSignal.timeout()` is implemented via internal timers vitest's fake-timer
+`advanceTimersByTimeAsync()` cannot reach (confirmed by trying it first — it hung the real
+test for the full 5s Vitest default timeout), the test instead spies on
+`AbortSignal.timeout()` to substitute an `AbortController` the test fully controls, then
+aborts it manually and asserts the resulting rejection resolves as `NetworkError`.
+
+**#10 (medium) — offline screen didn't auto-clear on a background drain.**
+`useOutboxAutoFlush()` now accepts an optional `onDrained(outcome: FlushOutcome)` callback,
+invoked after every one of ITS OWN mount/`online` flushes (not after a caller's own
+separate `flushOutbox()` call, e.g. a manual retry button — those are independent by
+design). `SessionPlayer` adds its own `useOutboxAutoFlush(onDrained)` call (alongside the
+pre-existing, argument-less one in `App.tsx` — `flushOutbox()`'s single-flight `inFlight`
+WeakMap means this costs no extra network calls) and clears `offline`/`stuckNotNetwork` and
+bumps `retryTick` when the outcome is `'drained'`. Guarded by an `offlineRef` kept in sync
+with the `offline` state via a tiny `useEffect` — without it, every routine background
+flush (even an empty-queue one on ordinary mount) would needlessly re-arm the
+`session_completed` effect via `retryTick`; the guard means this only fires when the
+Session's own queue was actually the thing that caused `offline` to be true.
+
+**#11 (medium) — store failures weren't caught.** Three separate gaps, all in
+`offline/outbox.ts`: (1) `postEventsOrQueue()`'s pre-flush FIFO check
+(`store.count()`/`flushOutbox()`) was unguarded — a broken store (quota exceeded, a blocked
+`onupgradeneeded`, a `VersionError` from another open tab) throwing here would have killed
+the call before it ever reached `postSessionEvents()`, breaking NORMAL online posting too,
+not just offline-queuing. Now wrapped in try/catch; on a store failure it logs loudly
+(`logStoreFailure()`) and proceeds to attempt a normal post anyway (a broken store means
+"can't queue", never "can't post at all while genuinely online"). (2) `queueEvents()`
+(`store.add()` per event) now retries once on failure before giving up, logs loudly if the
+retry also fails, and rethrows the ORIGINAL error — deliberately NEVER `QueuedOfflineError`
+in this case, since that would falsely claim the event is safely queued when it was never
+written anywhere; the existing generic-`submitError` catch in `ProblemPlayer.tsx` already
+resets the Part to `answering` either way, so the child's answer is never discarded, just
+not auto-queued. (3) `drain()`'s own `store.listAll()`/`store.remove()` calls are now
+wrapped too, returning the new `'stopped-store'` outcome instead of throwing — previously
+this could have become an unhandled promise rejection via `useOutboxAutoFlush`'s
+fire-and-forget background flush (now has an explicit `.catch` too) or `SessionPlayer`'s
+`void handleRetryOnline()`. New tests in `outbox.test.ts` use a `ThrowingOutboxStore` (every
+method throws) to cover: posts normally despite a fully broken store; rethrows the original
+`NetworkError` when BOTH the server and the store fail; `flushOutbox()` resolves
+`'stopped-store'` rather than rejecting; a transient `add()` failure is retried once and
+succeeds.
+
+**#9 (medium) — offline screen lied when stuck on a non-network failure.** `FlushOutcome`
+was a single `'stopped'` meaning "any non-stale-epoch failure" — collapsing "still offline"
+and "server reachable, but rejects this one event" (e.g. a `problem_id` invalidated by a
+content edit after it was queued) into the same bucket, so `OfflineScreen` always said
+"chưa kết nối mạng" even when the connection was fine. `FlushOutcome` is now `'drained' |
+'stopped-network' | 'stopped-rejected' | 'stopped-store'`; `drain()` checks
+`err instanceof NetworkError` to pick `'stopped-network'` vs. `'stopped-rejected'`.
+`SessionPlayer` tracks a new `stuckNotNetwork` boolean (set on `'stopped-rejected'`/
+`'stopped-store'`, cleared on `'drained'`, checked on both the manual-retry path and the
+new `useOutboxAutoFlush` `onDrained` path from #10) and passes it to `OfflineScreen`, which
+renders the new `offline_stuck_not_network` phrase ("Có bài chưa gửi được, nhưng máy tính
+bảng vẫn đang kết nối mạng.") instead of `offline_not_connected` in that case — same
+screen, same retry button, just an honest message. New phrase key added to
+`phrases.vi.json`; new test in `SessionPlayer.test.tsx`.
+
+**#12 (medium) — no guard against two unfinished Sessions per profile.** Chose option (a)
+from the finding's own two listed choices: `start_session()` now auto-completes/abandons
+any OTHER `completed_at IS NULL` Session for the same `profile_id` before inserting the new
+one — a single `UPDATE ... WHERE profile_id = :p AND completed_at IS NULL` stamping
+`completed_at` to the NEW Session's own `started_at`, placed right after the
+`EMPTY_PROBLEM_SET` 422 check (so a 422 still creates zero rows, matching
+`test_start_zero_visible_problems_422_no_session_created`) and before the new Session's
+`INSERT`. Chosen over listing ALL unfinished Sessions on Home because it matches how a
+young child actually uses this app — one Lesson at a time — and an abandoned Lesson simply
+isn't coming back; the abandoned row's events/stars are untouched, only `completed_at`
+changes, so it cleanly drops out of `find_unfinished_session()`'s `completed_at IS NULL`
+filter without being backdated to an arbitrary earlier time. New test in `test_sessions.py`
+(`test_start_second_session_abandons_prior_unfinished_one`): starts a Lesson, then a second
+different Lesson for the same Profile, and asserts the first Session is now completed while
+the second stays open.
+
+**What was deliberately NOT done**: findings #13 (FIFO-by-caller-discipline) and #14
+(the "Tiếp tục" docstring overstating code reuse) were explicitly marked "no fix required"
+in their own rows and are unchanged — #13 is latent-only (every current call site already
+awaits serially) and #14 is a documentation-wording issue, not a behavior defect; touching
+either would be scope creep for a bug-fix pass. Also did not change `downloadBackup()`'s
+separate, raw `fetch()` call in `client.ts` (Story 7.2) to use the new timeout — finding #8
+was scoped to `request()` specifically, and a large `.db` file transfer legitimately needs
+a different (longer, or absent) timeout policy than a JSON event POST; flagged here rather
+than silently left inconsistent.
+
+**Verification commands and results (this pass)**:
+- Backend: `uv run ruff check .` — all checks passed. `uv run pytest tests/test_sessions.py
+  tests/test_library.py -q` — 116 passed, 0 failed (includes the new finding-#12 test).
+  Full suite, `uv run pytest -q` — **1148 passed, 0 failed** (22m12s; see also the dated
+  entry in `## Verification` below).
+- Frontend (same `/tmp` rsync workaround, plus symlinking `/tmp/backend` and
+  `/tmp/_bmad-output` to the real repo so the handful of tests that read fixtures via a
+  `../backend`/`../_bmad-output` relative path — `WorksheetPage.test.tsx`,
+  `print/leak.test.tsx`, `print/renderers.test.tsx`, `styles/tokens.test.ts` — resolve
+  correctly from the isolated copy): `npx tsc -b` — clean. `npx eslint .` — clean (after
+  moving one `eslint-disable-next-line` comment to immediately precede the line it was
+  meant to suppress — a multi-line comment block had pushed it one line too early, so ESLint
+  reported it as unused while the real `react-hooks/exhaustive-deps` warning went
+  unsuppressed). `npx vitest run src/offline src/pages/SessionPlayer.test.tsx
+  src/api/client.test.ts` — 87 passed. `npx vitest run src/pages/ProblemPlayer.test.tsx
+  src/pages/ProblemPlayer.expression.test.tsx src/pages/ProblemPlayer.speaker.test.tsx` — 59
+  passed. Full suite (`npx vitest run`) is flaky under this shared machine's parallel
+  worker load exactly as the 2026-09-29 entry already documented — re-ran the handful of
+  files that failed only in the full-suite run (`ProblemPlayer.expression.test.tsx`,
+  `SessionPlayer.test.tsx`) in isolation and they passed cleanly (6/6, 30/30), confirming
+  infra flakiness, not a regression. The one CONSISTENTLY-reproducing failure across every
+  run, isolated or not, is the same pre-existing `ExtractionPage.test.tsx` "Hủy" issue
+  the 2026-09-29 entry already logged as unrelated to this story.
+
 ## Spec Change Log
 
 <!-- Populated if the spec needs correction during implementation. Append-only. -->
@@ -296,6 +420,17 @@ into a Star/Retry-Queue transition it wasn't already eligible for).
 | 5 | A manual retry after the background auto-flush already delivered the original queued event mints a genuinely FRESH event id (not a replay of the queued one), producing a second, distinct stored attempt event -- confirmed harmless for grading/Retry-Queue correctness (re-graded, but _add_retry_item skips if an unresolved row exists) by 1 reviewer's careful trace, already self-disclosed by the implementer in deferred-work.md | low | correctly self-disclosed and confirmed genuinely low-severity (UX/log-noise only, not a correctness bug) -> no fix required, already documented appropriately |
 | 6 | Two smaller test-coverage gaps: `assetCache.ts`'s `cacheBundleAssets()` (session-bundle asset caching on Session start) has ZERO test coverage despite being pure, easily-testable logic; `useOutboxAutoFlush.ts`'s flush-on-`online`-event behavior (AD-10's headline reconnect mechanism) has ZERO test coverage -- no test anywhere dispatches a real `online` event | low | confirmed by 2 reviewers -> patch: add the cheapest tests for both as time allows -- a `cacheBundleAssets` test asserting it calls `caches.open`/`fetch` (or the Workbox API it uses) for each bundle URL, and a `useOutboxAutoFlush` test that does `window.dispatchEvent(new Event('online'))` and asserts flush was triggered |
 | 7 | Multi-event (3+) FIFO ordering is only tested with exactly 2 events; the "partial flush success" test (event 1 succeeds and is removed, event 2 fails, event 2+3 remain queued) actually only tests "event 1 itself fails, everything remains queued" -- not the specific partial-success scenario the spec's own I/O matrix describes; "Tiếp tục"'s long-press-to-speak (mirroring the existing "Học tiếp" card's own dedicated test) has no analogous test for the new card | low | confirmed by 1 reviewer -> patch: add the cheapest 1-2 of these three as time allows; log the rest as debt if time-constrained -> **resolved**: all three added -- `outbox.test.ts`'s 3+-event same-millisecond-ids FIFO test, its dedicated partial-success test (e1 succeeds/removed, e2 fails, e2+e3 remain queued), and `Home.test.tsx`'s long-press test for the "Tiếp tục" card (mirrors "Học tiếp"'s). No debt remains from this finding. |
+| 8 | **No request timeout anywhere** (`api/client.ts`'s `request()` only wraps `fetch()` in try/catch -- no `AbortSignal.timeout()`/`AbortController` exists in `client.ts` or `offline/outbox.ts`, confirmed via grep), despite `NetworkError`'s own doc comment and `outbox.ts`'s module docstring both listing "timeout" as a condition that should produce a `NetworkError`. A TCP-connected-but-never-responding server (a stalled captive portal, a flaky school Wi-Fi proxy -- exactly the real-world condition this story exists to survive) leaves `fetch()` never settling: `postEventsOrQueue()` awaits it forever, `PartPlayer.handleCheck()` is stuck in `phase: 'submitting'` permanently -- no offline screen, no error, no retry button, just a dead "✔ Kiểm tra" button | high | confirmed by 1 reviewer via direct grep + trace -> patch: wrap the `fetch()` call in `client.ts`'s `request()` with `AbortSignal.timeout(N)` (a reasonable N, e.g. 10-15s given this is a LAN app), and treat the resulting `AbortError`/`TimeoutError` as a `NetworkError` so it flows into the existing offline-queuing path instead of hanging -> **resolved**: `client.ts`'s `request()` now passes `AbortSignal.timeout(REQUEST_TIMEOUT_MS)` (12s, a named constant) to `fetch()` (merged with any caller-supplied signal via `AbortSignal.any()`); the resulting abort rejects `fetch()`, which the existing `catch` already wraps in `NetworkError` -- no new branch needed, since a timeout and a DNS/TCP failure both just mean "`fetch()` itself threw". New test in `client.test.ts` spies on `AbortSignal.timeout()` to substitute a controllable signal (real fake-timers can't advance it -- it isn't implemented via the patchable global `setTimeout`) and confirms aborting it resolves as `NetworkError`. |
+| 9 | The offline screen's message is wrong (not just absent) when the outbox is jammed on a non-network failure. `drain()` returns `'stopped'` on ANY non-stale-epoch failure, whether a `NetworkError` or a genuine server-side rejection (e.g. a `problem_id` invalidated by a content edit after it was queued -- a scenario the implementer's own docstring already anticipates). `SessionPlayer.handleRetryOnline()` doesn't distinguish: `OfflineScreen.tsx` unconditionally shows "Máy tính bảng chưa kết nối mạng…" even when the real problem is a permanently-stuck, unprocessable event on a perfectly good connection -- actively misinforms rather than just lacking visibility (deferred-work.md's existing item 2 only notes "no stuck-queue visibility UI", not that the UI affirmatively lies in this state) | medium | confirmed by 1 reviewer -> patch: have `drain()`/`flushOutbox()` distinguish a `NetworkError` stop from a genuine server-rejection stop, and have `OfflineScreen` (or a sibling screen) show a different, honest message for the latter ("có bài chưa gửi được, đã kết nối lại" or similar) -- at minimum, stop claiming "not connected" when the connection is fine -> **resolved**: `FlushOutcome` is now `'drained' \| 'stopped-network' \| 'stopped-rejected' \| 'stopped-store'` (the last one new too, for finding #11) instead of a single collapsed `'stopped'`. `SessionPlayer` tracks a `stuckNotNetwork` flag (set on `'stopped-rejected'`/`'stopped-store'`, cleared on `'drained'`) and passes it to `OfflineScreen`, which shows the new `offline_stuck_not_network` phrase ("Có bài chưa gửi được, nhưng máy tính bảng vẫn đang kết nối mạng.") instead of "chưa kết nối mạng" in that case. New test in `SessionPlayer.test.tsx`. |
+| 10 | The offline screen does not auto-clear when the background auto-flush (`useOutboxAutoFlush`, fired on mount and on every `online` event) successfully drains the exact queue that caused it to show. Only `SessionPlayer.handleRetryOnline()` (wired solely to the screen's own manual "Thử lại" button) ever sets `offline` back to `false`. Scenario: child answers right as Wi-Fi drops -> queued, offline screen shown; Wi-Fi returns a second later -> the `online` listener silently flushes it to the server -> child is still staring at "chưa kết nối mạng" and must tap "Thử lại" themselves even though the data is already safely on the server -- an extra, confusing step for a young child in the exact success case this story was built to handle gracefully | medium | confirmed by 1 reviewer via direct code trace (`SessionPlayer.tsx`'s `offline` state vs. `useOutboxAutoFlush`'s independent trigger) -> patch: have `SessionPlayer` subscribe to (or poll) outbox drain completion -- e.g. `useOutboxAutoFlush` taking an `onDrained` callback, or `SessionPlayer` re-checking `store.count() === 0` after every `online` event/mount flush -- and clear `offline` automatically once the queue that caused it is empty -> **resolved**: `useOutboxAutoFlush()` now takes an optional `onDrained(outcome)` callback, invoked after every one of ITS OWN mount/`online` flushes. `SessionPlayer` calls it (alongside its own pre-existing `App.tsx`-level instance) and clears `offline`/`stuckNotNetwork` and bumps `retryTick` when the outcome is `'drained'` -- guarded by an `offlineRef` (kept in sync with the `offline` state) so a routine, nothing-queued background flush never needlessly re-arms the `session_completed` effect. New test in `SessionPlayer.test.tsx` dispatches a real `online` event (never tapping "Thử lại") and confirms the offline screen clears on its own. |
+| 11 | No handling for IndexedDB actually throwing (vs. merely being unavailable). `createOutboxStore()` only falls back to `MemoryOutboxStore` when `typeof indexedDB === 'undefined'` -- it never catches a real failure from an existing `IndexedDBOutboxStore` (quota exceeded, a blocked `onupgradeneeded`, a `VersionError` from another open tab). If `store.add()` throws while queuing inside `postEventsOrQueue()`, the exception propagates straight out instead of becoming `QueuedOfflineError`; `ProblemPlayer.tsx`'s catch only gives the "queued offline" treatment to `QueuedOfflineError`, so anything else falls through to a generic `submitError` -- and critically, the event was never posted AND never queued, so the child's answer is lost unless they retry the exact same tap before closing the app. The pre-flush path (`await flushOutbox(store)` inside `postEventsOrQueue`) also isn't wrapped in try/catch, and `useOutboxAutoFlush`'s `void flushOutbox(store)` discards the promise with no `.catch`, so the same failure during background auto-flush becomes an unhandled promise rejection | medium | confirmed by 1 reviewer via direct trace -> patch: wrap `store.add()`/`flushOutbox()` calls in `postEventsOrQueue()` in try/catch, and on a genuine store failure either retry once or surface the SAME offline-queued UX with a `.catch` on `useOutboxAutoFlush`'s background flush -- the fix should prioritize never silently losing an already-answered problem -> **resolved**: `postEventsOrQueue()`'s pre-flush FIFO check (`store.count()`/`flushOutbox()`) is now wrapped in try/catch -- a broken store degrades to "can't queue" only, never "can't post at all while genuinely online" (it no longer blocks a normal online post). `queueEvents()` retries `store.add()` once per event, loudly `console.error`s on a persistent failure, and rethrows the ORIGINAL error (never a false `QueuedOfflineError`) so the child's answer is never silently lost -- `ProblemPlayer.tsx`'s existing catch-all already resets the Part to `answering` and shows a real error either way. `drain()`'s own `listAll()`/`remove()` calls are now wrapped too, resolving the new `'stopped-store'` outcome instead of throwing (which would have been an unhandled rejection from `useOutboxAutoFlush`'s background sweep or `SessionPlayer`'s manual-retry `void` call). `useOutboxAutoFlush`'s background flush now has an explicit `.catch`. New tests in `outbox.test.ts` (a `ThrowingOutboxStore` covering: still posts normally when the server is reachable despite a fully broken store; rethrows the original `NetworkError` when BOTH the server and the store fail; `flushOutbox` resolves `'stopped-store'` rather than rejecting; a transient `add()` failure is retried once and succeeds). |
+| 12 | `start_session()` has no guard against multiple simultaneous unfinished Sessions for one profile, and `find_unfinished_session()` only ever surfaces the most recent one (`ORDER BY started_at DESC LIMIT 1`). Scenario: child starts Lesson A, answers one problem, backs out to the Library, starts Lesson B (also never finished) -- both rows now have `completed_at IS NULL`; "Tiếp tục" will only ever offer Lesson B, and Lesson A's partially-answered Session becomes a permanent "zombie" row with no UI path back to it (not done, not resumable, not deleted) | medium | confirmed by 1 reviewer; genuinely occurs by design (contrary to the audit prompt's assumption it "shouldn't happen") -> patch: implementer's call between (a) `start_session()` auto-completing/abandoning any prior unfinished Session for the same profile before starting a new one, or (b) `find_unfinished_session()` listing ALL unfinished Sessions (not just the latest) so Home can offer a choice -- (a) is simpler and matches how a young child actually behaves (one Lesson at a time); document whichever is chosen -> **resolved**: chose (a). `start_session()` now stamps `completed_at` (to this new Session's own `started_at`) on any OTHER `completed_at IS NULL` row for the same `profile_id`, right after the empty-problem-set 422 check and before inserting the new Session row -- the abandoned Session's events/stars are untouched, only `completed_at` changes, so it simply stops being "unfinished" and drops out of `find_unfinished_session()`. New test in `test_sessions.py` starts two Lessons back-to-back for one Profile and confirms the first is auto-completed while the second stays open. |
+| 13 | `postEventsOrQueue()`'s FIFO guarantee is upheld only by caller discipline (every current call site awaits the prior mutation before firing the next), not structurally enforced by the function itself -- unlike `flushOutbox()`, which IS correctly single-flighted via its `inFlight` WeakMap. Not exploitable today (traced every call site), but the module's own "never reordered, strict FIFO" comments describe a guarantee the function doesn't actually hold on its own | low | confirmed by 1 reviewer, latent only -> no fix required now; worth a comment correction (`postEventsOrQueue()`'s FIFO claim should note it depends on serial callers) if anyone touches this file next, otherwise log as debt |
+| 14 | Implementation Notes overstate "Tiếp tục" as reusing Story 2.10's mode-filtering logic -- `find_unfinished_session()` is a fresh query with its own inline `mode != 'replay'` condition, duplicated (not shared via a function) at 3 other call sites in `sessions.py`. Semantically consistent with AD-6, just not literal code reuse | low | confirmed by 1 reviewer -> no functional fix needed; phrasing-only inaccuracy, left as-is (not worth a drive-by refactor for a documentation wording issue) |
+
+### 2026-10-01: Orchestrator's Independent Audit (post-incident re-review)
+
+Re-audited this story (built by the since-discovered unsupervised process) with 3 fresh parallel reviewers, explicitly tasked with verifying the self-reported findings #1-7 and their claimed fixes were real, not just asserted, before trusting any of it. **Verdict: every specific, checkable claim (the UUIDv7 FIFO fix, the `fake-indexeddb` tests against the real `IndexedDBOutboxStore`, the cache-TTL split, the `add()` await fix, the finding #7 tests) was independently verified true against the actual current code** -- this story's internal self-review was genuine, substantive work, not fabricated. New findings #8-14 above were found by the fresh pass; #8 (no request timeout) is the one that would block merge on its own given the stakes (a stuck, ungradeable submit screen on the exact flaky-connection scenario this story exists to handle). #10, #11, #12 are real but lower-urgency UX/edge-case gaps. #9, #13, #14 are polish/documentation, not design defects.
 
 ## Verification
 
@@ -319,5 +454,27 @@ into a Star/Retry-Queue transition it wasn't already eligible for).
 - All Review Triage Log findings are now closed: #1/#2/#3/#4/#6 fixed in code with new
   tests (already present before this pass); #5 correctly self-disclosed, no fix required;
   #7 fully resolved this pass (see its row).
+
+### 2026-10-01: findings #8–#12 fix verification
+
+- Backend: `uv run ruff check .` — all checks passed. `uv run pytest tests/test_sessions.py
+  tests/test_library.py -q` — 116 passed, 0 failed (includes the new finding-#12 test).
+  Full suite, `uv run pytest -q` — **1148 passed, 0 failed** (exit code 0, 22m12s).
+- Frontend: `npx tsc -b` — clean. `npx eslint .` — clean. Targeted:
+  `npx vitest run src/offline src/pages/SessionPlayer.test.tsx
+  src/pages/ProblemPlayer.test.tsx src/pages/ProblemPlayer.expression.test.tsx
+  src/pages/ProblemPlayer.speaker.test.tsx src/api/client.test.ts` — **146 passed, 0
+  failed**, covering the new timeout test (#8), the new background-auto-clear and
+  honest-message tests (#10/#9), the new `ThrowingOutboxStore` store-failure tests (#11),
+  and the `onDrained` callback test. Full suite (`npx vitest run`) is flaky under this
+  shared machine's parallel worker load (a few files time out only under full-suite
+  contention); re-ran each file that failed only in the full-suite pass in isolation and
+  every one passed cleanly, confirming infra flakiness rather than a regression — matches
+  the same class of flakiness the 2026-09-29 entries already documented. The one
+  consistently-reproducing failure, isolated or not, is the pre-existing
+  `ExtractionPage.test.tsx` "Hủy" issue already logged as unrelated to this story.
+- Findings #8/#9/#10/#11/#12 are now closed (see their Review Triage Log rows' `->
+  **resolved**` notes for what changed and why). #13/#14 remain correctly "no fix required"
+  (latent-only / phrasing-only, per their own rows) — not touched.
 
 </frozen-after-approval>

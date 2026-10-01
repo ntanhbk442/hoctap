@@ -463,6 +463,47 @@ describe('SessionPlayer', () => {
     expect(screen.queryByTestId('offline-screen')).not.toBeInTheDocument()
   })
 
+  it('auto-clears the offline screen when the background auto-flush (not the manual button) drains the queue (Review Triage Log #10)', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByTestId('offline-screen')).toBeInTheDocument()
+
+    // Back online: the queued `attempt` now flushes successfully, but this time the
+    // reconnect is reported via the app-wide `online` listener (`useOutboxAutoFlush`), not
+    // by tapping "Thử lại" -- the exact scenario finding #10 describes (Wi-Fi returns
+    // before the child taps anything).
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': {
+        status: 201,
+        body: [
+          {
+            id: 'e1',
+            session_id: 'session-1',
+            kind: 'attempt',
+            problem_id: PROBLEM.problem_id,
+            occurred_at: 'x',
+            received_at: 'x',
+            correct: true,
+          },
+        ],
+      },
+    })
+    window.dispatchEvent(new Event('online'))
+
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(screen.queryByTestId('offline-screen')).not.toBeInTheDocument()
+  })
+
   it('retry tapped while still offline stays on the offline screen, no crash', async () => {
     mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
@@ -478,6 +519,36 @@ describe('SessionPlayer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
     await vi.waitFor(() => expect(screen.getByTestId('offline-screen')).toBeInTheDocument())
+  })
+
+  it('shows the honest "stuck, not a network problem" message when retry hits a genuine server rejection (Review Triage Log #9)', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByTestId('offline-screen')).toBeInTheDocument()
+    expect(screen.getByText('Máy tính bảng chưa kết nối mạng…')).toBeInTheDocument()
+
+    // Reconnected (the server IS now reachable), but it rejects the queued event outright
+    // (e.g. a `problem_id` invalidated by a content edit after it was queued) -- a 422, not
+    // a network failure.
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
+      'POST /api/v1/sessions/session-1/events': { status: 422 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }))
+
+    expect(await screen.findByTestId('offline-screen')).toBeInTheDocument()
+    expect(
+      screen.getByText('Có bài chưa gửi được, nhưng máy tính bảng vẫn đang kết nối mạng.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Máy tính bảng chưa kết nối mạng…')).not.toBeInTheDocument()
   })
 })
 

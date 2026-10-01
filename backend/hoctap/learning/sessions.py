@@ -92,6 +92,19 @@ def start_session(
     before this story. The "Luyện lại bài sai" flow passes `mode="replay"` together with a
     `ReplayRef` -- `post_event()` reads this stored value back to gate Retry-Queue/Streak
     side effects off for a replay Session's events.
+
+    Review Triage Log #12 (2026-10-01, medium): before inserting the new Session row,
+    auto-completes (abandons) any OTHER unfinished (`completed_at IS NULL`) Session this
+    Profile already has, regardless of mode. Without this, a child backing out of a
+    half-finished Lesson to start a different one left the first Session permanently
+    "zombie" -- not done, not resumable (`find_unfinished_session()` below only ever
+    surfaces the single most recent one), not deleted. Chosen over the alternative (listing
+    ALL unfinished Sessions on Home) because it matches how a young child actually uses this
+    app: one Lesson at a time, and an abandoned Lesson simply isn't coming back. The
+    abandoned row keeps its real data (events/stars already earned stay exactly as they
+    were) -- only `completed_at` is stamped, with THIS new Session's own `started_at`, so it
+    stops being "unfinished" and drops out of `find_unfinished_session()` without being
+    backdated to some earlier, arbitrary time.
     """
     profile_exists = conn.execute(
         select(parent_profiles.c.id).where(parent_profiles.c.id == profile_id)
@@ -115,6 +128,16 @@ def start_session(
 
     session_id = new_id()
     started_at = to_iso(now)
+    # Review Triage Log #12: abandon any prior unfinished Session for this Profile before
+    # starting this new one -- see this function's own docstring for the reasoning.
+    conn.execute(
+        progress_sessions.update()
+        .where(
+            progress_sessions.c.profile_id == profile_id,
+            progress_sessions.c.completed_at.is_(None),
+        )
+        .values(completed_at=started_at)
+    )
     conn.execute(
         progress_sessions.insert().values(
             id=session_id,

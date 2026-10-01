@@ -92,6 +92,17 @@ export class NetworkError extends Error {
   }
 }
 
+/** Review Triage Log #8 (2026-10-01, high): a TCP-connected-but-never-responding server
+ * (a stalled captive portal, a flaky school Wi-Fi proxy -- exactly the real-world condition
+ * Story 2.11 exists to survive) previously left `fetch()` never settling at all, since
+ * nothing here ever aborted it -- the submit UI (`PartPlayer.handleCheck()`) got stuck in
+ * `phase: 'submitting'` forever: no offline screen, no error, no retry, just a dead button.
+ * 12s is a judgment call for a LAN app (this server is always on the same Wi-Fi as the
+ * tablet, never over the public internet) -- long enough that a merely slow SQLite write
+ * under WAL contention isn't mistaken for a dead connection, short enough that a genuinely
+ * stalled connection resolves well within a young child's patience. */
+const REQUEST_TIMEOUT_MS = 12_000
+
 function isJson(resp: Response): boolean {
   return (resp.headers.get('content-type') ?? '').includes('json')
 }
@@ -114,12 +125,21 @@ async function throwApiError(resp: Response): Promise<never> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+  // `AbortSignal.any()` combines the timeout with any caller-supplied signal (e.g. a
+  // query's own unmount-cancellation) -- whichever fires first aborts the fetch, and either
+  // way the resulting `AbortError` is caught just below and wrapped the same as any other
+  // unreachable-server failure.
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+    : AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   let resp: Response
   try {
-    resp = await fetch(`${API_BASE}${path}`, { ...init, headers })
+    resp = await fetch(`${API_BASE}${path}`, { ...init, headers, signal })
   } catch (err) {
-    // The server never answered at all (DNS/TCP failure, offline, timeout) -- never an
-    // `ApiError`, which requires an actual HTTP response to read a status/body from.
+    // The server never answered at all (DNS/TCP failure, offline, or -- Review Triage Log
+    // #8 -- a timeout: `AbortSignal.timeout()` rejects `fetch()` with a `TimeoutError`
+    // `DOMException`, structurally identical to any other abort) -- never an `ApiError`,
+    // which requires an actual HTTP response to read a status/body from.
     throw new NetworkError(err)
   }
   if (!resp.ok) await throwApiError(resp)

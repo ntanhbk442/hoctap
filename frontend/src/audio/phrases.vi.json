@@ -36,6 +36,7 @@
   "self_mark_incorrect": "Em chưa đúng",
   "self_mark_neutral_ack": "Không sao! Bài này sẽ quay lại để em luyện thêm nhé.",
   "offline_not_connected": "Máy tính bảng chưa kết nối mạng…",
+  "offline_stuck_not_network": "Có bài chưa gửi được, nhưng máy tính bảng vẫn đang kết nối mạng.",
   "quiz_saved": "Đã lưu",
   "quiz_indicator": "Kiểm tra",
   "quiz_start": "Bắt đầu kiểm tra",
