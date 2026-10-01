@@ -111,7 +111,7 @@ context:
 Current behaviour, after the review patches (see the Spec Change Log for why it differs from the frozen text above).
 
 - **Pilot scope (`gate.pilot_refs`):** every page ref with a `done` extract job whose `build_jobs.run_kind` is `pilot` (migration `0009_build_jobs_run_kind`; `pilot` is the default and existing rows became pilot rows). `jobs_store.record(..., run_kind=)` sets the kind on insert only; the full run (Story 6.2) must pass `full`, so its pages never enter the scope and never invalidate its own approval. `pilot_pages` is the count; `scope_hash` = sha256 of the sorted refs.
-- **Pilot Problems:** published, non-retired Problems whose first page ref is in scope. Hidden Problems count for `fallback_share`.
+- **Pilot Problems:** published, non-retired, non-hidden Problems whose first page ref is in scope (see the 2026-10-01 note below: a Problem hidden before a sample is drawn is excluded here too, the same as it already was from the spot-check sample itself).
 - **Fallback share:** Problems with any `fallback` Part (not only the first) in the effective doc, or the extracted doc when the merge is invalid, ÷ pilot Problems.
 - **Sample (`gate.draw_sample` → `spotcheck.draw_sample`):** size `gate_min_sample + 5` (`DRAW_MARGIN`), or every eligible Problem when there are fewer. Eligible = not retired, not hidden, no `fallback` Part; Problems awaiting review can be drawn. It is stratified by the first Part's type: each present type gets 1, the rest is split in proportion to (count − 1) by largest remainder (`spotcheck.allocate`). The seed and the current `scope_hash` are stored on the sample. Only the latest sample (by UUIDv7 `sample_id`, not by timestamp) counts; old samples are kept and refuse verdicts. With no candidate it returns 409 NO_PILOT, and with no eligible one 409 NOTHING_TO_SAMPLE.
 - **Not enough Problems:** the report carries `eligible_problems` and `enough_problems` (eligible ≥ `gate_min_sample`). When there are too few, the CLI and the GateCard say "Chưa đủ bài để đánh giá — hãy chạy thử thêm trang."
@@ -134,6 +134,30 @@ Current behaviour, after the review patches (see the Spec Change Log for why it 
 - **GateCard:** approve is enabled only when both checks pass, an estimate exists and the checkbox is ticked. The tick belongs to the estimate it was given for: any refetch showing a different `est_cost` unticks it. A 409 on approve (for example ESTIMATE_CHANGED) unticks it and refetches the report, so the new amount is shown. The card also shows the sample-outdated and "chạy thử thêm trang" notes.
 - **Spot-check tab:** it shows one item at a time with every crop and the effective answer, hint and solution. For image_select, spot_difference and connect_dots, `AnswerOverlay` draws the regions (selected ones highlighted), the differences on the right image, or the numbered dots and their path on the Part's own crop. It uses `overlayGeometry.cropUrlByImageKey`, which mirrors the backend crop order. A 409 STALE verdict refetches the Problem and the spot-check. "Sửa" opens `/parent/review/problems/{id}?from=spot-check`, whose back link goes to `/parent/review?tab=spot-check`; saving in the editor refetches the spot-check and the gate report.
 - **Tables:** `content_review_spot_check_samples` (`sample_id`, `seed`, `size`, `scope_hash`, `created_at`) and `content_review_spot_checks` (+ `first_wrong_at`; a foreign key to its sample, none to the Problem).
+
+### 2026-10-01: Fixed finding #18 (low-medium) from the orchestrator's audit
+
+`spotcheck.eligible()` already excludes any `hidden` Problem from ever being drawn into the
+accuracy sample, but `gate.pilot_problem_ids()` (and therefore `fallback_share`'s
+numerator/denominator and the `pilot_problems` count) did not: a Problem hidden before any
+sample was ever drawn from it still counted toward `fallback_share` while permanently escaping
+the accuracy check, so `key_accuracy` could look better than true extraction quality purely
+because the worst candidates were never eligible to be sampled.
+
+Chose the simpler of the two options the finding offered: `gate.pilot_problem_ids()`
+(`backend/hoctap/builder/gate.py`) now excludes hidden Problems (an `outerjoin` against
+`content_review_status` filtering `hidden == 0`) the same way `spotcheck.eligible()` already
+excludes them from the sample draw, instead of separately freezing the eligible set at
+first-draw time. This is the single source both `report()`'s fallback/pilot-problem counts and
+`draw_sample()`'s candidate set now go through, so they can no longer disagree about which
+Problems "count". A Problem hidden *after* being sampled is unaffected by this change: its
+verdict (and `first_wrong_at`) is tracked independently of its current hidden state, which is
+already the correctly-covered case from finding #5 in the table below.
+
+Added `test_hidden_before_sampling_is_excluded_from_fallback_share` and
+`test_hiding_a_fallback_problem_before_sampling_also_excludes_it` to `backend/tests/test_gate.py`,
+covering both a hidden non-fallback Problem (drops only the denominator) and a hidden Problem
+that itself has a `fallback` Part (drops both numerator and denominator).
 
 ## Spec Change Log
 
@@ -164,6 +188,13 @@ Current behaviour, after the review patches (see the Spec Change Log for why it 
 | 15 | Latest ordering by timestamp | low | → patch (order by UUIDv7 id) |
 | 16 | Tests missing (STALE in SpotCheckTab, GateCard refetch, editor back link, set_verdict errors, NaN, re-approve with old sample, CLI FAIL output) | medium | → patch |
 | 17 | No FKs on spot-check tables | low | → patch |
+| 18 | (2026-10-01, Orchestrator's Independent Audit) `spotcheck.eligible()` excludes any `hidden` Problem from ever being drawn into the accuracy sample, but `gate.py`'s `pilot_problem_ids`/`fallback_share` math does NOT exclude hidden Problems. A parent hiding a batch of visibly-bad pilot Problems for any ordinary reason (not even to game the gate) BEFORE a sample is drawn permanently removes those Problems from the accuracy sampling pool while they keep counting toward `fallback_share` -- `key_accuracy` can then look better than true extraction quality, since the worst candidates were never eligible to be sampled. Distinct from the already-covered case (prior finding, Sai-verdict-hides-a-Problem) where `first_wrong_at` correctly keeps it counted -- this gap is specifically for Problems hidden before sampling for unrelated reasons | low-medium | confirmed by 1 reviewer; requires only a legitimate parent action, not an adversarial bypass, but undermines "the sample reflects true pilot quality" which is the entire point of the gate -> patch: either exclude hidden-before-sampling Problems from `pilot_problem_ids`/`fallback_share` the same way `eligible()` already does, or (simpler) freeze the eligible/denominator set at first-sample-draw time so a later hide can't change which Problems "count" without also staying samplable -> **patched (2026-10-01)**: `gate.pilot_problem_ids()` now excludes hidden Problems the same way `spotcheck.eligible()` already does, so `fallback_share` and `pilot_problems` can no longer disagree with the accuracy sample about which Problems count |
+
+### 2026-10-01: Orchestrator's Independent Audit (post-foundation re-review)
+
+Re-audited this story as part of Epic 1's full re-review (see spec-1-1's matching note for context). 3 parallel reviewers traced every entry point to `hoctap build full`/the full-run API and confirmed **the gate genuinely cannot be bypassed via any CLI or API path** -- `require_approval()` is checked at CLI start, at API `start_full`/`_resume_full`, AND again per-book mid-run; the pilot-start request schema has no client-settable `run_kind` field; the whole `/build/*` router requires a real signed-cookie parent session. All prior HIGH/MEDIUM findings (including #14, pilot/full separation) were independently re-verified as genuinely landed in code, and a 45-function dedicated test file (`test_gate.py`) was confirmed to cover essentially every I/O matrix row and triage item by name; a reviewer also independently re-ran the relevant test subset directly (143/143 passed). One new finding (#18, low-medium) above -- a legitimate-use gap in the accuracy-sampling pool, not a bypass.
+
+## Verification
 
 ### 2026-09-28 — Resumption pass (verify patches actually landed, finish what didn't)
 

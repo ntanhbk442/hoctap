@@ -132,8 +132,13 @@ def detail(client: TestClient, problem_id: str) -> dict[str, Any]:
     return resp.json()
 
 
-def put(client: TestClient, problem_id: str, *edits: dict[str, Any]):
-    return client.put(f"{API}/problems/{problem_id}/overrides", json={"edits": list(edits)})
+def put(
+    client: TestClient, problem_id: str, *edits: dict[str, Any], expected_hash: str | None = None
+):
+    body: dict[str, Any] = {"edits": list(edits)}
+    if expected_hash is not None:
+        body["expected_hash"] = expected_hash
+    return client.put(f"{API}/problems/{problem_id}/overrides", json=body)
 
 
 def answer_edit(value: str, part: str = "a") -> dict[str, Any]:
@@ -367,6 +372,74 @@ def test_save_overrides_auto_resolves_open_report_on_content_change(
     assert p not in queue_ids(client)
 
 
+def test_save_overrides_stale_expected_hash_is_refused(
+    client: TestClient, engine: Engine, pub: Pub, data_dir: Path
+) -> None:
+    """Orchestrator's Independent Audit (spec-1-8 #18, 2026-10-01): a save whose
+    `expected_hash` no longer matches the Problem's current effective hash (someone else's
+    save landed first) is refused with 409 STALE instead of silently overwriting the other
+    save's edit of the same field."""
+    p = pid("bai-1")
+    pub(make_doc("bai-1"))
+    hash0 = detail(client, p)["content_hash"]
+    # Someone else's save lands first and changes the effective hash.
+    first = put(client, p, answer_edit("6"), expected_hash=hash0)
+    assert first.status_code == 200, first.text
+    # A second save, still holding the stale hash from before that first save, is refused.
+    stale = put(client, p, answer_edit("7"), expected_hash=hash0)
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "STALE"
+    # Nothing was overwritten: the first save's value is still the effective one.
+    assert detail(client, p)["effective"]["parts"][0]["answer"] == [{"key": "s1", "value": "6"}]
+    # A save with the CURRENT hash (as a client would get after refreshing) succeeds.
+    hash1 = detail(client, p)["content_hash"]
+    ok = put(client, p, answer_edit("7"), expected_hash=hash1)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["effective"]["parts"][0]["answer"] == [{"key": "s1", "value": "7"}]
+    # expected_hash is optional: omitting it (old clients, or the invalid-doc case) still
+    # works and skips the check.
+    omitted = put(client, p, answer_edit("8"))
+    assert omitted.status_code == 200, omitted.text
+
+
+def test_concurrent_first_time_override_insert_is_a_conflict_not_a_500(
+    client: TestClient, engine: Engine, pub: Pub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Orchestrator's Independent Audit (spec-1-8 #19, 2026-10-01): a concurrent first-time
+    insert for the same (problem_id, part_key, field) races against the table's
+    UniqueConstraint; the loser must get a 409 OVERRIDE_CONFLICT, not a bare 500.
+
+    Simulated by: the "winning" request inserts an override for (part a, hint) and
+    commits first; the "losing" request's own read of the current overrides is
+    monkeypatched to look stale (as if its read had happened before the winner's write),
+    so it takes the INSERT branch and collides with the already-committed row.
+    """
+    p = pid("bai-1")
+    pub(make_doc("bai-1"))
+    with engine.begin() as conn:
+        review.save_overrides(conn, p, [review.Edit("hint", "khác", "a")])
+
+    real_state = review._state
+
+    def stale_state(conn: Engine, problem_id: str):  # type: ignore[no-untyped-def]
+        state = real_state(conn, problem_id)
+        state.overrides = [
+            o for o in state.overrides if (o.part_key, o.field) != ("a", "hint")
+        ]
+        return state
+
+    monkeypatch.setattr(review, "_state", stale_state)
+    with engine.begin() as conn:
+        with pytest.raises(AppError) as excinfo:
+            review.save_overrides(conn, p, [review.Edit("hint", "khác hẳn", "a")])
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.code == "OVERRIDE_CONFLICT"
+    # The winning request's value is untouched.
+    with engine.connect() as conn:
+        state = real_state(conn, p)
+    assert next(o.value for o in state.overrides if o.field == "hint") == "khác"
+
+
 def test_child_report(client: TestClient, engine: Engine, pub: Pub) -> None:
     p = pid("bai-1")
     pub(make_doc("bai-1"))
@@ -461,6 +534,32 @@ def test_rename(client: TestClient, pub: Pub) -> None:
         "guide_approved": False,
     }
     assert detail(client, pid("bai-1"))["effective"]["concept_ids"] == ["g1.so-sanh-so"]
+
+
+def test_rename_rejects_name_collision_within_grade(client: TestClient, pub: Pub) -> None:
+    """Orchestrator's Independent Audit (spec-1-7 #23, 2026-10-01): a rename that would
+    give two Concepts the same `name_vi` in the same Grade is refused, so the Khái niệm
+    tab never shows two indistinguishable names."""
+    pub(make_doc("bai-1", ["So sánh số"]), make_doc("bai-2", ["Phép cộng"]))
+    concepts = client.get(f"{API}/concepts").json()["proposals"]
+    key_a = next(p["proposal_key"] for p in concepts if p["text"] == "So sánh số")
+    key_b = next(p["proposal_key"] for p in concepts if p["text"] == "Phép cộng")
+    client.post(f"{API}/concepts/accept", json={"grade": 1, "proposal_key": key_a})
+    client.post(f"{API}/concepts/accept", json={"grade": 1, "proposal_key": key_b})
+    resp = client.post(
+        f"{API}/concepts/rename", json={"concept_id": "g1.phep-cong", "name_vi": "So sánh số"}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "CONCEPT_NAME_CONFLICT"
+    # Nothing changed: the target Concept keeps its original name.
+    concepts = client.get(f"{API}/concepts").json()["concepts"]
+    names = {c["concept_id"]: c["name_vi"] for c in concepts}
+    assert names == {"g1.so-sanh-so": "So sánh số", "g1.phep-cong": "Phép cộng"}
+    # Renaming to its own current name (no-op) and to a free name both still work.
+    ok = client.post(
+        f"{API}/concepts/rename", json={"concept_id": "g1.phep-cong", "name_vi": "Phép cộng"}
+    )
+    assert ok.status_code == 200
 
 
 def test_pages_need_parent_cookie(client: TestClient, data_dir: Path) -> None:
@@ -581,6 +680,24 @@ def test_duplicate_in_queue_and_list_pagination(client: TestClient, pub: Pub) ->
             ],
         }
     ]
+
+
+def test_no_concepts_filter_and_badge(client: TestClient, pub: Pub) -> None:
+    """Orchestrator's Independent Audit (spec-1-7 #22, 2026-10-01): a published Problem
+    with zero curated Concept links is flagged `no_concepts` and can be filtered for, so a
+    parent can find and tag Problems that would otherwise ship to the child forever
+    untagged with no other signal."""
+    tagged, untagged = pid("bai-1"), pid("bai-2")
+    pub(make_doc("bai-1", ["So sánh số"]), make_doc("bai-2"))  # bai-2: no proposals
+    key = client.get(f"{API}/concepts").json()["proposals"][0]["proposal_key"]
+    client.post(f"{API}/concepts/accept", json={"grade": 1, "proposal_key": key})
+    by_id = {p["problem_id"]: p for p in client.get(f"{API}/problems").json()["items"]}
+    assert by_id[tagged]["no_concepts"] is False
+    assert by_id[untagged]["no_concepts"] is True
+    assert detail(client, untagged)["summary"]["no_concepts"] is True
+    only = client.get(f"{API}/problems", params={"no_concepts": True}).json()
+    assert [p["problem_id"] for p in only["items"]] == [untagged]
+    assert only["total"] == 1
 
 
 def test_detail_urls(client: TestClient, pub: Pub) -> None:

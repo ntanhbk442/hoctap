@@ -300,6 +300,55 @@ def test_resume_on_a_stale_running_row(factory) -> None:  # noqa: ANN001
     assert get(client, "r1").json()["status"] == "cancelled"
 
 
+def test_stale_pausing_row(factory) -> None:  # noqa: ANN001
+    """Spec-1-10 finding #17: a crash between `POST /pause` flipping the row to `pausing`
+    and the in-flight page finishing (writing `paused`) must be detected as stale too, not
+    just a crash during `running`."""
+    client, _fake, _model = factory()
+    old = "2020-01-01T00:00:00.000000+00:00"
+    with client.app.state.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO build_runs (id, book_id, first_page, last_page, status, stage, "
+                "pages_total, pages_done, cost_usd, cost_unknown_count, failed_pages_json, "
+                "error, resumed_from, started_at, updated_at, finished_at) VALUES "
+                "('r1', :book, 6, 7, 'pausing', 'extract', 2, 0, 0, 0, '[]', NULL, NULL, "
+                ":ts, :ts, NULL)"
+            ),
+            {"book": BOOK_ID, "ts": old},
+        )
+    resp = get(client, "r1")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "pausing" and body["stale"] is True
+    assert client.get(f"{RUNS}/current").json()["stale"] is True
+
+
+def test_resume_on_a_stale_pausing_row(factory) -> None:  # noqa: ANN001
+    """Tiếp tục on a stale `pausing` row (a crashed server's leftover) works in one step,
+    the same as it already does for a stale `running` row."""
+    client, _fake, _model = factory()
+    old = "2020-01-01T00:00:00.000000+00:00"
+    with client.app.state.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO build_runs (id, book_id, first_page, last_page, status, stage, "
+                "pages_total, pages_done, cost_usd, cost_unknown_count, failed_pages_json, "
+                "error, resumed_from, started_at, updated_at, finished_at) VALUES "
+                "('r1', :book, 6, 6, 'pausing', 'extract', 1, 0, 0, 0, '[]', NULL, NULL, "
+                ":ts, :ts, NULL)"
+            ),
+            {"book": BOOK_ID, "ts": old},
+        )
+    resp = client.post(f"{RUNS}/r1/resume")
+    assert resp.status_code == 200, resp.text
+    new_run = resp.json()
+    assert new_run["id"] != "r1" and new_run["resumed_from"] == "r1"
+    final = wait_for(client, new_run["id"], ("done", "failed"))
+    assert final["status"] == "done"
+    assert get(client, "r1").json()["status"] == "cancelled"
+
+
 def test_current_reflects_the_active_run_after_reload(factory) -> None:  # noqa: ANN001
     client, _fake, _model = factory(delay=0.05)
     run_id = start(client, pages="6-7").json()["id"]

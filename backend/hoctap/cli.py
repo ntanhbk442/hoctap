@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import shutil
+import socket
 import sys
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -37,6 +40,79 @@ DEFAULT_VERIFY_SCHEMA_OUT = (
 )
 
 
+class ServeError(Exception):
+    """A `hoctap serve` startup failure (e.g. a port already in use). `code` is the CLI
+    exit code; `message` is already bilingual."""
+
+    def __init__(self, message: str, code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+def _bind_socket(host: str, port: int) -> socket.socket:
+    """Binds `host:port` ourselves (instead of letting uvicorn do it) so a conflict
+    surfaces as a typed `ServeError` instead of uvicorn's raw `sys.exit`/traceback."""
+    try:
+        return socket.create_server((host, port))
+    except OSError as exc:
+        raise ServeError(
+            f"Cổng {port} đã được dùng bởi chương trình khác (có thể là một `hoctap serve` "
+            f"khác đang chạy) / port {port} is already in use (perhaps by another running "
+            f"`hoctap serve`, or another program): {exc}. Đóng chương trình đó, hoặc chọn "
+            f"cổng khác bằng --port / close that program, or choose a different port with "
+            "--port.",
+            code=4,
+        ) from exc
+
+
+def _run_servers(servers: list, sockets: list[socket.socket]) -> int:  # noqa: ANN001
+    """Runs each already-configured uvicorn `Server` concurrently, one per thread, each on its
+    own pre-bound socket.
+
+    Each `Server` runs in its own OS thread (its own `asyncio` loop via `Server.run()`), not
+    together via `asyncio.gather` in one loop: uvicorn's `Server.serve()` installs its own
+    Ctrl-C/SIGTERM handler per call (`capture_signals()`), and a second concurrent call's
+    `with` block would clobber the first's handler, breaking a single Ctrl-C's ability to stop
+    both. `signal.signal()` only has an effect from the main thread, so uvicorn's per-server
+    handler install becomes a no-op in a background thread; instead we install exactly one
+    handler here, in the main thread, that flips `should_exit` on every server together.
+    """
+    import signal
+
+    threads = [
+        threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        for server, sock in zip(servers, sockets, strict=True)
+    ]
+
+    def _handle_exit(signum: int, frame: object) -> None:  # noqa: ARG001
+        for server in servers:
+            server.should_exit = True
+
+    # `signal.signal()` only works from the interpreter's main thread (Python itself
+    # enforces this); when `_serve` is driven from elsewhere (e.g. test harnesses running it
+    # in a worker thread), skip installing a handler here, same as uvicorn's own
+    # `Server.capture_signals()` does -- the caller is then responsible for stopping the
+    # servers (e.g. by setting `.should_exit` on them directly).
+    previous: dict[int, object] = {}
+    if threading.current_thread() is threading.main_thread():
+        previous = {
+            sig: signal.signal(sig, _handle_exit) for sig in (signal.SIGINT, signal.SIGTERM)
+        }
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        for sock in sockets:
+            with contextlib.suppress(OSError):
+                sock.close()
+    return 0
+
+
 def _serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -49,13 +125,52 @@ def _serve(args: argparse.Namespace) -> int:
         settings = replace(settings, port=validate_port(args.port, "--port"))
 
     cert_file, key_file = settings.tls_cert_file, settings.tls_key_file
-    ssl_kwargs: dict[str, str] = {}
-    port = settings.port
+    log_level = settings.log_level.lower()
+    # A separate `create_app(settings)` per bound port, not one app shared across servers:
+    # FastAPI's lifespan (DB engine, RunManager) lives on `app.state`, which two concurrently
+    # running `Server`s would stomp on (double startup, one's shutdown disposing the engine
+    # the other is still using). Two engines onto the same SQLite file is the supported case
+    # already (WAL mode + `db_lock`), exactly like two separate `hoctap serve` processes.
+    configs: list[uvicorn.Config] = []
+
     if cert_file.is_file() and key_file.is_file():
-        ssl_kwargs = {"ssl_certfile": str(cert_file), "ssl_keyfile": str(key_file)}
-        if args.port is None:
-            port = settings.tls_port
-        print(f"HTTPS bật / HTTPS is on (cert: {cert_file}); binding port {port}.")
+        tls_kwargs = {"ssl_certfile": str(cert_file), "ssl_keyfile": str(key_file)}
+        if args.port is not None:
+            # An explicit --port asks for one specific bind: TLS only, on that port.
+            print(f"HTTPS bật / HTTPS is on (cert: {cert_file}); binding port {settings.port}.")
+            configs.append(
+                uvicorn.Config(
+                    create_app(settings),
+                    host=settings.host,
+                    port=settings.port,
+                    log_level=log_level,
+                    **tls_kwargs,
+                )
+            )
+        else:
+            # The documented default: HTTPS on tls_port, plus the plain-HTTP fallback on
+            # port (spec-1-11's no-install-needed fallback for a tablet without the CA yet).
+            print(
+                f"HTTPS bật / HTTPS is on (cert: {cert_file}); binding port {settings.tls_port} "
+                f"(HTTPS) and port {settings.port} (HTTP dự phòng / HTTP fallback)."
+            )
+            configs.append(
+                uvicorn.Config(
+                    create_app(settings),
+                    host=settings.host,
+                    port=settings.tls_port,
+                    log_level=log_level,
+                    **tls_kwargs,
+                )
+            )
+            configs.append(
+                uvicorn.Config(
+                    create_app(settings),
+                    host=settings.host,
+                    port=settings.port,
+                    log_level=log_level,
+                )
+            )
     else:
         if cert_file.exists() != key_file.exists():
             missing = key_file if cert_file.exists() else cert_file
@@ -68,15 +183,25 @@ def _serve(args: argparse.Namespace) -> int:
             "HTTPS tắt / HTTPS is off: serving plain HTTP. Chạy `hoctap certs --ip <ip>` "
             "để bật / run `hoctap certs --ip <ip>` to enable it."
         )
+        configs.append(
+            uvicorn.Config(
+                create_app(settings), host=settings.host, port=settings.port, log_level=log_level
+            )
+        )
 
-    uvicorn.run(
-        create_app(settings),
-        host=settings.host,
-        port=port,
-        log_level=settings.log_level.lower(),
-        **ssl_kwargs,
-    )
-    return 0
+    sockets: list[socket.socket] = []
+    try:
+        for config in configs:
+            sockets.append(_bind_socket(config.host, config.port))
+    except ServeError as exc:
+        for sock in sockets:
+            with contextlib.suppress(OSError):
+                sock.close()
+        print(exc.message, file=sys.stderr)
+        return exc.code
+
+    servers = [uvicorn.Server(config) for config in configs]
+    return _run_servers(servers, sockets)
 
 
 def _certs_cmd(args: argparse.Namespace) -> int:
@@ -954,7 +1079,6 @@ def _backup(args: argparse.Namespace) -> int:
 
 def _restore(args: argparse.Namespace) -> int:
     """Offline restore: refuses while the server runs or a build is active."""
-    import threading
     from types import SimpleNamespace
 
     from hoctap.api.errors import AppError

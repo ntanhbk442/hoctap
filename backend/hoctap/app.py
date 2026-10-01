@@ -132,7 +132,18 @@ def create_app(
         finally:
             shutdown_logging()
 
-    app = FastAPI(title="Học Tập", version=__version__, lifespan=lifespan)
+    # Single-deployment-mode LAN app (no dev/prod split): /docs, /redoc, and
+    # /openapi.json are unauthenticated by construction, so they stay off in every
+    # `hoctap serve` run. Schema export (`hoctap export-openapi`) calls app.openapi()
+    # in-process and is unaffected.
+    app = FastAPI(
+        title="Học Tập",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.settings = settings
     # Injectable clock (tests replace it) for PIN lockout and cookie expiry.
     app.state.clock = utc_now

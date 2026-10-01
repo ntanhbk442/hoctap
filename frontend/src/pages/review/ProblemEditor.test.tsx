@@ -69,6 +69,7 @@ describe('ProblemEditor', () => {
     const put = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
     expect(JSON.parse(String(put?.[1]?.body))).toEqual({
       edits: [{ part_key: 'a', field: 'answer', value: [{ key: 's1', value: 'x' }] }],
+      expected_hash: 'h1',
     })
     // The edit stays in the form.
     expect(screen.getByLabelText('Phần a đáp án s1')).toHaveValue('x')
@@ -271,6 +272,7 @@ describe('ProblemEditor edits', () => {
     fireEvent.change(await screen.findByLabelText('Phần a đáp án'), { target: { value: 'o1, o2' } })
     expect(await saveAndGetBody(fetchMock)).toEqual({
       edits: [{ part_key: 'a', field: 'answer', value: { selected: ['o1', 'o2'] } }],
+      expected_hash: 'h1',
     })
   })
 
@@ -283,7 +285,10 @@ describe('ProblemEditor edits', () => {
     fireEvent.change(await screen.findByLabelText('Phần a gợi ý'), { target: { value: 'khác' } })
     const part = { ...doc().parts[0], hint: 'Gợi ý trong JSON' }
     fireEvent.change(screen.getByLabelText('Phần a JSON'), { target: { value: JSON.stringify(part) } })
-    expect(await saveAndGetBody(fetchMock)).toEqual({ edits: [{ part_key: 'a', field: 'part', value: part }] })
+    expect(await saveAndGetBody(fetchMock)).toEqual({
+      edits: [{ part_key: 'a', field: 'part', value: part }],
+      expected_hash: 'h1',
+    })
   })
 
   it('shows invalid JSON inline without saving', async () => {
@@ -308,6 +313,7 @@ describe('ProblemEditor edits', () => {
       edits: [
         { part_key: 'a', field: 'solution', value: { steps: ['Bước một', 'Bước hai'], final: '3 + 2 = 5' } },
       ],
+      expected_hash: 'h1',
     })
   })
 

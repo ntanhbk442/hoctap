@@ -156,7 +156,7 @@ function Progress({ run, onDismiss }: { run: BuildRun; onDismiss: () => void }) 
       {run.status === 'pausing' && (
         <p className="hint">Có thể mất một chút thời gian: trang đang chạy sẽ được xong trước.</p>
       )}
-      {run.stale && run.status === 'running' && (
+      {run.stale && (run.status === 'running' || run.status === 'pausing') && (
         <p role="note">
           Không thấy tiến triển trong vài phút qua; máy chủ có thể đã khởi động lại. Có thể bấm
           Tiếp tục để chạy tiếp.
@@ -185,7 +185,7 @@ function Progress({ run, onDismiss }: { run: BuildRun; onDismiss: () => void }) 
             Tạm dừng
           </button>
         )}
-        {run.status === 'pausing' && (
+        {run.status === 'pausing' && !run.stale && (
           <button
             type="button"
             disabled
@@ -194,7 +194,8 @@ function Progress({ run, onDismiss }: { run: BuildRun; onDismiss: () => void }) 
             Đang dừng…
           </button>
         )}
-        {(run.status === 'paused' || (run.status === 'running' && run.stale)) && (
+        {(run.status === 'paused' ||
+          ((run.status === 'running' || run.status === 'pausing') && run.stale)) && (
           <button type="button" disabled={busy} onClick={() => resume.mutate(run.id)}>
             Tiếp tục
           </button>

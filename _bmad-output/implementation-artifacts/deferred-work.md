@@ -337,3 +337,7 @@
 
 - Quiz resume position is computed only for the first chunk (`SessionPlayer.tsx`, `resumed` set once). Unverified, medium if true; confirm with a quiz sheet of more than 10 Problems reloaded into chunk 2.
 - "Học tiếp" can start a quiz-sheet Lesson as a no-feedback quiz with no signal to the child. Unverified; needs a look at Home's flow.
+
+## Deferred from: Orchestrator's Independent Audit of Epic 1 (2026-10-01)
+
+- `grid_fill`/`number_tree` Parts have no coupling in `content/schema.py` between `rows`/`cols`/node count and the actual rendered size of the cropped image -- a Problem can validly have `grid_fill` with `rows=20, cols=20` (the schema max) referencing an image far too small to legibly show 400 cells. Low/medium severity, content-authoring-quality issue rather than a validator bug; Story 1.4 explicitly scopes out widget-rendering concerns, so this is really a Story 2.6/2.7 (widget rendering) or content-review concern -- flagging here so it isn't lost. A fix would need either a schema-level size cap tied to typical crop dimensions, or a content-review-time warning when grid/tree size looks disproportionate to the crop.

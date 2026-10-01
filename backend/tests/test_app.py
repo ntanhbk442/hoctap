@@ -680,30 +680,39 @@ def serve_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return tmp_path
 
 
-class _RecordingUvicornRun:
-    def __init__(self) -> None:
-        self.kwargs: dict[str, object] = {}
+class _RecordingRunServers:
+    """Replaces `cli._run_servers`: records the `uvicorn.Config` of each server it would have
+    run, and closes the (real, already-bound) sockets `_serve` handed it instead of serving
+    on them -- so these tests stay fast and don't actually open a listening socket."""
 
-    def __call__(self, _app: object, **kwargs: object) -> None:
-        self.kwargs = kwargs
+    def __init__(self) -> None:
+        self.configs: list[object] = []
+
+    def __call__(self, servers: list, sockets: list) -> int:  # noqa: ANN001
+        self.configs = [s.config for s in servers]
+        for sock in sockets:
+            sock.close()
+        return 0
 
 
 def test_serve_no_certs_plain_http(
     serve_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    fake_run = _RecordingUvicornRun()
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    fake = _RecordingRunServers()
+    monkeypatch.setattr("hoctap.cli._run_servers", fake)
     assert cli_main(["serve"]) == 0
-    assert "ssl_certfile" not in fake_run.kwargs
-    assert "ssl_keyfile" not in fake_run.kwargs
-    assert fake_run.kwargs["port"] == 8000
+    assert len(fake.configs) == 1
+    assert fake.configs[0].ssl_certfile is None
+    assert fake.configs[0].port == 8000
     out = capsys.readouterr().out
     assert "HTTPS" in out and "off" in out.lower()
 
 
-def test_serve_certs_present_uses_tls_port_and_ssl_kwargs(
+def test_serve_certs_present_binds_both_tls_and_plain_http_ports(
     serve_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Spec-1-11 finding #15: once certs exist, `serve` must keep the plain-HTTP fallback
+    (settings.port) alive alongside HTTPS (settings.tls_port), not replace it."""
     cert_dir = serve_env / "certs"
     cert_dir.mkdir()
     cert_file = cert_dir / "cert.pem"
@@ -711,14 +720,18 @@ def test_serve_certs_present_uses_tls_port_and_ssl_kwargs(
     cert_file.write_text("cert", encoding="utf-8")
     key_file.write_text("key", encoding="utf-8")
 
-    fake_run = _RecordingUvicornRun()
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    fake = _RecordingRunServers()
+    monkeypatch.setattr("hoctap.cli._run_servers", fake)
     assert cli_main(["serve"]) == 0
-    assert fake_run.kwargs["ssl_certfile"] == str(cert_file)
-    assert fake_run.kwargs["ssl_keyfile"] == str(key_file)
-    assert fake_run.kwargs["port"] == 8443
+    assert len(fake.configs) == 2
+    by_port = {c.port: c for c in fake.configs}
+    assert set(by_port) == {8443, 8000}
+    assert by_port[8443].ssl_certfile == str(cert_file)
+    assert by_port[8443].ssl_keyfile == str(key_file)
+    assert by_port[8000].ssl_certfile is None
     out = capsys.readouterr().out
     assert "HTTPS" in out and "on" in out.lower()
+    assert "8443" in out and "8000" in out
 
 
 def test_serve_explicit_port_overrides_tls_port(
@@ -729,11 +742,13 @@ def test_serve_explicit_port_overrides_tls_port(
     (cert_dir / "cert.pem").write_text("cert", encoding="utf-8")
     (cert_dir / "key.pem").write_text("key", encoding="utf-8")
 
-    fake_run = _RecordingUvicornRun()
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    fake = _RecordingRunServers()
+    monkeypatch.setattr("hoctap.cli._run_servers", fake)
     assert cli_main(["serve", "--port", "9999"]) == 0
-    assert fake_run.kwargs["port"] == 9999
-    assert fake_run.kwargs["ssl_certfile"]  # TLS still active
+    # An explicit --port asks for a single specific bind, not the dual default.
+    assert len(fake.configs) == 1
+    assert fake.configs[0].port == 9999
+    assert fake.configs[0].ssl_certfile  # TLS still active
 
 
 def test_serve_one_file_missing_falls_back_with_warning(
@@ -744,11 +759,166 @@ def test_serve_one_file_missing_falls_back_with_warning(
     key_file = cert_dir / "key.pem"
     key_file.write_text("key", encoding="utf-8")  # only key.pem, no cert.pem
 
-    fake_run = _RecordingUvicornRun()
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    fake = _RecordingRunServers()
+    monkeypatch.setattr("hoctap.cli._run_servers", fake)
     assert cli_main(["serve"]) == 0
-    assert "ssl_certfile" not in fake_run.kwargs
-    assert fake_run.kwargs["port"] == 8000
+    assert len(fake.configs) == 1
+    assert fake.configs[0].ssl_certfile is None
+    assert fake.configs[0].port == 8000
     captured = capsys.readouterr()
     assert "cert.pem" in captured.err
     assert "HTTPS" in captured.out and "off" in captured.out.lower()
+
+
+def _free_tcp_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
+    """A real self-signed cert/key pair for 127.0.0.1, generated in-process (no mkcert
+    binary needed) so a real TLS handshake can be tested end-to-end."""
+    import datetime
+    from ipaddress import ip_address
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+    now = datetime.datetime.now(datetime.UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ip_address("127.0.0.1"))]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert_file = tmp_path / "cert.pem"
+    key_file = tmp_path / "key.pem"
+    cert_file.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+    )
+    return cert_file, key_file
+
+
+def test_serve_dual_port_both_reachable_end_to_end(
+    serve_env: Path, monkeypatch: pytest.MonkeyPatch, self_signed_cert: tuple[Path, Path]
+) -> None:
+    """End-to-end regression for spec-1-11 #15: with certs present, both the HTTPS port and
+    the plain-HTTP fallback port must actually accept connections at the same time, and a
+    single Ctrl-C-equivalent (should_exit on every server) must stop both."""
+    import socket
+    import ssl
+    import threading
+    import time
+
+    from hoctap import cli as cli_module
+
+    cert_dir = serve_env / "certs"
+    cert_dir.mkdir()
+    cert_src, key_src = self_signed_cert
+    cert_file = cert_dir / "cert.pem"
+    key_file = cert_dir / "key.pem"
+    cert_file.write_bytes(cert_src.read_bytes())
+    key_file.write_bytes(key_src.read_bytes())
+
+    plain_port = _free_tcp_port()
+    tls_port = _free_tcp_port()
+    monkeypatch.setenv("HOCTAP_PORT", str(plain_port))
+    monkeypatch.setenv("HOCTAP_TLS_PORT", str(tls_port))
+
+    created_servers: list = []
+    real_run_servers = cli_module._run_servers
+
+    def capturing_run_servers(servers: list, sockets: list) -> int:  # noqa: ANN001
+        created_servers.extend(servers)
+        return real_run_servers(servers, sockets)
+
+    monkeypatch.setattr(cli_module, "_run_servers", capturing_run_servers)
+
+    result: dict[str, int] = {}
+
+    def _run() -> None:
+        result["code"] = cli_module.main(["serve"])
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and len(created_servers) < 2:
+            time.sleep(0.05)
+        assert len(created_servers) == 2, "both the plain-HTTP and TLS servers should start"
+
+        # Plain HTTP: a raw request should get a real HTTP response back.
+        _assert_http_reachable(("127.0.0.1", plain_port))
+
+        # HTTPS: a TLS handshake (self-signed, so verification is disabled here) plus a
+        # real HTTP response over it.
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with socket.create_connection(("127.0.0.1", tls_port), timeout=5) as raw:
+            with ctx.wrap_socket(raw, server_hostname="127.0.0.1") as tls_sock:
+                tls_sock.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+                data = tls_sock.recv(200)
+        assert data.startswith(b"HTTP/1.1")
+    finally:
+        for server in created_servers:
+            server.should_exit = True
+        thread.join(timeout=10)
+
+    assert not thread.is_alive(), "both servers should stop on should_exit"
+    assert result.get("code") == 0
+
+
+def _assert_http_reachable(address: tuple[str, int]) -> None:
+    import socket
+
+    with socket.create_connection(address, timeout=5) as sock:
+        sock.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        data = sock.recv(200)
+    assert data.startswith(b"HTTP/1.1")
+
+
+def test_serve_port_in_use_raises_typed_error(
+    serve_env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Spec-1-11 finding #16: a bind conflict must surface as a friendly, bilingual, typed
+    error with a clear exit code, not a raw traceback."""
+    import socket
+
+    busy_port = _free_tcp_port()
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", busy_port))
+    blocker.listen(1)
+    try:
+        monkeypatch.setenv("HOCTAP_PORT", str(busy_port))
+        fake = _RecordingRunServers()
+        monkeypatch.setattr("hoctap.cli._run_servers", fake)
+        code = cli_main(["serve"])
+        assert code == 4
+        assert fake.configs == []  # _run_servers was never reached
+        err = capsys.readouterr().err
+        assert str(busy_port) in err
+        assert "đã được dùng" in err or "already in use" in err
+    finally:
+        blocker.close()

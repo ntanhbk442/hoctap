@@ -364,7 +364,7 @@ function EditorForm({
   const save = useMutation({
     mutationFn: async () => {
       const edits = diff(doc, initial, form)
-      return edits.length === 0 ? null : saveOverrides(problemId, edits)
+      return edits.length === 0 ? null : saveOverrides(problemId, edits, detail.content_hash)
     },
     ...common,
     onSuccess: (data: ProblemDetail | null) => {

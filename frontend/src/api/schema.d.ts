@@ -3059,6 +3059,11 @@ export interface components {
         OverridesIn: {
             /** Edits */
             edits: components["schemas"]["EditIn"][];
+            /**
+             * Expected Hash
+             * @description the effective content_hash the editor had open when editing started; a different current hash is refused with 409 STALE instead of overwriting another save (spec-1-8 #18)
+             */
+            expected_hash?: string | null;
         };
         /** PostEventsIn */
         PostEventsIn: {
@@ -3199,6 +3204,11 @@ export interface components {
             visible: boolean;
             /** Retired */
             retired: boolean;
+            /**
+             * No Concepts
+             * @description published with zero curated Concept links (badge: Chưa gắn khái niệm)
+             */
+            no_concepts: boolean;
         };
         /** Profile */
         Profile: {
@@ -4710,6 +4720,7 @@ export interface operations {
                 book_id?: string | null;
                 unit_key?: string | null;
                 lesson_key?: string | null;
+                no_concepts?: boolean;
                 page?: number;
             };
             header?: never;

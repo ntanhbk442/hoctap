@@ -44,12 +44,14 @@ function AllTab() {
   const bookId = params.get('book') ?? ''
   const unitKey = params.get('unit') ?? ''
   const lessonKey = params.get('lesson') ?? ''
+  const noConcepts = params.get('no_concepts') === '1'
   const page = Math.max(1, Number(params.get('page')) || 1)
   const books = useReviewBooks()
   const problems = useReviewProblems({
     bookId: bookId || undefined,
     unitKey: unitKey || undefined,
     lessonKey: lessonKey || undefined,
+    noConcepts: noConcepts || undefined,
     page,
   })
   const total = problems.data?.total
@@ -120,6 +122,14 @@ function AllTab() {
             </select>
           </label>
         )}
+        <label className="inline-field">
+          <input
+            type="checkbox"
+            checked={noConcepts}
+            onChange={(e) => update({ no_concepts: e.target.checked ? '1' : '', page: '' })}
+          />{' '}
+          Chưa gắn khái niệm
+        </label>
       </div>
       {books.isError && (
         <p role="alert" className="form-error">

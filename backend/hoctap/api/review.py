@@ -66,11 +66,17 @@ def list_problems(
     book_id: str | None = None,
     unit_key: str | None = None,
     lesson_key: str | None = None,
+    no_concepts: bool = False,
     page: Annotated[int, Query(ge=1)] = 1,
 ) -> ProblemPage:
     with engine.connect() as conn:
         return service.list_problems(
-            conn, book_id=book_id, unit_key=unit_key, lesson_key=lesson_key, page=page
+            conn,
+            book_id=book_id,
+            unit_key=unit_key,
+            lesson_key=lesson_key,
+            no_concepts=no_concepts,
+            page=page,
         )
 
 
@@ -92,7 +98,7 @@ def save_overrides(
 ) -> ProblemDetail:
     edits = [service.Edit(e.field, e.value, e.part_key) for e in body.edits]
     with engine.begin() as conn:
-        service.save_overrides(conn, problem_id, edits, now)
+        service.save_overrides(conn, problem_id, edits, now, expected_hash=body.expected_hash)
         return service.problem_detail(conn, problem_id)
 
 

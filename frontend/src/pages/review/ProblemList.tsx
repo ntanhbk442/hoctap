@@ -9,6 +9,7 @@ export function Badges({ problem }: { problem: ProblemSummary }) {
     [problem.report, 'báo lỗi', 'badge-report'],
     [problem.hidden, 'đã ẩn', 'badge-hidden'],
     [problem.duplicate, 'trùng', 'badge-duplicate'],
+    [problem.no_concepts, 'chưa gắn khái niệm', 'badge-no-concepts'],
   ]
   return (
     <span className="badges">

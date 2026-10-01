@@ -32,6 +32,9 @@ class ProblemSummary(BaseModel):
     approved: bool
     visible: bool = Field(description="visible to the child")
     retired: bool
+    no_concepts: bool = Field(
+        description="published with zero curated Concept links (badge: Chưa gắn khái niệm)"
+    )
 
 
 class ProblemPage(BaseModel):
@@ -130,6 +133,14 @@ class OverridesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     edits: list[EditIn] = Field(min_length=1)
+    expected_hash: str | None = Field(
+        default=None,
+        description=(
+            "the effective content_hash the editor had open when editing started; a "
+            "different current hash is refused with 409 STALE instead of overwriting "
+            "another save (spec-1-8 #18)"
+        ),
+    )
 
 
 class ProposalOut(BaseModel):

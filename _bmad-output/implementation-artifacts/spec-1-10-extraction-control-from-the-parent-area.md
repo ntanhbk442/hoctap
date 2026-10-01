@@ -100,6 +100,29 @@ context:
 - **`GET /build/books` (new, not in the original file/code map):** the picker needs a book list with `page_count` to validate a range client-side and show it; no such endpoint existed (Content Review's `/parent/review/books` only lists books with published Problems, which is empty before the very first pilot run). Added `list_catalogue_books` to `api/build.py`, thin over `content.catalog.service.list_books()` (read-only, no new writer of `content_catalog_*`).
 - **Frontend:** `ExtractionPage.tsx` has a `Picker` (book select + from/to page inputs) and a `Progress` view; `useCurrentRun()` polls `GET /build/runs/current` every 2s via TanStack Query's `refetchInterval`, stopping once `status` is not `running`/`pausing` (including "no run at all", i.e. `null`). A `SPEND_NOT_CONFIRMED` 422 from Start shows the estimate text inline with a "Xác nhận & chạy" button that resubmits with `yes_spend: true`, mirroring GateCard's accept-then-confirm pattern. On mount, an active or just-settled run is shown instead of the picker (per AC); "Chọn sách và trang khác" dismisses a settled run locally to show the picker again for a new run.
 
+### 2026-10-01: Fixed finding #17 (medium) from the orchestrator's audit
+
+`is_stale()` (`backend/hoctap/builder/jobs.py`) only flagged a `running` row as stale, never a
+`pausing` one, even though `resume()` already accepted a dead `pausing` row the same way it
+accepts a dead `running` one (see the Implementation Notes entry above on stale detection). A
+server crash between `POST /pause` flipping the row to `pausing` and the in-flight page's
+`run_pilot()` call finishing (writing `paused`) left that row permanently stuck: `ExtractionPage.tsx`
+only showed "Tiếp tục" for `paused` or `(running && stale)`, so the parent's only way out was
+noticing "Hủy" still worked and starting over (losing the resume UX this story specifically
+built for the running-crash case).
+
+- `is_stale()` now also returns true for a `pausing` row whose `updated_at` has not moved in
+  5 minutes (`run["status"] not in ("running", "pausing")` instead of `!= "running"`).
+- `ExtractionPage.tsx`'s stale note (around the "Tiếp tục" hint) and its "Tiếp tục" button
+  condition were both extended from `run.status === 'running' && run.stale` to
+  `(run.status === 'running' || run.status === 'pausing') && run.stale`; the "Đang dừng…"
+  disabled button now only renders for a `pausing` row that is *not* stale
+  (`run.status === 'pausing' && !run.stale`), so a stale `pausing` row shows the actionable
+  "Tiếp tục" button instead of a permanently-disabled one.
+- Added `test_stale_pausing_row` and `test_resume_on_a_stale_pausing_row` to
+  `backend/tests/test_runs.py`, mirroring the existing `test_stale_running_row`/
+  `test_resume_on_a_stale_running_row` pair for the `pausing` case.
+
 ## Spec Change Log
 
 - 2026-09-28 -- Note (orchestrator, independently re-verified): after the review-fix round, backend re-run in full and independently by the orchestrator: 616/616 tests pass, ruff check clean. npm run build, tsc --noEmit, and npm run lint all clean (type-checked against the real generated API types). Frontend Vitest component tests (including the new ExtractionPage.test.tsx) could NOT be run to completion on this machine across ~8 separate attempts (default pool, forks pool, single-fork, constrained heap) -- worker processes consistently time out starting under severe memory pressure from ~8 unrelated concurrent Claude sessions and other heavy processes sharing this machine (verified via repeated free -h showing <1GB free throughout). One partial run did complete 5 of ~11 test files (52/55 tests passing, 0 failures) before the remaining files hit the same worker-start timeout, consistent with resource starvation rather than a code defect. Same class of environment issue recorded in Story 1.9's Change Log. Owner should run `cd frontend && npm run test -- --run` once machine memory is free, particularly src/pages/ExtractionPage.test.tsx, before relying on this story's frontend interaction behaviour beyond what type-checking and manual review confirm.
@@ -126,6 +149,11 @@ context:
 | 14 | resume()'s stale-check requires `is_stale()` in addition to handle-less, inconsistent with `_request_stop`'s handle-less-only check | medium | → patch: align resume()'s dead-handle check with _request_stop's (handle-less is enough, drop the additional is_stale time requirement) |
 | 15 | "one run at a time" enforced only in-process, no DB constraint, no multi-instance test | low | defer (single-instance deployment per architecture; out of scope for this story) |
 | 16 | `GET /build/runs` (list) has no consumer in the frontend and no 200-path test | low | → patch: add a 200-path test at minimum since the route is public API surface now |
+| 17 | (2026-10-01, Orchestrator's Independent Audit) `is_stale()` only flags staleness for `status == "running"` -- a server crash between `POST /pause` flipping a row to `pausing` and the in-flight page's `run_pilot()` call finishing and writing `paused` is just as plausible as a crash during `running`, but lands in a status `is_stale()` never checks. `ExtractionPage.tsx` only shows "Tiếp tục" for `paused` or `(running && stale)`, never for a stale `pausing` row -- the row is stuck forever, the UI shows a permanently-disabled "Đang dừng…" button, and the only recovery is noticing "Hủy" still works and starting a fresh run (losing the one-click "zero pages repeated" resume UX this story specifically designed in for the running-crash case). The backend's `resume()` already accepts a dead `pausing` row the same way it accepts a dead `running` one -- the frontend just never offers it for this one status | medium | confirmed by 1 reviewer via direct trace; sits right next to the already-fixed #14 (resume/`_request_stop` staleness alignment) -- this is the one case that patch didn't close -> patch: extend `is_stale()` to also flag a stale `pausing` row, and have `ExtractionPage.tsx` show "Tiếp tục" for it too -> **patched (2026-10-01)**: `is_stale()` now flags a stale `pausing` row too, and `ExtractionPage.tsx` shows "Tiếp tục" (and the stale note) for a stale `pausing` row the same as for a stale `running` row; the "Đang dừng…" disabled button now only shows while `pausing` and not stale |
+
+### 2026-10-01: Orchestrator's Independent Audit (post-foundation re-review)
+
+Re-audited this story as part of Epic 1's full re-review (see spec-1-1's matching note for context). 3 parallel reviewers confirmed no accidental-spend path exists (frontend requires a genuine two-step confirm before `yes_spend: true` is ever sent; `start()`/`start_full()` both hard-refuse with 422 without it), confirmed the prior HIGH findings (#1 stage-reporting, #2 `_request_stop` lock race) are genuinely landed in code, and confirmed cost-shown-so-far is correctly a delta against the run's own baseline (can't under-report by mixing in unrelated prior spend). One new finding (#17, medium) above -- a real UX gap in crash-recovery for the `pausing` state specifically.
 
 ## Verification
 

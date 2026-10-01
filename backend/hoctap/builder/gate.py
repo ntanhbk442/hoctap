@@ -36,6 +36,7 @@ from hoctap.config import Settings
 from hoctap.content.catalog.models import content_catalog_books, content_catalog_problems
 from hoctap.content.effective import EffectiveProblem, load_effective
 from hoctap.content.review import spotcheck
+from hoctap.content.review.models import content_review_status
 from hoctap.ids import new_id, to_iso, utc_now
 
 PILOT, FULL = "pilot", "full"
@@ -160,13 +161,25 @@ def scope_hash(refs: list[str]) -> str:
 
 
 def pilot_problem_ids(conn: Connection, refs: list[str] | None = None) -> list[str]:
-    """Published, non-retired Problems whose first page is in the pilot scope."""
+    """Published, non-retired, non-hidden Problems whose first page is in the pilot scope.
+
+    Hidden is excluded here, not only at spot-check sampling time via `spotcheck.eligible()`:
+    a Problem hidden before a sample is ever drawn from it must not keep counting toward
+    `fallback_share` (inflating or deflating it relative to true pilot quality) while
+    permanently escaping the accuracy check -- the accuracy and fallback checks must agree on
+    which Problems "count" (spec-1-9 finding #18). A Problem hidden *after* being sampled is
+    unaffected: its verdict (and `first_wrong_at`) is tracked independently of its current
+    hidden state."""
     scope = set(pilot_refs(conn) if refs is None else refs)
-    t = content_catalog_problems
+    t, status = content_catalog_problems, content_review_status
     rows = conn.execute(
-        select(t.c.problem_id, t.c.book_id, t.c.source_page_first).where(t.c.retired_at.is_(None))
+        select(t.c.problem_id, t.c.book_id, t.c.source_page_first)
+        .select_from(t.outerjoin(status, status.c.problem_id == t.c.problem_id))
+        .where(t.c.retired_at.is_(None), func.coalesce(status.c.hidden, 0) == 0)
     ).all()
-    return sorted(r.problem_id for r in rows if page_ref(r.book_id, r.source_page_first) in scope)
+    return sorted(
+        row.problem_id for row in rows if page_ref(row.book_id, row.source_page_first) in scope
+    )
 
 
 def _book_of(ref: str) -> str:

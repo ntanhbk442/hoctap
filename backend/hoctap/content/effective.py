@@ -187,6 +187,15 @@ class EffectiveProblem:
         )
 
     @property
+    def no_concepts(self) -> bool:
+        """Orchestrator's Independent Audit (spec-1-7 #22, 2026-10-01): true for a
+        published Problem with zero curated Concept links (`effective.concept_ids`
+        empty) -- otherwise invisible to review, since it publishes cleanly and can ship
+        to the child forever untagged. Surfaced as a Content Review badge/filter, not a
+        queue or visibility gate."""
+        return self.doc is not None and not self.doc.concept_ids
+
+    @property
     def visible(self) -> bool:
         return (
             not self.retired

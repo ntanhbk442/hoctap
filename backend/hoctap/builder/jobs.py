@@ -136,9 +136,13 @@ def activity_line(run: dict[str, Any]) -> str:
 
 
 def is_stale(run: dict[str, Any], now: datetime) -> bool:
-    """A `running` row whose `updated_at` has not moved in 5 minutes: almost certainly a
-    crashed server's leftover row rather than a live run."""
-    if run["status"] != "running":
+    """A `running` or `pausing` row whose `updated_at` has not moved in 5 minutes: almost
+    certainly a crashed server's leftover row rather than a live run. `pausing` is included
+    because a crash between `POST /pause` flipping the row to `pausing` and the in-flight
+    page finishing (writing `paused`) is just as plausible as a crash during `running`, and
+    `resume()` already accepts a dead `pausing` row the same way it accepts a dead `running`
+    one."""
+    if run["status"] not in ("running", "pausing"):
         return False
     return now - from_iso(run["updated_at"]) > STALE_AFTER
 

@@ -83,6 +83,11 @@ class CallReport:
 
 
 def _record(engine: Engine, job: CallJob, outcome: _Outcome) -> None:
+    # The cost rows are committed in their own transaction, separate from (and before)
+    # the job-status write below. A paid call must never be silently un-recorded: if the
+    # job-status write below fails (disk full, transient lock, constraint violation), the
+    # cost rows for attempts already billed must survive that failure, even though the
+    # page will then look un-started and be retried (and the retry's costs recorded too).
     with engine.begin() as conn:
         for number, attempt in enumerate(outcome.attempts, start=1):
             costs.record_call(
@@ -94,8 +99,9 @@ def _record(engine: Engine, job: CallJob, outcome: _Outcome) -> None:
                 model=job.request.model,
                 result=attempt,
             )
-        if outcome.crash is not None:
-            return
+    if outcome.crash is not None:
+        return
+    with engine.begin() as conn:
         if outcome.error is None:
             output = outcome.attempts[-1].output
             jobs_store.record(

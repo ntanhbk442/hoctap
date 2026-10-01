@@ -19,6 +19,7 @@ export function summary(overrides: Partial<ProblemSummary> = {}): ProblemSummary
     approved: false,
     visible: true,
     retired: false,
+    no_concepts: false,
     ...overrides,
   }
 }

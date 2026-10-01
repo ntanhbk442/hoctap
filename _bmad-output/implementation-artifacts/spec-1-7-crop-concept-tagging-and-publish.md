@@ -105,6 +105,8 @@ context:
 - **Proposal key** also collapses inner whitespace (needed for "so sánh  số"). Counts are recounted from the links; a proposal whose count drops to 0 is kept.
 - `build publish` and `build pilot` exit 1 when any Problem fails to crop; stale pages are a warning (exit 0). `build pilot --no-verify` still publishes (rows flagged `needs_review`).
 
+- **2026-10-01 fixes (findings #22, #23):** added `EffectiveProblem.no_concepts` (`content/effective.py`), a `no_concepts` filter on `content.review.service.list_problems()` and the `GET /parent/review/problems` route, a "chưa gắn khái niệm" badge in `ProblemList.tsx`, and a checkbox filter in `ReviewPage.tsx`'s Tất cả tab -- so a parent can find and tag Problems that published with zero curated Concept links. `rename_concept()` now checks `name_vi` uniqueness within the Concept's Grade before renaming, returning 409 `CONCEPT_NAME_CONFLICT` on a collision.
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -132,6 +134,12 @@ context:
 | 19 | PilotReport.publish shadows module; `compared` built in two steps | low | → patch (rename, tidy) |
 | 20 | pilot exits 1 on publish failure untested | low | defer (same helper tested via build publish) |
 | 21 | "second run changes nothing" while build_jobs updated_at changes | low | false — claim concerns content tables; job bookkeeping is expected |
+| 22 | (2026-10-01, Orchestrator's Independent Audit) Zero-concept Problems can ship to children forever untagged with no review-queue signal -- `effective.py`'s `visible`/`in_queue` checks never key off empty `concept_ids`/`concept_proposals`, and `record_concept_proposals` only writes rows for non-blank proposed texts, so a page where extraction simply omits `concept_proposals` for one problem produces zero signal anywhere: it publishes cleanly, verify agrees so `needs_review=0`, and it's indistinguishable in "Tất cả" from a problem deliberately left untagged | medium | confirmed by 2 independent reviewers -> **patched (2026-10-01)**: `EffectiveProblem.no_concepts` (true when the effective `concept_ids` is empty) is now returned on `ProblemSummary`, shown as a "chưa gắn khái niệm" badge in both Cần duyệt and Tất cả, and `GET .../problems` takes a `no_concepts` filter (SQL-side, via a `NOT IN` against `content_review_problem_concepts`) so a parent can list exactly the untagged Problems |
+| 23 | (2026-10-01, Orchestrator's Independent Audit) `rename_concept()` only verifies the target concept exists -- never checks `name_vi` uniqueness within a Grade, so two different `concept_id`s can end up with identical Vietnamese display names in the Khái niệm tab, indistinguishable to the parent except by the opaque `concept_id` | low | confirmed by 1 reviewer -> **patched (2026-10-01)**: `rename_concept()` now rejects (409 `CONCEPT_NAME_CONFLICT`) a rename whose cleaned `name_vi` collides with another Concept's `name_vi` in the same Grade; the frontend already shows any mutation error inline, so no UI change was needed |
+
+### 2026-10-01: Orchestrator's Independent Audit (post-foundation re-review)
+
+Re-audited this story as part of Epic 1's full re-review (see spec-1-1's matching note for context). 3 parallel reviewers confirmed all 5 prior HIGH/MEDIUM findings (#1/#2/#5/#6/#10/#12 -- invalid-doc rollback, wrongly-retiring live problems on an invalid re-extract, image-key path-traversal, orphan crop cleanup, position-encoding collision, exit-code-on-all-stale) are genuinely fixed in current code with accompanying regression tests, not just claimed. New findings #22 (medium -- the most substantive new gap in this batch) and #23 (low) above.
 
 ## Verification
 

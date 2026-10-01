@@ -399,13 +399,20 @@ export function getReviewBooks(signal?: AbortSignal): Promise<ReviewBook[]> {
   return apiGet<ReviewBook[]>(`${REVIEW}/books`, { signal })
 }
 
-export type ProblemFilter = { bookId?: string; unitKey?: string; lessonKey?: string; page?: number }
+export type ProblemFilter = {
+  bookId?: string
+  unitKey?: string
+  lessonKey?: string
+  noConcepts?: boolean
+  page?: number
+}
 
 export function getReviewProblems(filter: ProblemFilter, signal?: AbortSignal): Promise<ProblemPage> {
   const params = new URLSearchParams()
   if (filter.bookId) params.set('book_id', filter.bookId)
   if (filter.unitKey) params.set('unit_key', filter.unitKey)
   if (filter.lessonKey) params.set('lesson_key', filter.lessonKey)
+  if (filter.noConcepts) params.set('no_concepts', 'true')
   if (filter.page && filter.page > 1) params.set('page', String(filter.page))
   const query = params.toString()
   return apiGet<ProblemPage>(`${REVIEW}/problems${query ? `?${query}` : ''}`, { signal })
@@ -415,8 +422,20 @@ export function getReviewProblem(problemId: string, signal?: AbortSignal): Promi
   return apiGet<ProblemDetail>(`${REVIEW}/problems/${enc(problemId)}`, { signal })
 }
 
-export function saveOverrides(problemId: string, edits: EditIn[]): Promise<ProblemDetail> {
-  return apiPut<ProblemDetail>(`${REVIEW}/problems/${enc(problemId)}/overrides`, { edits })
+/**
+ * `expectedHash` is the effective `content_hash` the editor had open when editing
+ * started (null when the doc was already invalid); a different current hash gives 409
+ * STALE instead of silently overwriting another save of the same field (spec-1-8 #18).
+ */
+export function saveOverrides(
+  problemId: string,
+  edits: EditIn[],
+  expectedHash: string | null,
+): Promise<ProblemDetail> {
+  return apiPut<ProblemDetail>(`${REVIEW}/problems/${enc(problemId)}/overrides`, {
+    edits,
+    expected_hash: expectedHash,
+  })
 }
 
 export function deleteOverride(problemId: string, overrideId: string): Promise<ProblemDetail> {

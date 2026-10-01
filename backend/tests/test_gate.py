@@ -353,6 +353,41 @@ def test_fallback_at_threshold_passes(client: TestClient, world: World) -> None:
     assert fb["value"] == pytest.approx(0.15) and fb["passed"] is True
 
 
+def test_hidden_before_sampling_is_excluded_from_fallback_share(
+    client: TestClient, engine: Engine, world: World
+) -> None:
+    """Spec-1-9 finding #18: a Problem hidden *before* any sample is drawn must not count
+    toward `fallback_share` (or `pilot_problems`) either -- `eligible()` already keeps it out
+    of the accuracy sample, so it must stay out of the fallback denominator/numerator too,
+    or it would permanently escape the accuracy check while still moving `fallback_share`."""
+    world.pages(5)
+    ids = world.problems({"number_input": 33, "fallback": 7})
+    with engine.begin() as conn:
+        review.set_hidden(conn, ids[0], True)  # a number_input, hidden before any sample draw
+    report = gate_report(client)
+    assert report["pilot_problems"] == 39
+    fb = report["fallback"]
+    assert (fb["with_fallback"], fb["problems"]) == (7, 39)
+    assert fb["value"] == pytest.approx(7 / 39)
+
+
+def test_hiding_a_fallback_problem_before_sampling_also_excludes_it(
+    client: TestClient, engine: Engine, world: World
+) -> None:
+    """The same exclusion applies when the hidden Problem is itself one with a `fallback`
+    Part: it must leave both the numerator and the denominator, not just the denominator."""
+    world.pages(5)
+    ids = world.problems({"number_input": 33, "fallback": 7})
+    fallback_ids = ids[33:]
+    with engine.begin() as conn:
+        review.set_hidden(conn, fallback_ids[0], True)
+    report = gate_report(client)
+    assert report["pilot_problems"] == 39
+    fb = report["fallback"]
+    assert (fb["with_fallback"], fb["problems"]) == (6, 39)
+    assert fb["value"] == pytest.approx(6 / 39)
+
+
 def test_cost(client: TestClient, world: World) -> None:
     world.pages(*range(1, 17))
     world.pages(*range(1, 17), stage="verify")

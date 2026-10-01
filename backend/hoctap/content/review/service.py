@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import Connection, delete, func, insert, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from hoctap.api.errors import AppError
 from hoctap.content.assets import problem_crop_urls, problem_page_urls
@@ -391,16 +392,30 @@ def _merged_or_raise(
 
 
 def save_overrides(
-    conn: Connection, problem_id: str, edits: Sequence[Edit], now: datetime | None = None
+    conn: Connection,
+    problem_id: str,
+    edits: Sequence[Edit],
+    now: datetime | None = None,
+    expected_hash: str | None = None,
 ) -> None:
     """Stores field-level overrides after validating the full merged doc.
 
     An edit whose value equals the extracted value deletes its override. Saving again
     re-bases an override on the current extracted value. Raises AppError (422 with the
     validation messages) and stores nothing when the merge is invalid.
+
+    `expected_hash` (Orchestrator's Independent Audit, spec-1-8 #18, 2026-10-01): the
+    effective `content_hash` the editor had open when the edit started. A different
+    current hash means someone else's save (another tab, a client retry, a re-publish)
+    has already changed this Problem since, so this save is refused with 409 STALE instead
+    of silently clobbering the other save's fields -- the same STALE mechanics `approve()`
+    already uses for the same reason. `None` (the editor had no valid hash to show, e.g.
+    the doc was already invalid) skips the check, same as `approve()`.
     """
     stamp = to_iso(now or utc_now())
     state = _state(conn, problem_id)
+    if expected_hash is not None and expected_hash != state.content_hash:
+        raise AppError(409, "STALE", MSG_STALE)
     current = {(o.part_key, o.field): o for o in state.overrides}
     wanted = dict(current)
     removed: set[tuple[str, str]] = set()
@@ -435,16 +450,24 @@ def save_overrides(
         if key in current:
             conn.execute(update(t).where(t.c.id == o.id).values(**values))
         else:
-            conn.execute(
-                insert(t).values(
-                    id=o.id,
-                    problem_id=problem_id,
-                    part_key=o.part_key,
-                    field=o.field,
-                    created_at=stamp,
-                    **values,
+            try:
+                # Orchestrator's Independent Audit (spec-1-8 #19, 2026-10-01): a concurrent
+                # first-time save of the same (problem_id, part_key, field) races against
+                # `uq_content_review_overrides`. The loser's IntegrityError is caught here
+                # and turned into a 409, instead of falling through every handler in
+                # `api/errors.py` to a generic 500.
+                conn.execute(
+                    insert(t).values(
+                        id=o.id,
+                        problem_id=problem_id,
+                        part_key=o.part_key,
+                        field=o.field,
+                        created_at=stamp,
+                        **values,
+                    )
                 )
-            )
+            except IntegrityError as exc:
+                raise AppError(409, "OVERRIDE_CONFLICT", MSG_OVERRIDE_CONFLICT) from exc
     if removed or changed:
         _auto_resolve_reports_on_content_change(conn, problem_id, state.content_hash, now)
 
@@ -520,6 +543,7 @@ def _upsert_status(conn: Connection, problem_id: str, stamp: str, **values: Any)
 
 MSG_RETIRED = "Bài này đã bị loại khỏi sách sau lần trích xuất mới."
 MSG_STALE = "Nội dung đã thay đổi từ khi mở. Hãy xem lại rồi duyệt."
+MSG_OVERRIDE_CONFLICT = "Bài này vừa được sửa ở nơi khác. Hãy tải lại rồi sửa lại."
 
 
 def _active_state(conn: Connection, problem_id: str) -> EffectiveProblem:
@@ -774,12 +798,29 @@ def merge_proposal(conn: Connection, grade: int, proposal_key: str, concept_id: 
 
 
 def rename_concept(conn: Connection, concept_id: str, name_vi: str) -> None:
-    """Đổi tên: changes `name_vi` only; the `concept_id` never changes."""
-    _concept(conn, concept_id)
+    """Đổi tên: changes `name_vi` only; the `concept_id` never changes.
+
+    Orchestrator's Independent Audit (spec-1-7 #23, 2026-10-01): rejects a rename that
+    would collide with another Concept's `name_vi` within the same Grade -- without this,
+    two different `concept_id`s could carry identical Vietnamese display names, which a
+    parent can only tell apart by the opaque `concept_id`.
+    """
+    row = _concept(conn, concept_id)
     name = clean_text(name_vi)
     if not name:
         raise AppError(422, "INVALID_NAME", "Tên khái niệm không được để trống.")
     c = content_review_concepts
+    collision = conn.execute(
+        select(c.c.concept_id).where(
+            c.c.grade == row.grade, c.c.name_vi == name, c.c.concept_id != concept_id
+        )
+    ).first()
+    if collision is not None:
+        raise AppError(
+            409,
+            "CONCEPT_NAME_CONFLICT",
+            f"Đã có khái niệm khác tên {name!r} trong lớp này.",
+        )
     conn.execute(update(c).where(c.c.concept_id == concept_id).values(name_vi=name))
 
 
@@ -830,6 +871,7 @@ def summary(state: EffectiveProblem) -> ProblemSummary:
         approved=state.approved,
         visible=state.visible,
         retired=state.retired,
+        no_concepts=state.no_concepts,
     )
 
 
@@ -842,10 +884,16 @@ def list_problems(
     book_id: str | None = None,
     unit_key: str | None = None,
     lesson_key: str | None = None,
+    no_concepts: bool = False,
     page: int = 1,
 ) -> ProblemPage:
     """Tất cả: active Problems by book and position, 50 per page. Filtered and paginated
-    in SQL; only the Problems of the page are merged."""
+    in SQL; only the Problems of the page are merged.
+
+    `no_concepts` (Orchestrator's Independent Audit, spec-1-7 #22, 2026-10-01): only
+    Problems with zero curated Concept links, so a parent can find and tag the Problems
+    that would otherwise ship to the child forever untagged with no other signal.
+    """
     t = content_catalog_problems
     where = [t.c.retired_at.is_(None)]
     if book_id is not None:
@@ -854,6 +902,9 @@ def list_problems(
         where.append(t.c.unit_key == unit_key)
     if lesson_key is not None:
         where.append(t.c.lesson_key == lesson_key)
+    if no_concepts:
+        pc = content_review_problem_concepts
+        where.append(t.c.problem_id.not_in(select(pc.c.problem_id)))
     total = conn.execute(select(func.count()).select_from(t).where(*where)).scalar_one()
     rows = conn.execute(
         select(t)
