@@ -10,8 +10,9 @@ import json
 import unicodedata
 from pathlib import Path
 
-from hoctap.content.schema import ProblemDoc
+from hoctap.content.schema import ConceptGuideDoc, ProblemDoc
 from hoctap.content.speech import (
+    guide_speech_refs,
     problem_speech_refs,
     speech_key,
     speech_path,
@@ -151,6 +152,36 @@ def test_problem_speech_refs_normalises_maths_notation() -> None:
     assert "4 cộng 3 bằng 7" in texts  # part b's raw final is "4 + 3 = 7"
     assert "3 + 2 = 5" not in texts
     assert "4 + 3 = 7" not in texts
+
+
+# Orchestrator's Independent Audit (spec-5-1 #2, 2026-10-01): every existing Guide-speech
+# test used plain Vietnamese text with no maths notation, so a regression that broke
+# notation handling specifically for Guides (vs. Problems, which IS covered by
+# `test_problem_speech_refs_normalises_maths_notation` above) would go undetected. Mirrors
+# that test, applied to a Guide's worked-example text instead of a Problem's.
+def test_guide_speech_refs_normalises_maths_notation() -> None:
+    doc = ConceptGuideDoc.model_validate(
+        {
+            "explanation": r"Số có vạch ngang \overline{35} là số có hai chữ số.",
+            "example": {
+                "question": "So sánh 3 + 2 và 4",
+                "steps": [r"\frac{1}{2} nhỏ hơn 1"],
+                "answer": "3 + 2 = 5",
+            },
+        }
+    )
+    refs = guide_speech_refs(doc, "vi-VN-HoaiMyNeural")
+    texts = {r.text for r in refs}
+    assert "Số có vạch ngang số ba năm là số có hai chữ số." in texts  # \overline{35}
+    assert "So sánh 3 cộng 2 và 4" in texts  # "3 + 2" in the question
+    assert "một phần hai nhỏ hơn 1" in texts  # \frac{1}{2}
+    assert "3 cộng 2 bằng 5" in texts  # "3 + 2 = 5" in the answer
+    joined = " ".join(texts)
+    assert r"\overline" not in joined and r"\frac" not in joined
+    assert "3 + 2" not in joined and "= 5" not in joined
+    # Every speech_key is still the hash of the NORMALISED text (not the raw field).
+    for ref in refs:
+        assert ref.speech_key == speech_key(ref.text, "vi-VN-HoaiMyNeural")
 
 
 def test_problem_speech_refs_deduplicates_and_skips_blank() -> None:

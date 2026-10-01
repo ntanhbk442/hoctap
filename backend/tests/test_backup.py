@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,12 +13,13 @@ import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 
+from hoctap.api.errors import AppError
 from hoctap.app import create_app
 from hoctap.cli import main as cli_main
 from hoctap.config import Settings
 from hoctap.db.engine import alembic_config, create_db_engine, head_revision
 from hoctap.parent import backup, service
-from hoctap.parent.auth import COOKIE_NAME
+from hoctap.parent.auth import COOKIE_NAME, load_or_create_secret
 
 SETUP = {
     "pin": "1234",
@@ -182,6 +184,26 @@ def test_backup_failing_integrity_gives_500_and_no_files(
     monkeypatch.setattr(backup, "_integrity_ok", lambda _con: False)
     _code(client.post(BACKUP_URL), 500, "BACKUP_FAILED")
     assert list((data_dir / "backups").iterdir()) == []
+
+
+def test_verify_backup_refuses_a_file_with_no_real_tables(tmp_path: Path) -> None:
+    """A crafted file with a valid SQLite header and a correctly-stamped `alembic_version`
+    but none of the app's actual tables must still be refused (audit point 3): the header
+    plus `alembic_version` alone is not proof of a real backup."""
+    fake = tmp_path / "fake.db"
+    con = sqlite3.connect(fake)
+    con.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+    con.execute("INSERT INTO alembic_version VALUES (?)", (head_revision(),))
+    con.commit()
+    con.close()
+    with pytest.raises(AppError) as info:
+        backup.verify_backup(fake)
+    assert info.value.code == "BACKUP_INVALID"
+
+
+def test_verify_backup_accepts_a_real_backup(client: TestClient, tmp_path: Path) -> None:
+    saved = _download(client, tmp_path)
+    assert backup.verify_backup(saved) == head_revision()
 
 
 # --- Restore, happy paths ----------------------------------------------------------
@@ -427,6 +449,253 @@ def test_restore_gives_up_if_requests_never_drain(
         assert after["profiles"] == before["profiles"] and after["key"] == before["key"]
     finally:
         m.leave()
+
+
+def test_safety_backup_failure_aborts_before_touching_the_live_db(
+    client: TestClient, data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit point 5: `make_backup()` raising (disk full, permission denied, ...) happens
+    before `maintenance.begin()`/`_swap()`. Proves this with the live db file compared
+    byte-for-byte and the maintenance flag never flipped, not just the row-level snapshot
+    the other refusal tests use."""
+    saved = _download(client, tmp_path)
+    _add_profile(client, "Thêm")
+    live_before = (data_dir / "hoctap.db").read_bytes()
+    before = _snapshot(data_dir)
+
+    def boom(_engine: object, _dest: Path) -> Path:
+        raise AppError(500, "BACKUP_FAILED", "injected safety-backup failure")
+
+    monkeypatch.setattr(backup, "make_backup", boom)
+    began: list[bool] = []
+    maintenance = client.app.state.maintenance
+    original_begin = maintenance.begin
+    monkeypatch.setattr(
+        maintenance, "begin", lambda *a, **k: began.append(True) or original_begin(*a, **k)
+    )
+
+    _code(_restore(client, saved), 500, "BACKUP_FAILED")
+
+    assert began == []  # maintenance.begin() was never even called
+    assert not maintenance.active
+    assert (data_dir / "hoctap.db").read_bytes() == live_before
+    _assert_untouched(client, data_dir, before)
+
+
+def _assert_live_data_untouched(client: TestClient, data_dir: Path, before: dict) -> None:
+    """Like `_assert_untouched`, but for a refusal that happens after the safety backup was
+    already taken (right before the swap): a new `pre-restore-*.db` is expected and
+    harmless, so only the live data/settings/key and app health are compared."""
+    after = _snapshot(data_dir)
+    assert after["profiles"] == before["profiles"]
+    assert after["settings"] == before["settings"]
+    assert after["key"] == before["key"]
+    assert not client.app.state.maintenance.active
+    assert client.get("/api/v1/parent/session").status_code == 200
+    assert not list((data_dir / "backups").glob(".upload-*"))
+
+
+def test_restore_refuses_when_another_process_holds_the_db_lock(
+    client: TestClient, data_dir: Path, tmp_path: Path
+) -> None:
+    """Audit point 1: the early `is_busy()` check only sees `build_runs` rows, not a `hoctap
+    build` process that has not written one yet (or ever, for a read-only subcommand) but
+    already holds the cross-process file lock. Simulates that by holding the lock
+    ourselves, exactly as `_open_db`/`_run_build` would."""
+    saved = _download(client, tmp_path)
+    _add_profile(client, "Thêm")
+    before = _snapshot(data_dir)
+    with backup.db_lock(data_dir, blocking=True):
+        _code(_restore(client, saved), 409, "DB_LOCKED")
+    _assert_live_data_untouched(client, data_dir, before)
+    assert not (data_dir / backup.RESTORE_MARKER_NAME).exists()
+
+
+def test_restore_rechecks_is_busy_immediately_before_the_swap(
+    client: TestClient, data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build starting in the window between the early `is_busy()` check and the swap
+    (while `make_backup()`/`maintenance.begin()` are running) must still be caught."""
+    saved = _download(client, tmp_path)
+    _add_profile(client, "Thêm")
+    before = _snapshot(data_dir)
+    run_manager = client.app.state.run_manager
+
+    def make_backup_then_start_a_build(engine: object, dest: Path) -> Path:
+        run_manager._full_running = True
+        return original_make_backup(engine, dest)
+
+    original_make_backup = backup.make_backup
+    monkeypatch.setattr(backup, "make_backup", make_backup_then_start_a_build)
+    try:
+        _code(_restore(client, saved), 409, "DB_LOCKED")
+    finally:
+        run_manager._full_running = False
+    _assert_live_data_untouched(client, data_dir, before)
+
+
+def test_rollback_failure_leaves_a_sentinel_file(
+    client: TestClient, data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit point 4: a rollback that itself fails must leave something an operator can
+    find without watching logs, not just a log line."""
+    saved = _download(client, tmp_path)
+    _add_profile(client, "Thêm")
+
+    def boom(_engine) -> None:  # noqa: ANN001
+        raise RuntimeError("injected migration failure")
+
+    def rollback_boom(_settings: object, _safety: Path, _old_key: bytes) -> None:
+        raise OSError("injected rollback failure")
+
+    monkeypatch.setattr(backup, "run_migrations", boom)
+    monkeypatch.setattr(backup, "_restore_file_and_key", rollback_boom)
+    _code(_restore(client, saved), 500, "RESTORE_FAILED")
+
+    sentinel = data_dir / backup.ROLLBACK_FAILED_MARKER_NAME
+    assert sentinel.is_file()
+    assert "rollback failed" in sentinel.read_text(encoding="ascii")
+
+
+# --- Crash recovery (interrupted restore marker) ------------------------------------
+
+
+def test_restore_marker_is_cleared_on_success(
+    client: TestClient, data_dir: Path, tmp_path: Path
+) -> None:
+    saved = _download(client, tmp_path)
+    _restore(client, saved)
+    assert not (data_dir / backup.RESTORE_MARKER_NAME).exists()
+
+
+def test_replay_interrupted_restore_rolls_back_a_crashed_swap(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    """Simulates a kill -9 between `_swap()` and the end of the restore block: a
+    `restore.inprogress` marker is on disk, the live db already holds the restored (wrong)
+    data and the OLD secret.key is still in place (the realistic crash point, since the key
+    is rotated right after the swap). `replay_interrupted_restore()` must undo both."""
+    app = create_app(Settings(data_dir=data_dir, frontend_dist=tmp_path / "no-dist"))
+    with TestClient(app) as c:
+        assert c.post("/api/v1/setup", json=SETUP).status_code == 201
+    settings = app.state.settings
+
+    safety = data_dir / "backups" / "pre-restore-crash-test.db"
+    backup.make_backup(create_db_engine(settings.db_path), safety)
+    old_key = (data_dir / "secret.key").read_bytes()
+
+    # Simulate the crash: the live db now holds different (post-swap) data, but the key
+    # was never rotated (the crash landed before that step).
+    other = tmp_path / "other.db"
+    _make_db_at(other, None)
+    (data_dir / "hoctap.db").write_bytes(other.read_bytes())
+    backup._write_restore_marker(data_dir, safety, old_key)
+
+    assert backup.replay_interrupted_restore(settings) is True
+    assert not (data_dir / backup.RESTORE_MARKER_NAME).exists()
+    con = sqlite3.connect(data_dir / "hoctap.db")
+    names = [r[0] for r in con.execute("SELECT name FROM parent_profiles")]
+    con.close()
+    assert names == ["Bin"]
+    assert (data_dir / "secret.key").read_bytes() == old_key
+
+
+def test_replay_interrupted_restore_is_a_noop_without_a_marker(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    data_dir.mkdir(parents=True)
+    settings = Settings(data_dir=data_dir, frontend_dist=tmp_path / "no-dist")
+    assert backup.replay_interrupted_restore(settings) is False
+
+
+def test_lifespan_replays_an_interrupted_restore_on_startup(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    """End-to-end: a marker left on disk before the app starts is replayed by `lifespan()`
+    itself, before any route can see a half-swapped database."""
+    dist = tmp_path / "no-dist"
+    app = create_app(Settings(data_dir=data_dir, frontend_dist=dist))
+    with TestClient(app) as c:
+        assert c.post("/api/v1/setup", json=SETUP).status_code == 201
+    settings = app.state.settings
+
+    safety = data_dir / "backups" / "pre-restore-crash-test.db"
+    backup.make_backup(create_db_engine(settings.db_path), safety)
+    old_key = (data_dir / "secret.key").read_bytes()
+    other = tmp_path / "other.db"
+    _make_db_at(other, None)
+    (data_dir / "hoctap.db").write_bytes(other.read_bytes())
+    backup._write_restore_marker(data_dir, safety, old_key)
+
+    app2 = create_app(Settings(data_dir=data_dir, frontend_dist=dist))
+    with TestClient(app2):
+        assert not (data_dir / backup.RESTORE_MARKER_NAME).exists()
+    assert (data_dir / "secret.key").read_bytes() == old_key
+    con = sqlite3.connect(data_dir / "hoctap.db")
+    assert [r[0] for r in con.execute("SELECT name FROM parent_profiles")] == ["Bin"]
+    con.close()
+
+
+def test_replay_interrupted_restore_raises_and_leaves_a_sentinel_if_it_cannot_recover(
+    data_dir: Path, tmp_path: Path
+) -> None:
+    data_dir.mkdir(parents=True)
+    settings = Settings(data_dir=data_dir, frontend_dist=tmp_path / "no-dist")
+    (data_dir / "hoctap.db").write_bytes(b"not a real db")
+    load_or_create_secret(data_dir)
+    missing_safety = data_dir / "backups" / "does-not-exist.db"
+    backup._write_restore_marker(data_dir, missing_safety, b"\x00" * 32)
+
+    with pytest.raises(FileNotFoundError):
+        backup.replay_interrupted_restore(settings)
+
+    assert (data_dir / backup.RESTORE_MARKER_NAME).exists()  # left in place for a retry
+    assert (data_dir / backup.ROLLBACK_FAILED_MARKER_NAME).is_file()
+
+
+# --- Cross-process lock (shared with the CLI builder) -------------------------------
+
+
+def test_db_lock_is_exclusive_across_handles(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with backup.db_lock(data_dir, blocking=True) as first:
+        assert first is True
+        with backup.db_lock(data_dir, blocking=False) as second:
+            assert second is False
+    with backup.db_lock(data_dir, blocking=False) as third:
+        assert third is True
+
+
+def test_build_cli_waits_for_the_lock_a_restore_holds(cli_env: Path) -> None:
+    """Closes the CLI builder side of audit point 1: `hoctap build gate` must wait for the
+    lock instead of opening the database while a restore (or another build) holds it."""
+    released_at: list[float] = []
+
+    def holder() -> None:
+        with backup.db_lock(cli_env, blocking=True):
+            time.sleep(0.3)
+            released_at.append(time.monotonic())
+
+    thread = threading.Thread(target=holder)
+    thread.start()
+    time.sleep(0.05)  # give the holder time to actually acquire the lock first
+    assert cli_main(["build", "gate"]) == 0
+    thread.join()
+    assert released_at  # the build only got in after the holder released the lock
+
+
+def test_cli_restore_refuses_when_the_db_lock_is_held(
+    cli_env: Path, client: TestClient, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """Closes the CLI restore TOCTOU: two concurrent `hoctap restore` invocations (or a
+    build) can no longer both touch `db_path`, where before only a TCP port probe guarded
+    against a running server."""
+    saved = _download(client, tmp_path)
+    before = _rows(cli_env, "SELECT id FROM parent_profiles")
+    with backup.db_lock(cli_env, blocking=True):
+        assert cli_main(["restore", str(saved), "--yes"]) == 1
+    assert "DB_LOCKED" in capsys.readouterr().err
+    assert _rows(cli_env, "SELECT id FROM parent_profiles") == before
 
 
 # --- Maintenance -------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
-import type { Profile } from '../api/client'
+import { ApiError, type Profile } from '../api/client'
 import { errorMessage } from '../api/errors'
 import { queryKeys, useLibraryHome, useProfiles, useSetupStatus, useStartSession } from '../api/queries'
 import { phrase } from '../audio/phrases'
@@ -92,6 +92,25 @@ export default function Home() {
   }
 
   return <HomeContent profile={current} />
+}
+
+// Orchestrator's Independent Audit (spec-4-3 #1, 2026-10-01): `home_assignment()` now
+// skips an Assignment whose Lesson no longer resolves to any visible Problem, so Home
+// should never again see `EMPTY_PROBLEM_SET` from the assignment card. Kept anyway as a
+// defense-in-depth fallback (e.g. a race between fetching Home and starting the Session) --
+// a child must never see a raw backend error string, codes like `ASSIGNMENT_REF_MISMATCH`
+// included, so every assignment-card failure gets the same friendly, non-alarming copy.
+function assignmentErrorMessage(error: unknown): string {
+  if (
+    error instanceof ApiError &&
+    (error.code === 'EMPTY_PROBLEM_SET' ||
+      error.code === 'ASSIGNMENT_REF_MISMATCH' ||
+      error.code === 'ASSIGNMENT_NOT_FOUND' ||
+      error.code === 'ASSIGNMENT_DONE')
+  ) {
+    return phrase('home_assignment_unavailable')
+  }
+  return errorMessage(error)
 }
 
 function HomeContent({ profile }: { profile: Profile }) {
@@ -218,7 +237,7 @@ function HomeContent({ profile }: { profile: Profile }) {
             <SpeakerButton label={`Nghe: ${todayLabel}`} onClick={() => void speak(todayLabel)} />
             {startSession.isError && startedFrom === 'assignment' && (
               <p role="alert" className="form-error">
-                {errorMessage(startSession.error)}
+                {assignmentErrorMessage(startSession.error)}
               </p>
             )}
           </div>

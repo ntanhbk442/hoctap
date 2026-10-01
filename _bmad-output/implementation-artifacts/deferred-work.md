@@ -275,6 +275,64 @@
     Star/Retry-Queue transition it wasn't already eligible for) -- a UX polish gap, not a
     correctness one.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-2-progress-dashboard.md`
+  summary: |
+    `_book_progress()` scopes the Dashboard's "Tiến độ theo sách" section to the Profile's
+    CURRENT grade only; if a parent edits a child's grade after real progress exists on
+    books of the old grade, that progress silently disappears from this one Dashboard
+    section (nothing else -- Stars/Streak/accuracy/weak-concepts/recent-mistakes are not
+    grade-filtered and keep counting it correctly).
+  evidence: |
+    Orchestrator's Independent Audit (2026-10-01), finding #1 (low, cosmetic/display-only,
+    no data loss) -- explicitly deferred as lowest priority in the same pass that fixed
+    spec-4-2 #2, spec-4-3 #1/#2 and spec-4-4 #1. A fix would either show Book progress
+    across every grade the Profile has ever had Sessions in, or explicitly document this as
+    an accepted limitation of a grade change.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-1-concept-guides.md`
+  summary: |
+    A failed Guide generation (bad Claude output, exhausts retries) is indistinguishable in
+    the parent Content Review UI from a Concept whose Guide was simply never generated yet.
+    `ConceptOut.has_guide: false` covers both cases identically, and the failure is only
+    ever visible in the one-shot CLI terminal report (`GuideReport.failed`), never
+    persisted or surfaced in `GET /parent/review/concepts`.
+  evidence: |
+    Orchestrator's Independent Audit (2026-10-01), spec-5-1 finding #1 (low) -- explicitly
+    deferred as lowest priority in the same pass that fixed spec-5-1 #2/#3 and spec-5-2 #1
+    (content-safety end-to-end test, migration upgrade-path test, and Guide-speech maths
+    notation test all landed; this one did not, per the finding's own "implementer's call,
+    fine to skip" allowance). A fix would persist a lightweight failure marker (e.g. a
+    `last_attempt_failed`/`last_attempt_at` column on `content_catalog_concept_guides`, or
+    have the review endpoint check `build_jobs` for a `stage='guide'` row that is `failed`
+    and has no corresponding Guide row) and surface a distinct "cần thử lại" (needs retry)
+    state in `ConceptsTab.tsx` instead of a bare row with no Guide affordance. Touches both
+    backend (a migration) and frontend; worth a small follow-up story rather than a drive-by
+    patch, since `build_jobs` rows are not currently a stable public contract for review.py
+    to depend on.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-1-expression-input-and-grade-3-5-grading.md`
+  summary: |
+    `content.arith.evaluate()` parses a `.` as a decimal separator only (e.g. "1.000" ->
+    the Fraction 1 -- i.e. one, not one thousand), per this story's frozen Human Decision
+    that `.` is dot-decimal, matching the Vietnamese convention where `,` is the decimal
+    separator and `.` is the THOUSANDS-grouping separator (so a human reading "1.000"
+    in a Vietnamese textbook would normally read it as 1000, not 1). This is a genuine,
+    unresolved product-convention ambiguity for grade 4-5 "thousands" content, not a bug:
+    no code change was made for it (per the orchestrator's explicit instruction not to
+    guess the intended convention without a human decision).
+  evidence: |
+    Orchestrator's Independent Audit (2026-10-01), spec-6-1 Review Triage Log finding #3
+    (low) -- the full-width-Unicode-operator half of the same finding was fixed (NFKC
+    normalisation in `content/arith.py`); this thousands-separator half was explicitly
+    left for a human decision. A future fix needs an explicit product decision on the
+    intended convention (e.g.: only disambiguate by digit-grouping shape -- a `.` followed
+    by exactly 3 digits and no further `.`/`,` could be treated as a thousands group only
+    when the Part's grade/context calls for integers in the thousands; or keep today's
+    literal dot-decimal rule and teach it to children via copy/examples instead) before
+    touching `content/arith.py`'s number token or any grader -- a wrong guess here would
+    silently flip grading for any "x.000"-shaped answer in grade 4-5 content once Story
+    6.2's full corpus is extracted.
+
 ## Deferred from: code review of Epic 3 (2026-09-30)
 
 - Quiz resume position is computed only for the first chunk (`SessionPlayer.tsx`, `resumed` set once). Unverified, medium if true; confirm with a quiz sheet of more than 10 Problems reloaded into chunk 2.

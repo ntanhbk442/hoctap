@@ -866,7 +866,28 @@ class ProblemDoc(ProblemHeader):
     @model_validator(mode="after")
     def _cross_refs(self) -> ProblemDoc:
         self._check_header(list(self.parts))
+        self._check_fallback_not_mixed()
         return self
+
+    def _check_fallback_not_mixed(self) -> None:
+        """Review Triage Log #3 (spec-3-1, 2026-10-01, low): `learning/scoring.py`'s
+        `compute_problem_stars()` routes a WHOLE Problem through fallback-only scoring the
+        moment ANY Part is a `FallbackPart` (`any(isinstance(p, FallbackPart) for p in
+        parts)`) -- so a Problem mixing a `FallbackPart` with graded Parts would silently
+        discard the graded Parts' `attempt` events for Star purposes, with no error
+        anywhere. Rejected here, at content-authoring/validation time, so that ambiguous
+        shape can never exist in the first place; cheaper and more robust than a defensive
+        runtime check in `scoring.py`, since every path that can create a `ProblemDoc`
+        (content pipeline ingestion, hand-authored fixtures, future editor UI) already goes
+        through this same Pydantic validation."""
+        has_fallback = any(isinstance(p, FallbackPart) for p in self.parts)
+        has_graded = any(not isinstance(p, FallbackPart) for p in self.parts)
+        if has_fallback and has_graded:
+            raise ValueError(
+                "a Problem cannot mix a fallback Part with graded Parts -- scoring routes "
+                "the whole Problem through fallback-only scoring the moment any Part is a "
+                "FallbackPart, which would silently discard the graded Parts' attempts"
+            )
 
 
 # --------------------------------------------------------------------------- concept guide

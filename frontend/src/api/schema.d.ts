@@ -1186,6 +1186,11 @@ export interface components {
             lesson_label: string;
             /** Lesson Title */
             lesson_title: string;
+            /**
+             * Resolvable
+             * @default true
+             */
+            resolvable: boolean;
         };
         /** BadgeOut */
         BadgeOut: {

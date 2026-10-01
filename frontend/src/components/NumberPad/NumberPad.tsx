@@ -5,7 +5,8 @@ export interface NumberPadProps {
   onDigit: (digit: string) => void
   onBackspace: () => void
   onComma?: () => void
-  /** Grades 4–5 get a comma key (FR-9); grades 1–3 don't. Defaults to shown. */
+  /** Grades 4–5 get a comma key (FR-9); grades 1–3 don't. Defaults to hidden -- a caller
+   * must opt in explicitly rather than getting a comma key by omission. */
   showComma?: boolean
   /** Additive (Story 2.6 finding #4): inert-looking while a submit is in flight or feedback
    * is settling. Optional and defaults to enabled so every existing call site is unchanged. */
@@ -68,7 +69,7 @@ export default function NumberPad({
   onDigit,
   onBackspace,
   onComma,
-  showComma = true,
+  showComma = false,
   disabled = false,
   expression = false,
   onSymbol,

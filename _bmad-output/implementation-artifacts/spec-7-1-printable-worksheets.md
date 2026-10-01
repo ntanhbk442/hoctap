@@ -71,6 +71,8 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-7-context.m
 
 ## Review Triage Log
 
+- (2026-10-01) Orchestrator audit (3 parallel reviewers: Blind Hunter, Verification Gap, Edge Case Hunter) of the unsupervised build. No Answer-Key leak path found: `worksheets.py` router is PIN-gated at router scope (`dependencies=[Depends(require_parent)]`), and content resolution filters on `EffectiveProblem.visible` — the exact same property `visible_to_child()` uses for every child-facing route, so hidden/retired/reported/unapproved Problems are excluded identically; no separate, weaker visibility check was reimplemented for this story. A malformed merged doc for one Problem is isolated (`effective.py`'s `_build()` sets `doc=None` for just that Problem; `worksheets.py` skips it) rather than failing the whole worksheet. No findings. Status: trustworthy as-is.
+
 ## Design Notes
 
 Print renderers live in the frontend (`frontend/print`, per the architecture) because the browser does the printing; the backend stub stays as a plain-text reference. An Assignment is stored as a Lesson ref, so it needs no separate kind. Alembic head stays `0019_full_run`; no migration.

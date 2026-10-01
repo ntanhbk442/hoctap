@@ -21,15 +21,22 @@ describe('NumberPad', () => {
     expect(onBackspace).toHaveBeenCalledOnce()
   })
 
-  it('shows the comma key by default and emits its callback', () => {
+  it('shows the comma key when showComma is true and emits its callback', () => {
     const onComma = vi.fn()
-    render(<NumberPad onDigit={vi.fn()} onBackspace={vi.fn()} onComma={onComma} />)
+    render(
+      <NumberPad onDigit={vi.fn()} onBackspace={vi.fn()} onComma={onComma} showComma />,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Dấu phẩy' }))
     expect(onComma).toHaveBeenCalledOnce()
   })
 
   it('hides the comma key when showComma is false (grades 1-3)', () => {
     render(<NumberPad onDigit={vi.fn()} onBackspace={vi.fn()} showComma={false} />)
+    expect(screen.queryByRole('button', { name: 'Dấu phẩy' })).not.toBeInTheDocument()
+  })
+
+  it('hides the comma key by default (unsafe-by-default fix, finding #2)', () => {
+    render(<NumberPad onDigit={vi.fn()} onBackspace={vi.fn()} />)
     expect(screen.queryByRole('button', { name: 'Dấu phẩy' })).not.toBeInTheDocument()
   })
 

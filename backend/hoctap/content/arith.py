@@ -121,7 +121,13 @@ def evaluate(expr: str, *, dot_decimal: bool = False) -> Fraction | None:
     """The exact value of an arithmetic expression, or None when it is not one."""
     if not isinstance(expr, str) or len(expr) > MAX_CHARS:
         return None
-    tokens = _tokens(unicodedata.normalize("NFC", expr), _TOKEN_DOT if dot_decimal else _TOKEN)
+    # NFKC (not just NFC) also folds full-width Unicode digits/operators/parentheses an
+    # IME can emit (e.g. "＋", "（", "０") to their ASCII/canonical equivalents, so those
+    # are recognised too (Review Triage Log finding #3, 2026-10-01); it is a no-op on the
+    # characters this evaluator already accepts (confirmed: "×" normalises to itself).
+    tokens = _tokens(
+        unicodedata.normalize("NFKC", expr), _TOKEN_DOT if dot_decimal else _TOKEN
+    )
     if not tokens:
         return None
     parser = _Parser(tokens)

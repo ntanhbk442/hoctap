@@ -136,6 +136,7 @@ def _build_catalogue(_args: argparse.Namespace) -> int:
 
     from hoctap.builder.catalogue import CatalogueError, collect_rows, write_catalogue
     from hoctap.db.engine import create_db_engine, run_migrations
+    from hoctap.parent.backup import db_lock
 
     nothing_written = "Không ghi gì vào cơ sở dữ liệu / Nothing was written."
     settings = load_settings()
@@ -148,12 +149,13 @@ def _build_catalogue(_args: argparse.Namespace) -> int:
         return 1
 
     try:
-        engine = create_db_engine(settings.db_path)
-        try:
-            run_migrations(engine)
-            report = write_catalogue(engine, rows)
-        finally:
-            engine.dispose()
+        with db_lock(settings.data_dir, blocking=True):
+            engine = create_db_engine(settings.db_path)
+            try:
+                run_migrations(engine)
+                report = write_catalogue(engine, rows)
+            finally:
+                engine.dispose()
     except (SQLAlchemyError, OSError) as exc:
         print(
             f"Lỗi cơ sở dữ liệu {settings.db_path} / Database error at {settings.db_path}: {exc}",
@@ -239,11 +241,18 @@ def _spend_client(args: argparse.Namespace, settings, needs_calls: bool):  # noq
 
 def _run_build(args: argparse.Namespace, body) -> int:  # noqa: ANN001
     """Opens the database, runs `body(engine, settings, first, last)` and maps the errors
-    to exit codes (2: usage or input, 1: failure, 130: interrupted)."""
+    to exit codes (2: usage or input, 1: failure, 130: interrupted).
+
+    Holds the cross-process db lock (`hoctap.parent.backup.db_lock`) for as long as the
+    database is open here, so a restore running concurrently (web or `hoctap restore`)
+    cannot swap the file out from under this process -- it will fail its own non-blocking
+    acquire and refuse instead.
+    """
     from sqlalchemy.exc import SQLAlchemyError
 
     from hoctap.builder.pilot import PilotError, parse_pages
     from hoctap.db.engine import create_db_engine, run_migrations
+    from hoctap.parent.backup import db_lock
 
     settings = load_settings()
     try:
@@ -251,31 +260,35 @@ def _run_build(args: argparse.Namespace, body) -> int:  # noqa: ANN001
     except PilotError as exc:
         print(exc, file=sys.stderr)
         return 2
-    try:
-        engine = create_db_engine(settings.db_path)
-    except OSError as exc:
-        print(f"Lỗi cơ sở dữ liệu / Database error at {settings.db_path}: {exc}", file=sys.stderr)
-        return 1
-    try:
-        run_migrations(engine)
-        return body(engine, settings, first, last)
-    except _Refused:
-        return 2
-    except PilotError as exc:
-        print(exc, file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        print(
-            "Đã dừng; các trang đã xong được giữ lại / Interrupted; finished pages are kept, "
-            "re-run to continue.",
-            file=sys.stderr,
-        )
-        return 130
-    except (SQLAlchemyError, OSError, RuntimeError, ValueError, *_PYMUPDF_ERRORS) as exc:
-        print(f"Lỗi / Error: {exc}", file=sys.stderr)
-        return 1
-    finally:
-        engine.dispose()
+    with db_lock(settings.data_dir, blocking=True):
+        try:
+            engine = create_db_engine(settings.db_path)
+        except OSError as exc:
+            print(
+                f"Lỗi cơ sở dữ liệu / Database error at {settings.db_path}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            run_migrations(engine)
+            return body(engine, settings, first, last)
+        except _Refused:
+            return 2
+        except PilotError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            print(
+                "Đã dừng; các trang đã xong được giữ lại / Interrupted; finished pages are "
+                "kept, re-run to continue.",
+                file=sys.stderr,
+            )
+            return 130
+        except (SQLAlchemyError, OSError, RuntimeError, ValueError, *_PYMUPDF_ERRORS) as exc:
+            print(f"Lỗi / Error: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            engine.dispose()
 
 
 def _print_calls(stage: str, calls) -> None:  # noqa: ANN001
@@ -614,25 +627,34 @@ def _build_speak_missing(args: argparse.Namespace) -> int:
 
 def _open_db(body) -> int:  # noqa: ANN001
     """Opens the database (migrated) and runs `body(engine, settings)`; database errors
-    exit 1."""
+    exit 1.
+
+    Holds the cross-process db lock for as long as the database is open here (see
+    `_run_build`), so this and a concurrent restore can never both touch `db_path`.
+    """
     from sqlalchemy.exc import SQLAlchemyError
 
     from hoctap.db.engine import create_db_engine, run_migrations
+    from hoctap.parent.backup import db_lock
 
     settings = load_settings()
-    try:
-        engine = create_db_engine(settings.db_path)
-    except OSError as exc:
-        print(f"Lỗi cơ sở dữ liệu / Database error at {settings.db_path}: {exc}", file=sys.stderr)
-        return 1
-    try:
-        run_migrations(engine)
-        return body(engine, settings)
-    except (SQLAlchemyError, OSError) as exc:
-        print(f"Lỗi / Error: {exc}", file=sys.stderr)
-        return 1
-    finally:
-        engine.dispose()
+    with db_lock(settings.data_dir, blocking=True):
+        try:
+            engine = create_db_engine(settings.db_path)
+        except OSError as exc:
+            print(
+                f"Lỗi cơ sở dữ liệu / Database error at {settings.db_path}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            run_migrations(engine)
+            return body(engine, settings)
+        except (SQLAlchemyError, OSError) as exc:
+            print(f"Lỗi / Error: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            engine.dispose()
 
 
 def _pct(value: float | None) -> str:

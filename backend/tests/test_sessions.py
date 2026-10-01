@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -228,6 +229,25 @@ def test_bundle_after_hide_still_shows_frozen_problem(
     session = _start(client, profile_id)
     with engine.begin() as conn:
         review.set_hidden(conn, doc["problem_id"], True)
+
+    bundle = _bundle(client, session["id"], profile_id).json()
+    assert len(bundle["problems"]) == 1
+    assert bundle["problems"][0]["problem"]["problem_id"] == doc["problem_id"]
+
+
+def test_bundle_after_parent_report_still_shows_frozen_problem(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Orchestrator's Independent Audit (spec-4-3 #2, 2026-10-01): the sibling case to
+    `test_bundle_after_hide_still_shows_frozen_problem` above, but via the parent "Báo lỗi"
+    Error Report path (Story 4.4) rather than a direct `set_hidden` -- an open `parent`
+    report hides a Problem from new Sessions/the Library (`content.effective`'s `visible`),
+    exactly like `hidden`, but AD-9's frozen Session must still serve it unchanged."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    with engine.begin() as conn:
+        review.add_error_report(conn, doc["problem_id"], "parent", "Sai đáp án")
 
     bundle = _bundle(client, session["id"], profile_id).json()
     assert len(bundle["problems"]) == 1
@@ -1726,6 +1746,10 @@ def test_summary_streak_is_one_right_after_first_completed_session(
 ) -> None:
     doc = make_doc("bai-1")
     Pub(engine)(doc)
+    # Fixed clock matching `_completed()`'s own hardcoded `occurred_at` date, so
+    # `compute_streak()`'s "today" (Asia/Ho_Chi_Minh calendar day) lines up with the
+    # completed Session's local day regardless of the real wall-clock date.
+    client.app.state.clock = lambda: datetime(2026, 9, 29, 10, 0, tzinfo=UTC)  # type: ignore[attr-defined]
     session = _start(client, profile_id)
     _post(client, session["id"], profile_id, _completed())
     summary = _summary(client, session["id"], profile_id).json()

@@ -266,6 +266,265 @@ def test_migration_0013_backfills_auto_play_true_for_existing_profiles(tmp_path:
     assert row[0] == 1  # SQLite booleans are stored as 0/1 -- 1 means backfilled to `true`.
 
 
+# Orchestrator's Independent Audit (spec-4-2 #2, 2026-10-01): the established upgrade-path
+# pattern (see `test_migration_0013_...` above) -- stage a DB at the PRIOR head, upgrade,
+# and inspect the result -- had no counterpart for `0017_assignments`, which only had a
+# fresh-DB-from-scratch test. Also exercises the downgrade, matching `test_review.py`'s own
+# `test_migration_0007_up_and_down` style.
+def test_migration_0017_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0016_retry_queue_due")
+        profile_id = new_id()
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO parent_profiles (id, name, avatar, grade, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (profile_id, "Bin", "cat", 1, now),
+        )
+        session_id = new_id()
+        connection.exec_driver_sql(
+            "INSERT INTO progress_sessions "
+            "(id, profile_id, ref_kind, ref_key, mode, problem_ids_json, chunk_size, "
+            "started_at, completed_at) VALUES (?, ?, 'lesson', 'lesson:x', 'practice', "
+            "'[]', 10, ?, NULL)",
+            (session_id, profile_id, now),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0017_assignments")
+        tables = {
+            r[0]
+            for r in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "progress_assignments" in tables
+        cols = {
+            r[1] for r in connection.exec_driver_sql("PRAGMA table_info(progress_sessions)")
+        }
+        assert "assignment_id" in cols
+        # The pre-existing row survives the upgrade with a NULL `assignment_id`.
+        row = connection.exec_driver_sql(
+            "SELECT assignment_id FROM progress_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        assert row is not None and row[0] is None
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.downgrade(cfg, "0016_retry_queue_due")
+        tables = {
+            r[0]
+            for r in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "progress_assignments" not in tables
+        cols = {
+            r[1] for r in connection.exec_driver_sql("PRAGMA table_info(progress_sessions)")
+        }
+        assert "assignment_id" not in cols
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
+# Orchestrator's Independent Audit (spec-5-1 #3, 2026-10-01): same gap class, now for
+# `0018_concept_guides` -- no upgrade-path test existed (the 4th time this exact class of
+# gap has been found: Stories 2.5, 2.9, Epic 4's 0017, now 0018). Follows
+# `test_migration_0017_up_and_down`'s established pattern exactly: stage a DB at the prior
+# head, upgrade, inspect the new tables/columns, downgrade, and re-upgrade to head.
+def test_migration_0018_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0017_assignments")
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO content_review_concepts (concept_id, grade, name_vi, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("g1.so-sanh-so", 1, "So sánh số", now),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0018_concept_guides")
+        tables = {
+            r[0]
+            for r in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert {
+            "content_catalog_concept_guides",
+            "content_review_guide_overrides",
+            "content_review_guide_status",
+        } <= tables
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO content_catalog_concept_guides "
+            "(concept_id, body_json, source, input_hash, model, generated_at) "
+            "VALUES (?, '{}', 'book', 'h', 'claude', ?)",
+            ("g1.so-sanh-so", now),
+        )
+        row = connection.exec_driver_sql(
+            "SELECT source FROM content_catalog_concept_guides WHERE concept_id = ?",
+            ("g1.so-sanh-so",),
+        ).fetchone()
+        assert row == ("book",)
+        # The pre-existing Concept row survives the upgrade untouched.
+        name = connection.exec_driver_sql(
+            "SELECT name_vi FROM content_review_concepts WHERE concept_id = ?",
+            ("g1.so-sanh-so",),
+        ).fetchone()
+        assert name == ("So sánh số",)
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.downgrade(cfg, "0017_assignments")
+        tables = {
+            r[0]
+            for r in connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert not (
+            {
+                "content_catalog_concept_guides",
+                "content_review_guide_overrides",
+                "content_review_guide_status",
+            }
+            & tables
+        )
+        # The Concept row (owned by an earlier migration) is unaffected by the downgrade.
+        name = connection.exec_driver_sql(
+            "SELECT name_vi FROM content_review_concepts WHERE concept_id = ?",
+            ("g1.so-sanh-so",),
+        ).fetchone()
+        assert name == ("So sánh số",)
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
+# `test_migration_0017_up_and_down`'s established pattern exactly: stage a DB at the prior
+# head, upgrade, inspect the new columns/constraints, downgrade (checking the `run_kind`
+# `'full'` row-deletion behaviour), and re-upgrade to head.
+def test_migration_0019_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0018_concept_guides")
+        now = to_iso(utc_now())
+        pilot_id = new_id()
+        connection.exec_driver_sql(
+            "INSERT INTO build_runs (id, book_id, first_page, last_page, status, stage, "
+            "pages_total, pages_done, cost_usd, cost_unknown_count, failed_pages_json, "
+            "error, resumed_from, started_at, updated_at, finished_at) "
+            "VALUES (?, 'b1', 1, 5, 'done', NULL, 5, 5, 0, 0, '[]', NULL, NULL, ?, ?, NULL)",
+            (pilot_id, now, now),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0019_full_run")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(build_runs)")}
+        assert {
+            "run_kind",
+            "full_id",
+            "max_total_usd",
+            "stop_reason",
+            "unstarted_json",
+            "options_json",
+        } <= cols
+        # The pre-existing pilot row survives the upgrade with the new default `run_kind`.
+        row = connection.exec_driver_sql(
+            "SELECT run_kind, unstarted_json FROM build_runs WHERE id = ?", (pilot_id,)
+        ).fetchone()
+        assert row == ("pilot", "[]")
+        # A `stopped_*` status (new in this migration) is now accepted by the check
+        # constraint, and a `full` run can be inserted with the new columns populated.
+        full_id = new_id()
+        connection.exec_driver_sql(
+            "INSERT INTO build_runs (id, book_id, first_page, last_page, status, stage, "
+            "pages_total, pages_done, cost_usd, cost_unknown_count, failed_pages_json, "
+            "error, resumed_from, started_at, updated_at, finished_at, run_kind, full_id, "
+            "max_total_usd, stop_reason, unstarted_json, options_json) "
+            "VALUES (?, 'b1', 1, 5, 'stopped_budget', NULL, 5, 2, 1.5, 0, '[]', NULL, NULL, "
+            "?, ?, NULL, 'full', 'group-1', 10.0, 'budget', '[]', NULL)",
+            (full_id, now, now),
+        )
+        row = connection.exec_driver_sql(
+            "SELECT run_kind, full_id, status FROM build_runs WHERE id = ?", (full_id,)
+        ).fetchone()
+        assert row == ("full", "group-1", "stopped_budget")
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.downgrade(cfg, "0018_concept_guides")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(build_runs)")}
+        assert not (
+            {
+                "run_kind",
+                "full_id",
+                "max_total_usd",
+                "stop_reason",
+                "unstarted_json",
+                "options_json",
+            }
+            & cols
+        )
+        # The downgrade deletes `run_kind='full'` rows outright, so only the pilot survives.
+        ids = {r[0] for r in connection.exec_driver_sql("SELECT id FROM build_runs")}
+        assert ids == {pilot_id}
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
+def test_migration_0020_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0019_full_run")
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO parent_settings (id, pin_hash, created_at, updated_at) "
+            "VALUES (1, 'x', ?, ?)",
+            (now, now),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0020_db_epoch")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(parent_settings)")}
+        assert "db_epoch" in cols
+        # The pre-existing row got a real random token, not the column default.
+        epoch = connection.exec_driver_sql(
+            "SELECT db_epoch FROM parent_settings WHERE id = 1"
+        ).scalar()
+        assert isinstance(epoch, str) and len(epoch) == 32 and epoch != "0"
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.downgrade(cfg, "0019_full_run")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(parent_settings)")}
+        assert "db_epoch" not in cols
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
 def test_engine_enables_foreign_keys(client: TestClient) -> None:
     with client.app.state.engine.connect() as conn:  # type: ignore[attr-defined]
         assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1

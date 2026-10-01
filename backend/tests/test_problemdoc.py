@@ -323,6 +323,19 @@ def test_fallback_answer_is_null() -> None:
         ProblemDoc.model_validate(raw)
 
 
+def test_problem_cannot_mix_fallback_and_graded_parts() -> None:
+    """Review Triage Log #3 (spec-3-1, 2026-10-01, low): a Problem mixing a `FallbackPart`
+    with a graded Part is rejected at validation time -- `learning/scoring.py`'s
+    `compute_problem_stars()` would otherwise route the WHOLE Problem through
+    fallback-only scoring the moment any Part is a `FallbackPart`, silently discarding the
+    graded Part's `attempt` events for Star purposes."""
+    raw = load("fallback")
+    graded_part = load("number_input")["parts"][0]
+    raw["parts"].append(graded_part)
+    with pytest.raises(ValidationError):
+        ProblemDoc.model_validate(raw)
+
+
 def test_fixtures_do_not_share_mutable_state() -> None:
     raw = load("match")
     doc = ProblemDoc.model_validate(copy.deepcopy(raw))

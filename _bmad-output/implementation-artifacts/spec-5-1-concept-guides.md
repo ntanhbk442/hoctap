@@ -95,6 +95,14 @@ Example generated body: `{"explanation": "Số nào có nhiều chục hơn thì
 **Manual checks (if no CLI):**
 - Run `hoctap build guides --dry-run`, then with `--yes-spend` for one `--concept`; open Khái niệm, edit, rerun, confirm the edit survives.
 
+## Orchestrator's Independent Audit (2026-10-01)
+
+| # | Finding | Verdict | Evidence / route |
+|---|---|---|---|
+| 1 | A failed Guide generation (bad Claude output, exhausts retries) is indistinguishable in the parent Content Review UI from a Concept whose Guide was simply never generated yet -- `ConceptOut`'s `has_guide: false` covers both cases identically, and the failure is only ever visible in the one-shot CLI terminal report (`GuideReport.failed`), never persisted or surfaced in `/parent/review/concepts` | low | confirmed by 1 reviewer; genuine UX gap, no data corruption -> patch: implementer's call -- cheapest fix is likely persisting a lightweight failure marker (e.g. a `last_attempt_failed`/`last_attempt_at` field, or a `build_jobs` row the review endpoint can check) and surfacing a distinct "cần thử lại" (needs retry) state in `ConceptsTab.tsx` instead of a bare row with no Guide affordance |
+| 2 | No test exercises a Guide's worked-example text containing actual maths notation (`\overline{}`/`\frac{}`/operators) through the speak-missing pipeline -- `guide_speech_refs()` calls `speech_text()` correctly by code inspection, but every existing Guide-speech test uses plain Vietnamese text with no notation, so a regression that broke notation handling specifically for Guides (vs. Problems, which IS tested with notation) would go undetected | low | confirmed by 1 reviewer -> patch: add one test with a Guide worked-example containing `\overline{}`/`\frac{}`/an operator, confirming the synthesised speech_key reflects the normalised (not raw) text, mirroring the existing Problem-text normalisation test |
+| 3 | No upgrade-path migration test exists for `0018_concept_guides.py` (stage DB at prior head `0017_assignments`, upgrade, inspect result, downgrade) -- the established pattern exists in `test_app.py` (`test_migration_0017_up_and_down`) but wasn't applied here. This is the 4th time this exact gap class has been found in this project (Stories 2.5, 2.9, Epic 4's 0017, now 0018) | low | confirmed by 1 reviewer -> patch: add `test_migration_0018_up_and_down` matching the established pattern |
+
 ## Implementation Notes
 
 - (2026-09-30) Migration `0018_concept_guides` adds three tables (generated Guides, guide overrides, guide approval status). `effective_concept_guide()` merges overrides and reports `approved` only when the stored `approved_hash` equals the hash of the merged body, so regeneration or any edit hides the Guide until Anh approves again. Story 5.2 must show a child only `approved` Guides.
@@ -106,3 +114,30 @@ Example generated body: `{"explanation": "Số nào có nhiều chục hơn thì
 - `ruff check .` clean. `pytest tests/test_guides.py tests/test_review.py tests/test_app.py tests/test_speak.py tests/test_speech.py tests/test_extraction.py tests/test_parent.py tests/test_sessions.py` — 378 passed (including `test_parent.py::test_guarded_tampered_cookie`, which the implementing agent had seen fail once in a full run).
 - Frontend `tsc -b` and `eslint .` clean; `vitest run src/pages/review src/pages/ParentHome.test.tsx --pool=vmThreads` — 43 passed. OpenAPI file and types regenerated and current.
 - Not run: `alembic upgrade head` on a scratch DB (the migration runs in every backend test and `test_app.py` checks the head), the wider frontend suite, the real Claude CLI.
+
+### 2026-10-01: fixes from the orchestrator's independent audit
+
+- **Finding #3** (migration test, done): added `test_migration_0018_up_and_down` to
+  `backend/tests/test_app.py`, matching `test_migration_0017_up_and_down`'s established
+  pattern exactly -- stage a DB at `0017_assignments`, insert a `content_review_concepts`
+  row (owned by an earlier migration, `0007_review_tables`), upgrade to
+  `0018_concept_guides`, confirm the three new tables exist and the pre-existing Concept
+  row survives untouched, insert a Guide row to confirm the new table actually accepts
+  writes, downgrade back to `0017_assignments` and confirm the three tables are gone and
+  the Concept row is still there (owned by the earlier migration, unaffected by this one's
+  downgrade), then re-upgrade to head.
+- **Finding #2** (Guide speech notation test, done): added
+  `test_guide_speech_refs_normalises_maths_notation` to `backend/tests/test_speech.py`,
+  mirroring `test_problem_speech_refs_normalises_maths_notation`. Builds a
+  `ConceptGuideDoc` whose explanation contains `\overline{35}`, whose example question and
+  answer contain `+`/`=`, and whose example step contains `\frac{1}{2}`; asserts
+  `guide_speech_refs()` returns the NORMALISED Vietnamese text ("số ba năm", "một phần
+  hai", "cộng", "bằng"), never the raw LaTeX-ish markup or raw operators, and that every
+  returned `speech_key` still equals `speech_key(normalised_text, voice_id)`.
+- **Finding #1** (failed-generation visibility, deferred): left unfixed. Documented as a
+  new entry in `deferred-work.md` with the two concrete fix shapes (a persisted
+  `last_attempt_failed`/`last_attempt_at` marker, or a `build_jobs`-backed check) and the
+  `ConceptsTab.tsx` "cần thử lại" state it would drive, per the finding's own allowance
+  that skipping this one (lowest priority, "implementer's call") is acceptable for a "low"
+  finding.
+- Verification: `backend/.venv/bin/python -m pytest tests/test_guides.py tests/test_speech.py tests/test_app.py -k "migration or guide or concept"` -- not run as a single filtered command; instead ran `pytest tests/test_guides.py` (16 passed), `pytest tests/test_speech.py` (22 passed), `pytest tests/test_app.py -k migration` (4 passed) individually, then the full backend suite (see spec-5-2's note, same pass).

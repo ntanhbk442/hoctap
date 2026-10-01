@@ -7,6 +7,7 @@ codebase's existing `api/*` (thin) + `content/*`/`learning/*` (service) split.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -25,10 +26,11 @@ from hoctap.ids import new_id, to_iso
 from hoctap.learning import assignments
 from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
-from hoctap.learning.models import progress_events, progress_sessions
+from hoctap.learning.models import progress_events, progress_sessions, progress_stars
 from hoctap.learning.problem_sets import CHUNK_SIZE, LessonRef, ProblemSetRef, ref_key, resolve
 from hoctap.learning.retry import add_retry_item, device_time_iso, maybe_resolve_retry_item
 from hoctap.learning.scoring import (
+    STAR_AWARDING_MODES,
     award_quiz_stars,
     compute_quiz_stars,
     maybe_award_stars,
@@ -36,6 +38,8 @@ from hoctap.learning.scoring import (
 )
 from hoctap.learning.summary import SessionSummary, compute_summary
 from hoctap.parent.models import parent_profiles
+
+log = logging.getLogger(__name__)
 
 EVENT_KINDS = frozenset(
     {
@@ -643,6 +647,52 @@ def _grade_and_stage(
     return payload
 
 
+def _warn_undetermined_star_outcomes(
+    conn: Any, session_id: str, profile_id: str, mode: str, problem_ids: list[str]
+) -> None:
+    """Review Triage Log #2 (spec-3-1, 2026-10-01, medium): quiz mode already refuses
+    `session_completed` (422 `QUIZ_NOT_SUBMITTED`) while its own Problems are unresolved.
+    `practice`/`retry`/`concept` Sessions have no analogous guard: a lost/dropped
+    `attempt`/`self_marked` event (offline-outbox drop, client bug, race) can leave a
+    Problem's Star outcome permanently undeterminable for this Session
+    (`compute_problem_stars()` stays `None` forever -- a later Session can't retroactively
+    fix THIS Session's row), with no error and no way to detect it after the fact.
+
+    Chosen fix: LOG, not reject. A hard 422 here was considered and rejected -- unlike
+    quiz mode (which requires one all-or-nothing submit), a never-attempted Problem in a
+    practice/retry/concept Session is an already-legitimate, deliberately-supported state:
+    Story 2.10's own `wrong_problem_ids`/summary semantics count a never-attempted Problem
+    as "wrong" by design (see e.g. `test_summary_wrong_problem_ids_preserve_session_order`,
+    which completes a Session with one Problem never attempted at all, on purpose). The
+    server cannot distinguish "the child chose not to answer this one" from "the event was
+    lost" -- both look identical here -- so rejecting would break the legitimate,
+    already-tested case, not just the lost-event case this finding is about. A warning log
+    line makes the anomaly detectable (and greppable/alertable) without breaking normal
+    Sessions."""
+    if mode not in STAR_AWARDING_MODES or not problem_ids:
+        return
+    resolved = {
+        r.problem_id
+        for r in conn.execute(
+            select(progress_stars.c.problem_id).where(
+                progress_stars.c.session_id == session_id,
+                progress_stars.c.problem_id.in_(problem_ids),
+            )
+        )
+    }
+    missing = [pid for pid in problem_ids if pid not in resolved]
+    if missing:
+        log.warning(
+            "session_completed for session %s (profile %s, mode %s): %d Problem(s) with "
+            "no determinable Star outcome yet: %s",
+            session_id,
+            profile_id,
+            mode,
+            len(missing),
+            missing,
+        )
+
+
 def _quiz_submitted(conn: Any, session_id: str) -> bool:
     return (
         conn.execute(
@@ -856,6 +906,14 @@ def post_event(
                 # (whichever id arrives first) ever actually set it -- a second distinct
                 # event is still stored durably below (it's a valid event, just a no-op
                 # for `completed_at`), never rejected.
+                if session.completed_at is None:
+                    _warn_undetermined_star_outcomes(
+                        conn,
+                        session_id,
+                        profile_id,
+                        mode,
+                        json.loads(session.problem_ids_json),
+                    )
                 conn.execute(
                     progress_sessions.update()
                     .where(

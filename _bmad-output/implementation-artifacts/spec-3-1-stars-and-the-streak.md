@@ -168,6 +168,72 @@ happen to share some of the same underlying `attempt`/`self_marked` events.
   and the previous `LibraryHomeOut` shape: `test_app.py::test_fresh_data_dir_created_with_wal_and_migrations`
   and `test_library.py::test_home_nothing_visible_yet_is_a_friendly_null_not_a_crash`.
 
+### 2026-10-01: Review Triage Log findings #2, #3, #4 (orchestrator's independent audit)
+
+- **#2 (medium) — undetermined Star outcome at `session_completed`, practice/retry/concept modes.**
+  Added `learning.sessions._warn_undetermined_star_outcomes()`, called from `post_event()`'s
+  `session_completed` branch (only on the FIRST `session_completed` for a Session, guarded by the
+  same `session.completed_at is None` check the `completed_at`-write itself uses). For any
+  `STAR_AWARDING_MODES` Session, it diffs the frozen `problem_ids_json` against
+  `progress_stars` rows already written for this `session_id`; any Problem id missing a row is
+  logged as a single `log.warning(...)` line (module logger, `hoctap.learning.sessions`) naming
+  the Session, Profile, mode, and the missing Problem ids.
+  **Judgment call: log, not reject.** A hard 422 (matching quiz mode's `QUIZ_NOT_SUBMITTED`) was
+  the first instinct, but quiz mode's guard is checking something structurally different: quiz is
+  one all-or-nothing submit action, and "not yet submitted" is unambiguous. A practice/retry/
+  concept Session completing with one Problem never attempted at all is, by contrast, an
+  *already-legitimate, already-tested, deliberately-supported* state in this codebase — Story
+  2.10's own `wrong_problem_ids`/summary semantics count a never-attempted Problem as "wrong" by
+  design, and several pre-existing `test_sessions.py` tests (e.g.
+  `test_summary_wrong_problem_ids_preserve_session_order`) complete a Session with a Problem that
+  was never attempted, on purpose, to exercise exactly that. The server has no way to tell "the
+  child chose to skip this one" apart from "the event was actually lost" — both produce identical
+  server-side state (zero events for that Problem, this Session) — so a reject-based guard would
+  have broken the legitimate, already-shipped case, not just the lost-event case the finding
+  describes. A warning log makes the anomaly detectable and alertable without breaking normal
+  Sessions. Checked this reasoning against the actual test suite rather than just in the abstract:
+  grepping `test_sessions.py`/`test_scoring.py`/`test_retry.py`/`test_library.py` for
+  `_completed(` call sites shows roughly a dozen tests that post `session_completed` with at least
+  one Problem never attempted at all (e.g. `test_summary_wrong_problem_ids_preserve_session_order`'s
+  own comment: `"bai-2: never attempted at all"`) — confirming the never-attempted case is
+  genuinely load-bearing, existing, intended behaviour, not an oversight a reject-based guard
+  would be safe to break.
+  New tests: `test_scoring.py::test_session_completed_logs_when_a_problem_has_no_determinable_star_outcome`
+  (asserts 201, no Star row, and the warning is logged) and
+  `test_scoring.py::test_session_completed_no_warning_when_every_problem_is_resolved` (negative
+  case, no false positives).
+- **#3 (low) — a Problem doc mixing `FallbackPart` with graded Parts.** Chose the schema-level
+  validator over a defensive runtime check in `scoring.py`: added `ProblemDoc._check_fallback_not_mixed()`
+  (`content/schema.py`), called from the existing `_cross_refs` `model_validator(mode="after")`,
+  rejecting (`ValueError`, surfaces as a Pydantic `ValidationError`) any Problem whose `parts` mix
+  a `FallbackPart` with any non-`FallbackPart` Part. Chosen over a `scoring.py`-side defensive
+  check/log because every path that can ever produce a `ProblemDoc` (content pipeline ingestion,
+  hand-authored fixtures, a future content editor UI) already goes through this same Pydantic
+  validation — rejecting it here means the ambiguous shape can never exist in stored content at
+  all, rather than merely being caught (or silently logged) every time it's scored. New test:
+  `test_problemdoc.py::test_problem_cannot_mix_fallback_and_graded_parts`.
+- **#4 (low) — a corrected `self_marked` re-post on a fallback Problem was silently discarded for
+  Star purposes.** `_fallback_stars()`'s docstring already stated (and still states) that it reads
+  the LATEST `self_marked` event's verdict — the actual bug was that `maybe_award_stars()` only
+  ever checked row EXISTENCE for idempotency, so the FIRST verdict froze permanently once any row
+  existed, contradicting the docstring's own stated intent. **Judgment call: made the code match
+  the docstring (re-evaluate and UPDATE), not the other way around.** Freezing the first verdict
+  was considered as the "intentional, update the docstring instead" alternative, but rejected:
+  nothing in this story's frozen Intent/Boundaries ever asked for a frozen-first-verdict anti-
+  gaming rule, the docstring's claim was clearly the ORIGINAL intent (not a later edit that simply
+  forgot to update the code), and "a genuine correction silently doesn't take effect, with zero
+  user-visible signal" is a worse failure mode for a children's learning app than "a Star total can
+  move by ±1/±3 if a self-mark is corrected soon after." Implementation:
+  `maybe_award_stars()` now re-reads the existing row's `stars` alongside its `id` and, when the
+  freshly computed value differs, `UPDATE`s that row (`stars`, `awarded_at`) instead of returning
+  early; a matching value is still a no-op (no redundant write). This is intentionally not
+  special-cased to fallback Problems — a graded Problem's computed value is stable once
+  determinable within a Session (the facts "was any Part's Solution shown" / "was every Part
+  first-try-correct" don't un-happen), so the UPDATE branch is a no-op for graded Problems in
+  practice, keeping one idempotency rule instead of two. New test:
+  `test_scoring.py::test_corrected_self_mark_updates_existing_star_row` (same row id before/after,
+  `stars` changes from 0 to 1).
+
 ## Spec Change Log
 
 <!-- Populated if the spec needs correction during implementation. Append-only. -->
@@ -175,6 +241,14 @@ happen to share some of the same underlying `attempt`/`self_marked` events.
 ## Review Triage Log
 
 <!-- Populated after the reviewer pass. Append-only. -->
+
+### Orchestrator's independent audit (2026-10-01)
+
+| # | Finding | Verdict | Evidence / route |
+|---|---|---|---|
+| 2 | `session_completed` only guards quiz-mode Sessions against an unresolved Problem (422 `QUIZ_NOT_SUBMITTED`) -- for `practice`/`retry`/`concept` Sessions there is no analogous check. If an `attempt`/`self_marked` event for one Problem is lost (dropped offline-outbox event, a client bug, a race) while the rest of the chunk completes normally, `session_completed` still succeeds silently, and that Problem's `compute_problem_stars()` returns `None` forever (its resolution is scoped to that Session's own attempts -- a later Session can't retroactively fix this Session's row). Stars/badge thresholds end up silently short with no error, no log, and no way to detect it after the fact | medium | confirmed by 1 reviewer; real but lower-frequency than #1 (requires an actual lost/dropped event, not a normal-path bug) -> patch: add the same kind of guard quiz mode already has -- before accepting `session_completed` for practice/retry/concept modes, check every Problem in the frozen `problem_ids_json` has a determinable Star outcome (at least one `attempt` or the Problem is fallback-type with a `self_marked`); if not, either reject with a clear error (matching quiz's pattern) or log a warning server-side so a missing-Problem-outcome is at least detectable. Implementer's call on reject-vs-log, document whichever is chosen |
+| 3 | A Problem doc mixing a `FallbackPart` with graded Parts (nothing in `content/schema.py` prevents this -- `Problem.parts` is just `list[Part]` with `min_length=1`, `Part` a bare union including `FallbackPart`) causes `scoring.py`'s `any(isinstance(p, FallbackPart) for p in parts)` check to route the WHOLE Problem through fallback-only scoring, silently discarding any graded Parts' `attempt` events -- Stars would be driven entirely by the fallback tap, ignoring whether graded Parts were answered correctly | low | confirmed by 1 reviewer; currently likely unreachable given how content is authored today, but nothing structurally prevents it -> patch: either add a schema-level validator rejecting a Problem that mixes `FallbackPart` with any other Part type (the cleanest fix, prevents the ambiguous case from ever existing), or explicitly document in `scoring.py`'s docstring that this is an assumed invariant enforced elsewhere and add a defensive check/log if violated. Implementer's call, but the silent-discard behavior should not ship undocumented |
+| 4 | A corrected `self_marked` re-post on a fallback Problem (e.g. "chưa đúng" tapped by mistake, corrected to "đúng" moments later) is silently discarded for Star purposes -- `maybe_award_stars()` only checks ROW EXISTENCE for idempotency, so once any Star row exists for (session_id, problem_id) the first verdict's Star value is permanently frozen, even though `_fallback_stars()`'s own docstring says it computes from the LATEST self_marked event (anticipating exactly this correction case) | low | confirmed by 1 reviewer; lower likelihood (needs an offline-retry or race to trigger in the current UI, which has no re-mark affordance in the same view) but a real, silent data-correctness gap with no user-visible signal that the correction didn't take effect | -> patch: either make `maybe_award_stars()` re-evaluate and UPDATE the existing Star row when a later `self_marked` for the same (session_id, problem_id) changes the verdict (matching `_fallback_stars()`'s own stated intent), or if freezing the first verdict is judged intentional (e.g. to prevent gaming), update `_fallback_stars()`'s docstring to stop claiming latest-event semantics and document the freeze explicitly. Implementer's call, but the code and the docstring must agree |
 
 ## Verification
 

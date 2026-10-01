@@ -63,31 +63,31 @@ development_status:
   2-11-pwa-offline-shell-and-event-outbox: review
   epic-2-retrospective: optional
 
-  epic-3: in-progress
-  3-1-stars-and-the-streak: review
-  3-2-badges: review
-  3-3-retry-queue: review
-  3-4-quiz-mode-for-phiếu-tự-luyện-cuối-tuần: review
+  epic-3: done
+  3-1-stars-and-the-streak: done
+  3-2-badges: done
+  3-3-retry-queue: done
+  3-4-quiz-mode-for-phiếu-tự-luyện-cuối-tuần: done
   epic-3-retrospective: optional
 
-  epic-4: in-progress
-  4-1-profiles-and-settings: review
-  4-2-progress-dashboard: review
-  4-3-assignments: review
-  4-4-error-reports-from-the-parent-and-the-child: review
+  epic-4: done
+  4-1-profiles-and-settings: done
+  4-2-progress-dashboard: done
+  4-3-assignments: done
+  4-4-error-reports-from-the-parent-and-the-child: done
   epic-4-retrospective: optional
 
-  epic-5: in-progress
-  5-1-concept-guides-generated-and-editable: review
-  5-2-concept-guide-screen-and-practice: review
+  epic-5: done
+  5-1-concept-guides-generated-and-editable: done
+  5-2-concept-guide-screen-and-practice: done
   epic-5-retrospective: optional
 
-  epic-6: in-progress
-  6-1-expression_input-and-the-grade-3-5-grading-rules: review
-  6-2-full-corpus-run: review
+  epic-6: done
+  6-1-expression_input-and-the-grade-3-5-grading-rules: done
+  6-2-full-corpus-run: done
   epic-6-retrospective: optional
 
-  epic-7: in-progress
-  7-1-printable-worksheets: review
-  7-2-backup-and-restore: review
+  epic-7: done
+  7-1-printable-worksheets: done
+  7-2-backup-and-restore: done
   epic-7-retrospective: optional

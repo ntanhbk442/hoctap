@@ -363,6 +363,29 @@ def test_guide_routes_need_parent(client: TestClient, concept: str) -> None:
 # --------------------------------------------------------------------------- speech
 
 
+def test_edit_after_approval_voids_it_on_the_child_endpoint(
+    client: TestClient, engine: Engine, settings: Settings, concept: str
+) -> None:
+    """Chains both halves of the content-safety claim through the real child-facing read
+    (Story 5.2's `GET /library/concepts/{id}`): approve, edit, then confirm the child
+    endpoint -- not just `effective_concept_guide()` -- now returns `guide: null` again."""
+    stored(client, engine, settings)
+    h = client.get(guide_url()).json()["content_hash"]
+    assert client.post(f"{guide_url()}/approve", json={"content_hash": h}).status_code == 200
+    child_url = f"/api/v1/library/concepts/{CONCEPT}"
+    approved = client.get(child_url)
+    assert approved.status_code == 200
+    assert approved.json()["guide"] == {
+        "explanation": GUIDE["explanation"],
+        "example": GUIDE["example"],
+    }
+    resp = client.put(guide_url(), json={"edits": [{"field": "explanation", "value": EDITED}]})
+    assert resp.status_code == 200, resp.text
+    voided = client.get(child_url)
+    assert voided.status_code == 200
+    assert voided.json()["guide"] is None
+
+
 def test_guide_text_is_spoken_and_edits_change_the_keys(
     client: TestClient, engine: Engine, settings: Settings, concept: str, tmp_path: Path
 ) -> None:

@@ -73,9 +73,12 @@ def _fallback_stars(conn: Any, session_id: str, problem_id: str) -> int | None:
     """A `fallback` Problem's single `self_marked` outcome maps directly: "đúng" -> 1,
     "chưa đúng" -> 0. If `self_marked` was posted more than once for this Problem+Session
     (a genuine change of mind, not a resend -- a resend shares the same event id and never
-    reaches here twice), this reads the LATEST one, but `maybe_award_stars()` writes the row
-    only once per (Session, Problem): the FIRST Star row wins and a later self-mark does not
-    change it."""
+    reaches here twice), this reads the LATEST one -- and, per Review Triage Log #4
+    (spec-3-1, 2026-10-01), `maybe_award_stars()` now RE-EVALUATES on every resolving event
+    for this (Session, Problem) and UPDATES the stored row when the freshly computed value
+    differs, so a later correcting self-mark is actually reflected, matching this
+    docstring's own claim (previously the code silently froze the first verdict while this
+    docstring described "latest" -- that mismatch is the fix)."""
     rows = conn.execute(
         select(progress_events.c.payload_json)
         .where(
@@ -149,24 +152,38 @@ def maybe_award_stars(
     problem_id: str,
     mode: str,
 ) -> None:
-    """Awards this Session's Stars for `problem_id`, exactly once, the moment it becomes
-    determinable. A no-op when: `mode` never awards Stars (`STAR_AWARDING_MODES`); the
-    outcome isn't determinable yet (`compute_problem_stars()` returns `None`); or a
-    `progress_stars` row for this (`session_id`, `problem_id`) already exists (idempotency
-    -- a resent resolving event, or two events of one batch both resolving the same
-    Problem, must never insert a duplicate or overwrite a different value)."""
+    """Awards this Session's Stars for `problem_id`, the moment it becomes determinable,
+    and keeps it current. A no-op when: `mode` never awards Stars (`STAR_AWARDING_MODES`);
+    or the outcome isn't determinable yet (`compute_problem_stars()` returns `None`). A
+    `progress_stars` row for this (`session_id`, `problem_id`) is inserted exactly once
+    (idempotency -- a resent resolving event, or two events of one batch both resolving the
+    same Problem, must never insert a duplicate). Review Triage Log #4 (spec-3-1,
+    2026-10-01): once a row exists, a re-entry whose freshly computed Stars DIFFER from the
+    stored value now UPDATES it in place, rather than freezing the first verdict forever --
+    this is what lets a corrected `self_marked` on a `fallback` Problem (see
+    `_fallback_stars()`'s own docstring, which already claimed "latest event" semantics)
+    actually take effect. A graded Problem's computed value is stable once determinable (a
+    Part's first-try/solution-shown facts never change within a Session once every Part has
+    resolved), so this UPDATE path is effectively fallback-only in practice, but is not
+    special-cased to that -- keeping the function's idempotency story one rule, not two."""
     if mode not in STAR_AWARDING_MODES:
         return
     stars = compute_problem_stars(conn, session_id, problem_id)
     if stars is None:
         return
     existing = conn.execute(
-        select(progress_stars.c.id).where(
+        select(progress_stars.c.id, progress_stars.c.stars).where(
             progress_stars.c.session_id == session_id,
             progress_stars.c.problem_id == problem_id,
         )
     ).first()
     if existing is not None:
+        if existing.stars != stars:
+            conn.execute(
+                progress_stars.update()
+                .where(progress_stars.c.id == existing.id)
+                .values(stars=stars, awarded_at=now_iso)
+            )
         return
     conn.execute(
         progress_stars.insert().values(

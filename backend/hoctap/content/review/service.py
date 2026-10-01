@@ -445,6 +445,42 @@ def save_overrides(
                     **values,
                 )
             )
+    if removed or changed:
+        _auto_resolve_reports_on_content_change(conn, problem_id, state.content_hash, now)
+
+
+def _auto_resolve_reports_on_content_change(
+    conn: Connection, problem_id: str, old_hash: str | None, now: datetime | None
+) -> None:
+    """Orchestrator's Independent Audit (spec-4-4 #1, 2026-10-01): a parent who opens the
+    editor from an Error Report, fixes the content and saves, but forgets to separately
+    click "Đã xử lý" ("resolve_report"), would otherwise leave the Problem hidden
+    (`effective.py` keeps hiding on any open `parent` report) and stuck in "Cần duyệt"
+    forever even though it is now correct.
+
+    Chosen fix (option (a) of the audit's two suggestions): auto-resolve every OPEN report
+    on this Problem whenever `save_overrides()` actually changes the effective
+    `content_hash` -- the same hash `approve()`'s own STALE check already treats as "the
+    content Anh is looking at". Rejected alternative (b), a reminder banner in the editor:
+    it still requires the parent to remember a SECOND action, which is exactly the trap
+    this finding is about; auto-resolving on an actual content change removes the trap
+    entirely with no further parent action needed, and a report whose Problem content was
+    NOT actually touched (e.g. an edit that reverts to the extracted value, hitting the
+    `value_hash(value) == value_hash(base)` early-continue above, so `removed`/`changed`
+    stay empty) correctly leaves the report open rather than resolving on a no-op save.
+    """
+    new_hash = _state(conn, problem_id).content_hash
+    if new_hash is None or new_hash == old_hash:
+        return
+    t = content_review_error_reports
+    open_ids = [
+        r.id
+        for r in conn.execute(
+            select(t.c.id).where(t.c.problem_id == problem_id, t.c.status == "open")
+        )
+    ]
+    for report_id in open_ids:
+        resolve_report(conn, report_id, now)
 
 
 def delete_override(conn: Connection, problem_id: str, override_id: str) -> None:

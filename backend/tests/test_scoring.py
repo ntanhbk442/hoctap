@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -380,6 +381,106 @@ def test_replay_mode_session_awards_no_stars(
     assert _stars_rows(engine, replay["id"]) == []
 
 
+# --- Review Triage Log #4 (2026-10-01): corrected self_marked updates the Star row -----
+
+
+def test_corrected_self_mark_updates_existing_star_row(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """A second, later `self_marked` for the same fallback Problem+Session, with a
+    DIFFERENT verdict, updates the existing `progress_stars` row in place (same row id,
+    new `stars`) rather than permanently freezing the first verdict -- matching
+    `_fallback_stars()`'s own docstring claim that it reads the LATEST `self_marked`
+    event."""
+    doc = make_fallback_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _self_marked(doc["problem_id"], False, "2026-09-29T10:00:00+00:00"),
+    )
+    rows = _stars_rows(engine, session["id"])
+    assert len(rows) == 1
+    assert rows[0].stars == 0
+    first_id = rows[0].id
+
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _self_marked(doc["problem_id"], True, "2026-09-29T10:00:01+00:00"),
+    )
+    rows2 = _stars_rows(engine, session["id"])
+    assert len(rows2) == 1
+    assert rows2[0].id == first_id  # same row, updated, not a duplicate
+    assert rows2[0].stars == 1
+
+
+# --- Review Triage Log #2 (2026-10-01): undetermined Star outcome at session_completed --
+
+
+def test_session_completed_logs_when_a_problem_has_no_determinable_star_outcome(
+    client: TestClient, engine: Engine, profile_id: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A practice-mode Session completed while one Problem's Star outcome is still
+    undeterminable (here: only one of its two graded Parts was ever attempted, simulating
+    a lost/dropped `attempt` event) is still accepted (201) -- Story 2.10's own
+    `wrong_problem_ids` semantics already treat a never-attempted Problem as a legitimate,
+    expected state -- but a WARNING is logged naming the Session and the Problem, so the
+    anomaly is detectable server-side."""
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    # Only Part "a" ever gets an attempt; Part "b" never does, so compute_problem_stars()
+    # stays None for this Problem in this Session.
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    with caplog.at_level("WARNING"):
+        resp = _post(client, session["id"], profile_id, _completed())
+    assert resp.status_code == 201, resp.text
+    assert _stars_rows(engine, session["id"]) == []
+    assert any(
+        doc["problem_id"] in r.getMessage() and "session_completed" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_session_completed_no_warning_when_every_problem_is_resolved(
+    client: TestClient, engine: Engine, profile_id: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    doc = make_doc("bai-1")
+    Pub(engine)(doc)
+    session = _start(client, profile_id)
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "a", [{"key": "s1", "value": "5"}], "2026-09-29T10:00:00+00:00"
+        ),
+    )
+    _post(
+        client,
+        session["id"],
+        profile_id,
+        _attempt(
+            doc["problem_id"], "b", [{"key": "s1", "value": "3"}], "2026-09-29T10:00:01+00:00"
+        ),
+    )
+    with caplog.at_level("WARNING"):
+        resp = _post(client, session["id"], profile_id, _completed())
+    assert resp.status_code == 201, resp.text
+    assert not any("no determinable Star outcome" in r.getMessage() for r in caplog.records)
+
+
 # --- Idempotency -------------------------------------------------------------------------
 
 
@@ -466,6 +567,11 @@ def test_home_total_stars_sums_across_sessions(
     doc = make_doc("bai-1")
     doc2 = make_doc("bai-2")
     Pub(engine)(doc, doc2)
+
+    # Fixed clock matching the hardcoded `2026-09-29` `occurred_at` timestamps below, so
+    # the Home endpoint's `compute_streak()` "today" lines up with the completed Sessions'
+    # local day regardless of the real wall-clock date.
+    client.app.state.clock = lambda: datetime(2026, 9, 29, 12, 0, tzinfo=UTC)  # type: ignore[attr-defined]
 
     session_a = _start(client, profile_id)
     _post(

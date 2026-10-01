@@ -7,13 +7,15 @@ all-or-nothing whole-Part grading. Parts are loaded from the same fixtures
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from hoctap.content.arith import evaluate
 from hoctap.content.schema import FallbackPart, Part, ProblemDoc
-from hoctap.learning.graders import GradeResult, grade_part
+from hoctap.learning.graders import GradeResult, _lenient_number, grade_part
 
 FIXTURES = Path(__file__).parent / "fixtures" / "problemdocs"
 
@@ -359,6 +361,15 @@ def test_expression_decimal_comma_and_dot(child: str) -> None:
     assert grade_part(_expr("value", "3,5"), _got(child)).correct
 
 
+def test_expression_full_width_unicode_operators_are_recognised() -> None:
+    """Review Triage Log finding #3 (2026-10-01): an IME can emit full-width Unicode
+    operators/parens/digits (e.g. "＋", "（", "０"); `content.arith.evaluate()` now
+    NFKC-normalises its input before tokenising, so these fold to their ASCII/canonical
+    equivalents instead of a clean (but wrong) "unparsable" grade."""
+    assert evaluate("１２　＋　３") == evaluate("12 + 3")
+    assert grade_part(_expr("value", "12 × 3"), _got("（４×３）×３")).correct
+
+
 def test_expression_wrong_value() -> None:
     assert grade_part(_expr("value", "36"), _got("35")) == GradeResult(False, ["s1"])
 
@@ -411,3 +422,24 @@ def test_number_input_grade_4_5_comma_equals_dot() -> None:
     part.answer[0].value = "3,5"
     assert grade_part(part, [{"key": "s1", "value": "3.5"}]).correct
     assert grade_part(part, [{"key": "s1", "value": "3,5"}]).correct
+
+
+# --- parity: _lenient_number() vs. the expression evaluator's own number token ----------
+#
+# Review Triage Log finding #1 (2026-10-01): `_lenient_number()` (used for
+# `number_input`/`number_tree`/`grid_fill`/`count_image`/`dot_draw`) and
+# `content.arith.evaluate()`'s number token (used for `expression_input`, where a plain
+# number is just a one-term expression) are a deliberate, separate implementation per this
+# story's own Design Notes -- not a hidden duplication to unify -- but nothing cross-checked
+# that the two regexes still agree on the same free-typed input. This pins parity for the
+# inputs the audit named, so a future change to either one that silently breaks agreement
+# gets caught by a test instead of drifting unnoticed.
+
+
+@pytest.mark.parametrize("value", ["07", "3,5", "-0", "3,50"])
+def test_lenient_number_and_arith_evaluator_agree_on_shared_number_inputs(value: str) -> None:
+    lenient = _lenient_number(value)
+    fraction = evaluate(value, dot_decimal=True)
+    assert lenient is not None, f"{value!r}: _lenient_number() rejected it"
+    assert fraction is not None, f"{value!r}: the evaluator rejected it"
+    assert lenient == Decimal(fraction.numerator) / Decimal(fraction.denominator)

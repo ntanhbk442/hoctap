@@ -48,6 +48,11 @@ class AssignmentOut(BaseModel):
     unit_label: str
     lesson_label: str
     lesson_title: str
+    # Orchestrator's Independent Audit (spec-4-3 #1, 2026-10-01): false when the Lesson no
+    # longer resolves to any visible Problem (hidden/retired/reported after assignment) --
+    # such a row is never served to Home as "Bài hôm nay" (`home_assignment()` skips it),
+    # but still lists here so the Dashboard can flag it for Anh to delete or fix.
+    resolvable: bool = True
 
 
 def assignment_out(a: service.AssignmentInfo) -> AssignmentOut:
@@ -66,6 +71,7 @@ def assignment_out(a: service.AssignmentInfo) -> AssignmentOut:
         unit_label=a.unit_label,
         lesson_label=a.lesson_label,
         lesson_title=a.lesson_title,
+        resolvable=a.resolvable,
     )
 
 

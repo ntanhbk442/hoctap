@@ -47,6 +47,16 @@ class AssignmentInfo:
     unit_label: str
     lesson_label: str
     lesson_title: str
+    # Orchestrator's Independent Audit (spec-4-3 #1, 2026-10-01): whether the Assignment's
+    # Lesson still `resolve()`s to at least one visible Problem RIGHT NOW. A Problem can be
+    # hidden/retired/error-reported after the Assignment was created (a late parent hide, a
+    # content error, a re-publish that drops it) -- `home_assignment()` must never hand the
+    # child a dead Assignment that would 422 `EMPTY_PROBLEM_SET` at `start_session()` time,
+    # so it skips any not-done row with `resolvable=False` instead of returning it. The
+    # Dashboard still lists it (via `list_for_profile()`) with `resolvable=False` so Anh can
+    # see it needs attention (delete it, or fix/unhide the content) instead of the queue
+    # jamming silently forever.
+    resolvable: bool = True
 
 
 def local_today(now: datetime) -> date:
@@ -169,6 +179,14 @@ def _lesson_labels(conn: Any, row: Any) -> tuple[str, str, str, str]:
     )
 
 
+def _resolvable(conn: Any, row: Any) -> bool:
+    """Whether `row`'s Lesson still resolves to at least one visible Problem right now
+    (spec-4-3 orchestrator audit #1). Uses the same `resolve()` a Session start would, so
+    this can never disagree with what `start_session()` is about to do."""
+    ref = LessonRef(book_id=row.book_id, unit_key=row.unit_key, lesson_key=row.lesson_key)
+    return bool(resolve(conn, ref, row.profile_id))
+
+
 def _info(conn: Any, row: Any, today: date) -> AssignmentInfo:
     st, part, part_count, session_id = status(conn, row)
     book, unit, label, title = _lesson_labels(conn, row)
@@ -188,6 +206,9 @@ def _info(conn: Any, row: Any, today: date) -> AssignmentInfo:
         unit_label=unit,
         lesson_label=label,
         lesson_title=title,
+        # Done Assignments don't need re-checking (nothing will ever try to start them
+        # again), and skipping the check keeps the common, already-finished case cheap.
+        resolvable=True if st == DONE else _resolvable(conn, row),
     )
 
 
@@ -226,7 +247,7 @@ def home_assignment(conn: Any, profile_id: str, today: date) -> AssignmentInfo |
         .order_by(progress_assignments.c.assigned_date, progress_assignments.c.id)
     )
     for row in rows:
-        if status(conn, row)[0] != DONE:
+        if status(conn, row)[0] != DONE and _resolvable(conn, row):
             return _info(conn, row, today)
     return None
 

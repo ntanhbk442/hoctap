@@ -34,7 +34,7 @@ from hoctap.db.engine import create_db_engine, run_migrations
 from hoctap.ids import utc_now
 from hoctap.logging import configure_logging, shutdown_logging
 from hoctap.parent.auth import load_or_create_secret
-from hoctap.parent.backup import MSG_MAINTENANCE, Maintenance
+from hoctap.parent.backup import MSG_MAINTENANCE, Maintenance, db_lock, replay_interrupted_restore
 
 log = logging.getLogger(__name__)
 
@@ -100,13 +100,19 @@ def create_app(
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         configure_logging(settings.logs_dir, settings.log_level)
         try:
-            app.state.secret_key = load_or_create_secret(settings.data_dir)
-            engine = create_db_engine(settings.db_path)
-            try:
-                run_migrations(engine)
-            except BaseException:
-                engine.dispose()
-                raise
+            # Held only around startup's database-touching steps (not for the server's
+            # whole lifetime, which would block the CLI builder from ever running
+            # alongside it). Blocking: a `hoctap serve` started mid-restore waits for the
+            # restore's short critical window instead of racing it.
+            with db_lock(settings.data_dir, blocking=True):
+                replay_interrupted_restore(settings)
+                app.state.secret_key = load_or_create_secret(settings.data_dir)
+                engine = create_db_engine(settings.db_path)
+                try:
+                    run_migrations(engine)
+                except BaseException:
+                    engine.dispose()
+                    raise
             app.state.engine = engine
             app.state.run_manager = jobs.RunManager(
                 engine,

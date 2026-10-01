@@ -27,3 +27,18 @@ export function statusText(a: Pick<AssignmentOut, 'status' | 'part' | 'part_coun
     ? `${base} (Phần ${a.part}/${a.part_count})`
     : base
 }
+
+/**
+ * Orchestrator's Independent Audit (spec-4-3 #1, 2026-10-01): a not-done Assignment whose
+ * Lesson no longer resolves to any visible Problem (`resolvable: false`) never reaches
+ * Home as "Bài hôm nay" -- it would 422 there. The Dashboard still lists it, so Anh needs a
+ * plain-language reason to delete it or fix/unhide the Lesson's content, instead of just
+ * seeing "Chưa làm" forever with no clue why Bin never seems to get it.
+ */
+export function unavailableNote(
+  a: Pick<AssignmentOut, 'status' | 'resolvable'>,
+): string | null {
+  return a.status !== 'done' && a.resolvable === false
+    ? 'Không có bài nào hiển thị cho bé trong bài học này -- hãy xoá hoặc kiểm tra lại nội dung.'
+    : null
+}

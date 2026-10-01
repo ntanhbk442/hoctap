@@ -85,6 +85,12 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-5-context.m
 **Manual checks (if no CLI):**
 - With one approved Guide: tap 📖 mid-answer, hear a field, close, answer still typed; tap "Luyện tập" and finish a `concept` Session.
 
+## Orchestrator's Independent Audit (2026-10-01)
+
+| # | Finding | Verdict | Evidence / route |
+|---|---|---|---|
+| 1 | The content-safety-critical "edit an approved Guide voids approval, and the child-facing endpoint then correctly returns null" claim is tested in two separate halves (parent-side: editing voids `approved`; child-side: an unapproved Guide reads as null) but never CHAINED together in one test through the real child read path -- the combined guarantee is only true by code inspection (both paths share `effective_concept_guide()`), not verified end-to-end by any single test | low | confirmed by 1 reviewer, flagged as the single most important gap in this epic given the content-safety stakes -> patch: add one test that approves a Guide, edits it, then re-queries the actual child-facing `GET /library/concepts/{id}` endpoint and asserts `guide` is null, closing the loop a reviewer currently has to infer rather than verify |
+
 ## Implementation Notes
 
 - (2026-09-30) `ConceptRef` resolves up to 10 `visible_to_child` Problems linked to the Concept, unsolved-first (`summary.first_try_solved_problem_ids`, one query, ignoring quiz and replay Sessions) then Book order; an unknown Concept gives 404 `CONCEPT_NOT_FOUND`. `POST /sessions` derives `mode='concept'` from the ref kind; a concept ref with an `assignment_id` still gives 422 `ASSIGNMENT_REF_MISMATCH`. `GET /library/concepts?grade=` and `GET /library/concepts/{id}` return a Guide only when it is approved (otherwise `null`). No migration.
@@ -95,3 +101,26 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-5-context.m
 
 - `ruff check .` clean. `pytest tests/test_concept_practice.py tests/test_problem_sets.py tests/test_sessions.py tests/test_library.py tests/test_app.py tests/test_guides.py tests/test_assignments.py tests/test_retry.py tests/test_quiz.py` — 241 passed (the agent reported the full backend suite at 1001 passed).
 - Frontend `tsc -b` and `eslint .` clean. Whole `src/pages` suite with `--pool=vmThreads`: 238 passed, 4 failed — the three known pre-existing `ExtractionPage` failures and `ProblemPlayer.speaker.test.tsx`, which needs `--pool=threads` (`crypto.subtle` is undefined under vmThreads); with `--pool=threads`, `ProblemPlayer.speaker.test.tsx` and `speech.test.ts` pass (26 tests). The four directly affected files (SessionPlayer, Library, ConceptGuide, Home) pass 78 of 78.
+
+### 2026-10-01: fix from the orchestrator's independent audit
+
+- **Finding #1** (content-safety end-to-end chain, done, most important despite "low"):
+  added `test_edit_after_approval_voids_it_on_the_child_endpoint` to
+  `backend/tests/test_guides.py`. It generates a Guide (`FakeClaudeClient`, no network),
+  approves it via the real parent endpoint (`POST
+  /parent/review/concepts/{id}/guide/approve`), then re-queries the actual child-facing
+  `GET /library/concepts/{concept_id}` and asserts `guide` now equals the approved body
+  (not null -- the positive half, previously only inferred). It then edits the approved
+  Guide via `PUT /parent/review/concepts/{id}/guide`, re-queries the SAME child endpoint
+  again, and asserts `guide` is now `null`. Both halves of the content-safety claim --
+  "approval shows it" and "an edit after approval voids it" -- are now chained through the
+  real child read path in one test, closing the gap the audit flagged (previously the
+  guarantee was true only by code inspection of `effective_concept_guide()` being shared
+  by both the parent and child reads).
+  Ran: `backend/.venv/bin/python -m pytest tests/test_guides.py -q` -- 17 passed (16
+  pre-existing + the new test).
+- Note: the system's default `python3` resolves to an Anaconda Python 3.11, which fails to
+  even import `hoctap.api.assets` (an `except OSError, ValueError:` clause, valid only
+  under PEP 758 / Python 3.14). All test runs for this fix used the project's own
+  `backend/.venv/bin/python` (3.14.7), per `pyproject.toml`'s `requires-python`.
+- No real Claude or TTS network call was made in any new or existing test.

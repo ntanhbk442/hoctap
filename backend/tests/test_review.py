@@ -336,6 +336,37 @@ def test_open_parent_report(client: TestClient, engine: Engine, pub: Pub) -> Non
     assert p not in queue_ids(client)
 
 
+def test_save_overrides_auto_resolves_open_report_on_content_change(
+    client: TestClient, engine: Engine, pub: Pub
+) -> None:
+    """Orchestrator's Independent Audit (spec-4-4 #1, 2026-10-01): fixing the content via
+    Content Review auto-resolves an open report on the same Problem, so a parent who
+    forgets to separately click "Đã xử lý" doesn't leave it hidden/stuck forever. A save
+    that does NOT change the effective content (e.g. re-submitting the same value) must
+    leave the report open."""
+    p = pid("bai-1")
+    pub(make_doc("bai-1"))
+    with engine.begin() as conn:
+        report_id = review.add_error_report(conn, p, "parent", "Sai đáp án")
+    assert visible_ids(engine) == []
+
+    # No-op save (same value as already extracted): the report stays open.
+    no_op = put(client, p, answer_edit("5"))
+    assert no_op.status_code == 200, no_op.text
+    assert detail(client, p)["reports"][0]["status"] == "open"
+    assert visible_ids(engine) == []
+
+    # An edit that actually changes the effective content auto-resolves the open report.
+    resp = put(client, p, answer_edit("6"))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["reports"][0]["status"] == "resolved"
+    assert body["reports"][0]["resolved_at"]
+    assert body["reports"][0]["id"] == report_id
+    assert visible_ids(engine) == [p]
+    assert p not in queue_ids(client)
+
+
 def test_child_report(client: TestClient, engine: Engine, pub: Pub) -> None:
     p = pid("bai-1")
     pub(make_doc("bai-1"))

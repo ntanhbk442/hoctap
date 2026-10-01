@@ -138,6 +138,7 @@ describe("Dashboard", () => {
       unit_label: "TUẦN 5",
       lesson_label: "Tiết 2",
       lesson_title: "",
+      resolvable: true,
     };
     mockApi({
       ...session,
@@ -166,6 +167,42 @@ describe("Dashboard", () => {
     expect(screen.getByTestId("dash-assignment-a2")).toHaveTextContent("Đang làm (Phần 2/2)");
     expect(screen.getByTestId("dash-assignment-a2")).toHaveTextContent("Hôm qua");
     expect(screen.getByTestId("dash-assignment-a3")).toHaveTextContent("Đã xong");
+  });
+
+  it("flags an Assignment whose Lesson no longer resolves any visible Problem", async () => {
+    // Orchestrator's Independent Audit (spec-4-3 #1, 2026-10-01): the Dashboard must
+    // surface a `resolvable: false` row so Anh can see it needs attention, instead of it
+    // looking identical to an ordinary not-yet-started Assignment.
+    mockApi({
+      ...session,
+      "GET /api/v1/profiles": { status: 200, body: PROFILES },
+      "GET /api/v1/parent/dashboard/p1": {
+        status: 200,
+        body: dashboard({
+          assignments: [
+            {
+              id: "a1",
+              profile_id: "p1",
+              book_id: "b",
+              unit_key: "u",
+              lesson_key: "l",
+              book_title_vi: "Toán 1",
+              unit_label: "TUẦN 5",
+              lesson_label: "Tiết 2",
+              lesson_title: "",
+              assigned_date: "2026-10-01",
+              status: "todo",
+              carried_over: false,
+              resolvable: false,
+            },
+          ],
+        }),
+      },
+    });
+    renderAt("/parent/dashboard", <Dashboard />);
+    expect(await screen.findByTestId("dash-assignment-a1")).toHaveTextContent(
+      "Không có bài nào hiển thị cho bé",
+    );
   });
 
   it("shows friendly empty states for a new child", async () => {

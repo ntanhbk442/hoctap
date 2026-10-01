@@ -80,6 +80,13 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-4-context.m
 - `cd backend && ruff check . && pytest tests/test_dashboard.py tests/test_sessions.py tests/test_scoring.py` -- expected: pass
 - `cd frontend && npm run gen:api && npx tsc -b && npx eslint . && npx vitest run --pool=vmThreads src/pages` -- expected: pass
 
+## Orchestrator's Independent Audit (2026-10-01)
+
+| # | Finding | Verdict | Evidence / route |
+|---|---|---|---|
+| 1 | `_book_progress()` scopes the Dashboard's "Tiến độ theo sách" (progress by Book) section to the Profile's CURRENT grade only. If a parent edits a child's grade after real progress exists on books of the OLD grade, that progress silently disappears from this one Dashboard section (nothing else -- Stars/Streak/accuracy/weak-concepts/recent-mistakes are not grade-filtered and keep counting it correctly) | low | confirmed by 1 reviewer, cosmetic/display-only (no data loss), real but low-severity -> patch: implementer's call -- either show Book progress across every grade the Profile has ever had Sessions in (not just the current one), or explicitly document this as an accepted limitation of a grade change. Low priority, fix only if time allows |
+| 2 | No upgrade-path migration test exists for `0017_assignments.py` (the established pattern from prior stories stages a DB at the PRIOR head, upgrades, and inspects the result -- only a fresh-DB-from-scratch test exists here, which wouldn't catch a migration that fails against a pre-existing database) | low | confirmed by 1 reviewer, same class of gap already seen and fixed once before (Story 2.9's `0013_auto_play` backfill test) -> patch: add a `test_migration_0017_up_and_down`-style test matching the established precedent |
+
 ## Implementation Notes
 
 - (2026-09-29) `learning/metrics.py` owns every dashboard definition; days are bucketed by a Session's `completed_at` in Asia/Ho_Chi_Minh (the same convention `compute_streak` uses), while time per Session sums `occurred_at` gaps capped at 5 minutes. The week is Monday to Sunday with days after today marked future; weak Concepts use the last 28 days ending today.
@@ -91,3 +98,9 @@ context: ['{project-root}/_bmad-output/implementation-artifacts/epic-4-context.m
 - `ruff check .` clean. `pytest tests/test_dashboard.py tests/test_sessions.py tests/test_scoring.py tests/test_retry.py tests/test_badges.py tests/test_app.py tests/test_profiles.py` — 191 passed.
 - Frontend `tsc -b` and `eslint .` clean. `vitest run` on Dashboard, ParentHome and Settings with `--pool=vmThreads` — 19 passed.
 - The implementing agent reported 4 failures in `ExtractionPage.test.tsx` and `ProblemPlayer.speaker.test.tsx` it did not check against a clean tree; earlier stories showed the same failures on unmodified code, but I did not re-run them here. Not run: the full backend and frontend suites in one pass.
+
+### 2026-10-01: fixes from the Orchestrator's Independent Audit
+
+- **Finding #2 (low, done).** Added `backend/tests/test_app.py::test_migration_0017_up_and_down`, matching the established `test_migration_0013_backfills_auto_play_true_for_existing_profiles` precedent: stages a DB at the prior head (`0016_retry_queue_due`) with a pre-existing `progress_sessions` row, upgrades to `0017_assignments`, confirms `progress_assignments` exists and the pre-existing row survives with `assignment_id IS NULL`, downgrades back to `0016_retry_queue_due` and confirms both are gone, then re-upgrades to `head`. (Filed under spec-4-2 since that's where the gap was found, even though `0017_assignments` itself belongs to spec-4-3; the test lives in `test_app.py` alongside the other migration tests, not duplicated into `test_assignments.py`.)
+- **Finding #1 (low, deferred).** Not fixed in this pass -- recorded in `deferred-work.md` as agreed (lowest priority, skip if time-constrained). `_book_progress()` still scopes "Tiến độ theo sách" to the Profile's current grade only.
+- Verification: `ruff check .` and the targeted/full backend suite runs are the same ones reported in spec-4-3's Implementation Notes (this change only touches `test_app.py`).

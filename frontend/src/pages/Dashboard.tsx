@@ -8,7 +8,7 @@ import {
   useProfiles,
 } from "../api/queries";
 import ReportProblem from "./review/ReportProblem";
-import { statusText } from "./assignmentUtils";
+import { statusText, unavailableNote } from "./assignmentUtils";
 import "./Dashboard.css";
 
 const BADGE_LABEL: Record<string, string> = {
@@ -68,6 +68,11 @@ function Report({ data }: { data: DashboardOut }) {
               {shortDate(a.assigned_date)} · {a.unit_label} {a.lesson_label}:{" "}
               <strong>{statusText(a)}</strong>
               {a.carried_over && " · Hôm qua"}
+              {unavailableNote(a) && (
+                <p role="alert" className="form-error">
+                  {unavailableNote(a)}
+                </p>
+              )}
             </li>
           ))}
         </ul>

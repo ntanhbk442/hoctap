@@ -43,6 +43,7 @@ const ASSIGNED = {
   unit_label: 'TUẦN 5',
   lesson_label: 'Tiết 2',
   lesson_title: '',
+  resolvable: true,
 }
 
 describe('tomorrowLocal', () => {

@@ -13,6 +13,7 @@ from test_sessions import BOOK, LESSON, SETUP, UNIT, Pub, make_doc
 
 from hoctap.app import create_app
 from hoctap.config import Settings
+from hoctap.content.review import service as review_service
 from hoctap.ids import new_id
 from hoctap.parent import service as parent_service
 
@@ -203,6 +204,42 @@ def test_delete(client: TestClient, engine: Engine, profile_id: str) -> None:
     sid = _start(client, profile_id, aid).json()["id"]
     _event(client, sid, profile_id, "session_completed")
     assert client.delete(f"{API}/{aid}").status_code == 409
+
+
+def test_home_skips_assignment_whose_lesson_has_no_visible_problems(
+    client: TestClient, engine: Engine, profile_id: str
+) -> None:
+    """Orchestrator's Independent Audit (spec-4-3 #1, 2026-10-01): a Problem can be hidden
+    (parent "Ẩn", or an open parent Error Report) AFTER its Lesson was assigned. Without
+    this, `home_assignment()` would keep returning this same dead Assignment forever --
+    jamming the queue and surfacing a raw `EMPTY_PROBLEM_SET` error to the child the moment
+    they tap "Bài hôm nay". It must instead be skipped on Home (and anything queued behind
+    it must still show up), while the Dashboard keeps listing it, flagged `resolvable:
+    false`, so Anh can see it needs attention."""
+    pids = _publish(engine, 1)
+    aid = _assign(client, profile_id, TODAY).json()["id"]
+
+    with engine.begin() as conn:
+        review_service.set_hidden(conn, pids[0], True)
+
+    assert _home(client, profile_id)["assignment"] is None
+
+    dash = _dash(client, profile_id)
+    assert dash[0]["id"] == aid
+    assert dash[0]["status"] == "todo"
+    assert dash[0]["resolvable"] is False
+
+    # Directly starting the dead Assignment still legitimately fails (the real state is
+    # genuinely empty) -- the fix is that the child is never handed this card at all.
+    resp = _start(client, profile_id, aid)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "EMPTY_PROBLEM_SET"
+
+    # Unhiding the Problem makes the Assignment resolvable (and servable) again.
+    with engine.begin() as conn:
+        review_service.set_hidden(conn, pids[0], False)
+    assert _home(client, profile_id)["assignment"]["id"] == aid
+    assert _dash(client, profile_id)[0]["resolvable"] is True
 
 
 def test_start_validation(client: TestClient, engine: Engine, profile_id: str) -> None:
