@@ -3255,6 +3255,16 @@
               }
             }
           },
+          "403": {
+            "description": "EXAMS_DISABLED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "409": {
             "description": "ASSIGNMENT_DONE",
             "content": {
@@ -4854,6 +4864,50 @@
         ],
         "title": "AccuracyCheck"
       },
+      "AssignmentExamIn": {
+        "properties": {
+          "scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ExamConceptScopeIn"
+              },
+              {
+                "$ref": "#/components/schemas/ExamBookUnitScopeIn"
+              },
+              {
+                "$ref": "#/components/schemas/ExamGradeScopeIn"
+              }
+            ],
+            "title": "Scope",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "book_unit": "#/components/schemas/ExamBookUnitScopeIn",
+                "concept": "#/components/schemas/ExamConceptScopeIn",
+                "grade": "#/components/schemas/ExamGradeScopeIn"
+              }
+            }
+          },
+          "count": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Count"
+          },
+          "time_limit_s": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Time Limit S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope",
+          "count",
+          "time_limit_s"
+        ],
+        "title": "AssignmentExamIn",
+        "description": "Story 8.1: the exam-assign payload, the SAME scope/count/time_limit_s shape\n`api.sessions.ExamRefIn` uses for an on-demand exam (one picker, both flows)."
+      },
       "AssignmentIn": {
         "properties": {
           "profile_id": {
@@ -4861,16 +4915,47 @@
             "title": "Profile Id"
           },
           "book_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Book Id"
           },
           "unit_key": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Unit Key"
           },
           "lesson_key": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Lesson Key"
+          },
+          "exam": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentExamIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "assigned_date": {
             "type": "string",
@@ -4878,12 +4963,10 @@
             "title": "Assigned Date"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "profile_id",
-          "book_id",
-          "unit_key",
-          "lesson_key",
           "assigned_date"
         ],
         "title": "AssignmentIn"
@@ -4898,16 +4981,41 @@
             "type": "string",
             "title": "Profile Id"
           },
-          "book_id": {
+          "ref_kind": {
             "type": "string",
+            "title": "Ref Kind"
+          },
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Book Id"
           },
           "unit_key": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Unit Key"
           },
           "lesson_key": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Lesson Key"
           },
           "assigned_date": {
@@ -4960,6 +5068,40 @@
             "type": "string",
             "title": "Lesson Title"
           },
+          "exam_scope": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Scope"
+          },
+          "exam_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Count"
+          },
+          "exam_time_limit_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Time Limit S"
+          },
           "resolvable": {
             "type": "boolean",
             "title": "Resolvable",
@@ -4970,9 +5112,7 @@
         "required": [
           "id",
           "profile_id",
-          "book_id",
-          "unit_key",
-          "lesson_key",
+          "ref_kind",
           "assigned_date",
           "status",
           "carried_over",
@@ -5096,6 +5236,22 @@
             "type": "string",
             "title": "Db Epoch",
             "default": ""
+          },
+          "started_at": {
+            "type": "string",
+            "title": "Started At",
+            "default": ""
+          },
+          "time_limit_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Limit S"
           }
         },
         "type": "object",
@@ -6763,6 +6919,20 @@
             ],
             "title": "Quiz Stars Awarded"
           },
+          "exam_results": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ExamResultOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Results"
+          },
           "db_epoch": {
             "type": "string",
             "title": "Db Epoch",
@@ -6779,6 +6949,156 @@
           "received_at"
         ],
         "title": "EventOut"
+      },
+      "ExamBookUnitScopeIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "book_unit",
+            "title": "Kind",
+            "default": "book_unit"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "Book Id"
+          },
+          "unit_keys": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "book_id"
+        ],
+        "title": "ExamBookUnitScopeIn"
+      },
+      "ExamConceptScopeIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "concept",
+            "title": "Kind",
+            "default": "concept"
+          },
+          "concept_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Concept Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "concept_ids"
+        ],
+        "title": "ExamConceptScopeIn"
+      },
+      "ExamGradeScopeIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "grade",
+            "title": "Kind",
+            "default": "grade"
+          }
+        },
+        "type": "object",
+        "title": "ExamGradeScopeIn"
+      },
+      "ExamRefIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "exam",
+            "title": "Kind",
+            "default": "exam"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ExamConceptScopeIn"
+              },
+              {
+                "$ref": "#/components/schemas/ExamBookUnitScopeIn"
+              },
+              {
+                "$ref": "#/components/schemas/ExamGradeScopeIn"
+              }
+            ],
+            "title": "Scope",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "book_unit": "#/components/schemas/ExamBookUnitScopeIn",
+                "concept": "#/components/schemas/ExamConceptScopeIn",
+                "grade": "#/components/schemas/ExamGradeScopeIn"
+              }
+            }
+          },
+          "count": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Count"
+          },
+          "time_limit_s": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Time Limit S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope",
+          "count",
+          "time_limit_s"
+        ],
+        "title": "ExamRefIn",
+        "description": "Story 8.1: a timed practice exam -- the SAME shape a parent-assign flow and a\nchild's on-demand picker both post (Anh's explicit call: one picker, not two). Also\nreused, with `assignment_id` set, to start an ALREADY-assigned exam (the client echoes\nback the scope/count/time_limit_s `GET /library/home` handed it for that Assignment's\ncard) -- `check_startable()` verifies it actually matches via `ref_key()` equality."
+      },
+      "ExamResultOut": {
+        "properties": {
+          "problem_id": {
+            "type": "string",
+            "title": "Problem Id"
+          },
+          "display_label": {
+            "type": "string",
+            "title": "Display Label"
+          },
+          "correct": {
+            "type": "boolean",
+            "title": "Correct"
+          },
+          "solutions": {
+            "items": {
+              "$ref": "#/components/schemas/QuizPartSolution"
+            },
+            "type": "array",
+            "title": "Solutions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "problem_id",
+          "display_label",
+          "correct",
+          "solutions"
+        ],
+        "title": "ExamResultOut",
+        "description": "One Problem's verdict in an `exam_submitted` response: ✔ (`correct`) or ↻, and, for\n↻ only, the Solutions of the Parts that were not right. No `stars` field (unlike\n`QuizResultOut`) -- exam mode never awards Stars, so there is nothing to report here."
       },
       "ExpressionEntry": {
         "properties": {
@@ -8005,6 +8325,11 @@
             "type": "string",
             "title": "Id"
           },
+          "ref_kind": {
+            "type": "string",
+            "title": "Ref Kind",
+            "default": "lesson"
+          },
           "book_id": {
             "type": "string",
             "title": "Book Id"
@@ -8074,6 +8399,40 @@
             "type": "boolean",
             "title": "Carried Over",
             "default": false
+          },
+          "exam_scope": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Scope"
+          },
+          "exam_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Count"
+          },
+          "exam_time_limit_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Time Limit S"
           }
         },
         "type": "object",
@@ -8089,7 +8448,7 @@
           "status"
         ],
         "title": "HomeAssignmentOut",
-        "description": "Story 4.3's \"Bài hôm nay\" card. `session_id` is the unfinished linked Session to\nresume (set only while `status == \"doing\"`); otherwise the card starts one from the\nLesson, linked by `id`."
+        "description": "Story 4.3's \"Bài hôm nay\" card. `session_id` is the unfinished linked Session to\nresume (set only while `status == \"doing\"`); otherwise the card starts one from the\nLesson (or, Story 8.1, the exam), linked by `id`.\n\n`ref_kind == \"exam\"`: `book_id`/`unit_key`/`lesson_key`/`book_title_vi`/`unit_label`/\n`lesson_label`/`lesson_title` are all empty strings (there IS no Lesson); the child\ninstead reads `exam_scope`/`exam_count`/`exam_time_limit_s` and echoes them straight\nback as `POST /sessions`' `ExamRefIn` (plus `assignment_id=id`) to start it."
       },
       "HomeLessonOut": {
         "properties": {
@@ -9960,6 +10319,11 @@
             "type": "boolean",
             "title": "Auto Play",
             "default": true
+          },
+          "exams_enabled": {
+            "type": "boolean",
+            "title": "Exams Enabled",
+            "default": false
           }
         },
         "type": "object",
@@ -10060,6 +10424,17 @@
               }
             ],
             "title": "Auto Play"
+          },
+          "exams_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exams Enabled"
           }
         },
         "additionalProperties": false,
@@ -10800,6 +11175,17 @@
             "type": "string",
             "title": "Db Epoch",
             "default": ""
+          },
+          "time_limit_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Limit S"
           }
         },
         "type": "object",
@@ -11314,6 +11700,9 @@
               },
               {
                 "$ref": "#/components/schemas/ConceptRefIn"
+              },
+              {
+                "$ref": "#/components/schemas/ExamRefIn"
               }
             ],
             "title": "Ref",
@@ -11321,6 +11710,7 @@
               "propertyName": "kind",
               "mapping": {
                 "concept": "#/components/schemas/ConceptRefIn",
+                "exam": "#/components/schemas/ExamRefIn",
                 "lesson": "#/components/schemas/LessonRefIn",
                 "replay": "#/components/schemas/ReplayRefIn",
                 "retry": "#/components/schemas/RetryRefIn"
@@ -11335,7 +11725,8 @@
                   "practice",
                   "replay",
                   "retry",
-                  "concept"
+                  "concept",
+                  "exam"
                 ]
               },
               {

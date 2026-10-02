@@ -191,7 +191,7 @@ def test_fresh_data_dir_created_with_wal_and_migrations(data_dir: Path, dist: Pa
     try:
         assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert con.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("0020_db_epoch",)
+            ("0024_exam_submitted_event",)
         ]
         columns = {r[1] for r in con.execute("PRAGMA table_info(parent_profiles)")}
         assert "auto_play" in columns
@@ -519,6 +519,261 @@ def test_migration_0020_up_and_down(tmp_path: Path) -> None:
         command.downgrade(cfg, "0019_full_run")
         cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(parent_settings)")}
         assert "db_epoch" not in cols
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
+def test_migration_0021_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0020_db_epoch")
+        connection.exec_driver_sql(
+            "INSERT INTO parent_profiles (id, name, avatar, grade, created_at) "
+            "VALUES ('p1', 'Bin', 'cat', 1, ?)",
+            (to_iso(utc_now()),),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0021_exams_enabled")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(parent_profiles)")}
+        assert "exams_enabled" in cols
+        # Default off for a pre-existing Profile -- an explicit per-Profile opt-in.
+        value = connection.exec_driver_sql(
+            "SELECT exams_enabled FROM parent_profiles WHERE id = 'p1'"
+        ).scalar()
+        assert value == 0
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.downgrade(cfg, "0020_db_epoch")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(parent_profiles)")}
+        assert "exams_enabled" not in cols
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
+def test_migration_0022_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0021_exams_enabled")
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO progress_sessions "
+            "(id, profile_id, ref_kind, ref_key, mode, problem_ids_json, started_at) "
+            "VALUES ('s1', 'p1', 'lesson', 'lesson:x', 'practice', '[]', ?)",
+            (now,),
+        )
+        # A pre-existing 'quiz'-mode row must still be valid after the CHECK is rewritten.
+        connection.exec_driver_sql(
+            "INSERT INTO progress_sessions "
+            "(id, profile_id, ref_kind, ref_key, mode, problem_ids_json, started_at) "
+            "VALUES ('s2', 'p1', 'lesson', 'lesson:y', 'quiz', '[]', ?)",
+            (now,),
+        )
+        # Orchestrator's Independent Audit (2026-10-02): a REAL `progress_events` row with
+        # its FOREIGN KEY onto `progress_sessions.id` populated -- every fresh-per-test
+        # database up to this point never had one, which is exactly why the first version
+        # of this migration (an unguarded `batch_alter_table` recreate, no FK pragma
+        # toggling) passed this very test while crashing `hoctap serve` outright against
+        # any database that had actually been used. Without this row, this test cannot
+        # catch that class of regression returning.
+        connection.exec_driver_sql(
+            "INSERT INTO progress_events "
+            "(id, session_id, profile_id, kind, problem_id, payload_json, occurred_at, "
+            "received_at) VALUES ('e1', 's1', 'p1', 'session_started', NULL, '{}', ?, ?)",
+            (now, now),
+        )
+
+    # Orchestrator's Independent Audit (2026-10-02): this migration's batch recreate of
+    # `progress_sessions` DROPs the old table while `progress_events` (now populated with
+    # a real referencing row, above) has a live FOREIGN KEY onto it -- SQLite only allows
+    # toggling `PRAGMA foreign_keys` with no transaction open, so it must happen before any
+    # statement triggers SQLAlchemy's autobegin, mirroring exactly what
+    # `db.engine.run_migrations()` now does for real (commit/rollback directly -- an
+    # explicit `connection.begin()` after `exec_driver_sql` already autobegan would conflict).
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0022_exam_sessions")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(progress_sessions)")}
+        assert "time_limit_s" in cols
+        # The new mode is now accepted...
+        connection.exec_driver_sql(
+            "INSERT INTO progress_sessions "
+            "(id, profile_id, ref_kind, ref_key, mode, problem_ids_json, started_at, "
+            "time_limit_s) VALUES ('s3', 'p1', 'exam', 'exam:{}', 'exam', '[]', ?, 1800)",
+            (now,),
+        )
+        # ...and an invalid mode is still rejected by the rewritten CHECK.
+        with pytest.raises(Exception):  # noqa: B017
+            connection.exec_driver_sql(
+                "INSERT INTO progress_sessions "
+                "(id, profile_id, ref_kind, ref_key, mode, problem_ids_json, started_at) "
+                "VALUES ('s4', 'p1', 'lesson', 'lesson:z', 'bogus', '[]', ?)",
+                (now,),
+            )
+        # No real FK violation exists (every `progress_events` row's `session_id` still
+        # points at a live `progress_sessions` row) -- confirms this recreate didn't
+        # silently orphan anything while FK enforcement was off.
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+        connection.commit()
+
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        cfg.attributes["connection"] = connection
+        # A stored 'exam'-mode row has no representation in the pre-0022 CHECK constraint
+        # (which never allowed 'exam') -- downgrading past this migration is a lossy,
+        # admin-only operation that only ever makes sense with no exam data yet, the same
+        # posture every other destructive downgrade in this project already takes. Deleting
+        # it first isolates the round-trip check to the data the OLD schema can represent.
+        connection.exec_driver_sql("DELETE FROM progress_sessions WHERE id = 's3'")
+        command.downgrade(cfg, "0021_exams_enabled")
+        cols = {r[1] for r in connection.exec_driver_sql("PRAGMA table_info(progress_sessions)")}
+        assert "time_limit_s" not in cols
+        # The pre-existing non-exam rows survived the recreate round-trip intact.
+        modes = {
+            r[0]
+            for r in connection.exec_driver_sql(
+                "SELECT mode FROM progress_sessions WHERE id IN ('s1', 's2')"
+            )
+        }
+        assert modes == {"practice", "quiz"}
+        # `e1` (still referencing 's1') must have survived this recreate too.
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+        connection.commit()
+
+    with engine.connect() as connection:
+        # Re-upgrading to head runs 0022 again (re-creating `progress_sessions` while
+        # `e1` still references 's1') -- same FK-off-before-transaction requirement.
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+        connection.commit()
+
+
+def test_migration_0023_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0022_exam_sessions")
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO progress_assignments "
+            "(id, profile_id, ref_kind, ref_key, book_id, unit_key, lesson_key, "
+            "assigned_date, created_at) "
+            "VALUES ('a1', 'p1', 'lesson', 'lesson:x', 'b', 'u', 'l', '2026-10-02', ?)",
+            (now,),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0023_exam_assignments")
+        cols = {
+            r[1] for r in connection.exec_driver_sql("PRAGMA table_info(progress_assignments)")
+        }
+        assert "exam_scope_json" in cols
+        # An exam-ref row (all three Lesson columns null) is now accepted.
+        connection.exec_driver_sql(
+            "INSERT INTO progress_assignments "
+            "(id, profile_id, ref_kind, ref_key, exam_scope_json, assigned_date, created_at) "
+            "VALUES ('a2', 'p1', 'exam', 'exam:{}', '{}', '2026-10-02', ?)",
+            (now,),
+        )
+        # Neither ref kind at once -- the CHECK rejects a row with both set.
+        with pytest.raises(Exception):  # noqa: B017
+            connection.exec_driver_sql(
+                "INSERT INTO progress_assignments "
+                "(id, profile_id, ref_kind, ref_key, book_id, unit_key, lesson_key, "
+                "exam_scope_json, assigned_date, created_at) "
+                "VALUES ('a3', 'p1', 'lesson', 'lesson:x', 'b', 'u', 'l', '{}', "
+                "'2026-10-02', ?)",
+                (now,),
+            )
+        # Nor neither ref kind at all -- an all-null row is also rejected.
+        with pytest.raises(Exception):  # noqa: B017
+            connection.exec_driver_sql(
+                "INSERT INTO progress_assignments "
+                "(id, profile_id, ref_kind, ref_key, assigned_date, created_at) "
+                "VALUES ('a4', 'p1', 'lesson', 'lesson:x', '2026-10-02', ?)",
+                (now,),
+            )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        # Same lossy-downgrade posture as 0022: an exam-ref row (null Lesson columns) has
+        # no representation in the pre-0023 NOT NULL columns, so it's removed first.
+        connection.exec_driver_sql("DELETE FROM progress_assignments WHERE id = 'a2'")
+        command.downgrade(cfg, "0022_exam_sessions")
+        cols = {
+            r[1] for r in connection.exec_driver_sql("PRAGMA table_info(progress_assignments)")
+        }
+        assert "exam_scope_json" not in cols
+        row = connection.exec_driver_sql(
+            "SELECT book_id, unit_key, lesson_key FROM progress_assignments WHERE id = 'a1'"
+        ).one()
+        assert row == ("b", "u", "l")
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
+
+
+def test_migration_0024_up_and_down(tmp_path: Path) -> None:
+    engine = create_db_engine(tmp_path / "data" / "hoctap.db")
+    cfg = alembic_config(engine)
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0023_exam_assignments")
+        now = to_iso(utc_now())
+        connection.exec_driver_sql(
+            "INSERT INTO progress_sessions "
+            "(id, profile_id, ref_kind, ref_key, mode, problem_ids_json, started_at, "
+            "time_limit_s) VALUES ('s1', 'p1', 'exam', 'exam:{}', 'exam', '[]', ?, 600)",
+            (now,),
+        )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "0024_exam_submitted_event")
+        # The new kind is now accepted...
+        connection.exec_driver_sql(
+            "INSERT INTO progress_events "
+            "(id, session_id, profile_id, kind, occurred_at, received_at) "
+            "VALUES ('e1', 's1', 'p1', 'exam_submitted', ?, ?)",
+            (now, now),
+        )
+        # ...and an invalid kind is still rejected by the rewritten CHECK.
+        with pytest.raises(Exception):  # noqa: B017
+            connection.exec_driver_sql(
+                "INSERT INTO progress_events "
+                "(id, session_id, profile_id, kind, occurred_at, received_at) "
+                "VALUES ('e2', 's1', 'p1', 'bogus', ?, ?)",
+                (now, now),
+            )
+
+    with engine.begin() as connection:
+        cfg.attributes["connection"] = connection
+        # Same lossy-downgrade posture as 0022/0023: an 'exam_submitted' row has no
+        # representation in the pre-0024 CHECK constraint.
+        connection.exec_driver_sql("DELETE FROM progress_events WHERE id = 'e1'")
+        command.downgrade(cfg, "0023_exam_assignments")
+        with pytest.raises(Exception):  # noqa: B017
+            connection.exec_driver_sql(
+                "INSERT INTO progress_events "
+                "(id, session_id, profile_id, kind, occurred_at, received_at) "
+                "VALUES ('e3', 's1', 'p1', 'exam_submitted', ?, ?)",
+                (now, now),
+            )
 
     with engine.begin() as connection:
         cfg.attributes["connection"] = connection

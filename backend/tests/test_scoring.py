@@ -629,3 +629,15 @@ def test_home_streak_matches_compute_streak(
     ).json()["streak"]
     home_streak = client.get(f"/api/v1/library/home/{profile_id}").json()["streak"]
     assert summary_streak == home_streak
+
+
+def test_star_awarding_modes_excludes_exam() -> None:
+    """Story 8.1: `STAR_AWARDING_MODES` is an explicit allowlist (`practice`/`retry`/
+    `concept`) -- `exam` is excluded simply by never being added to it, same as `quiz`
+    (awarded separately, via `award_quiz_stars()`) and `replay` already are. This test pins
+    that fact so a future edit can't accidentally add `exam` to the allowlist without a
+    test noticing."""
+    from hoctap.learning.scoring import STAR_AWARDING_MODES
+
+    assert STAR_AWARDING_MODES == frozenset({"practice", "retry", "concept"})
+    assert "exam" not in STAR_AWARDING_MODES

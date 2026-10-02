@@ -11,10 +11,16 @@ wrong-Problem ids -- see this module's `resolve()` docstring.
 
 `kind: "concept"` (Story 5.2): up to `CONCEPT_SET_SIZE` visible Problems linked to a Concept,
 those the Profile has not yet solved correctly on the first try first, then Book order.
+
+`kind: "exam"` (Story 8.1): a RANDOM sample of up to `count` visible Problems from a chosen
+`ExamScope` (one or more Concepts, a Book optionally bounded to Unit(s), or the Profile's
+whole Grade) -- see `resolve_exam_scope()`.
 """
 
 from __future__ import annotations
 
+import json
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -28,7 +34,7 @@ from hoctap.learning.summary import LOCAL_TZ
 # Problems per Session chunk ("Phần i/n"); shared by sessions and assignments.
 CHUNK_SIZE = 10
 
-RefKind = Literal["lesson", "concept", "retry", "replay"]
+RefKind = Literal["lesson", "concept", "retry", "replay", "exam"]
 
 
 @dataclass(frozen=True)
@@ -74,7 +80,85 @@ class ConceptRef:
 # Max Problems of a Concept practice Session.
 CONCEPT_SET_SIZE = 10
 
-ProblemSetRef = LessonRef | ReplayRef | RetryRef | ConceptRef
+
+@dataclass(frozen=True)
+class ExamConceptScope:
+    """`kind: "concept"`: the pool is every visible Problem linked to ANY of `concept_ids`
+    (one or more -- unlike `ConceptRef`, which practises exactly one)."""
+
+    concept_ids: list[str]
+    kind: Literal["concept"] = "concept"
+
+
+@dataclass(frozen=True)
+class ExamBookUnitScope:
+    """`kind: "book_unit"`: the pool is every visible Problem of `book_id`, optionally
+    bounded to `unit_keys` (`None` -- not an empty list -- means the whole Book)."""
+
+    book_id: str
+    unit_keys: list[str] | None
+    kind: Literal["book_unit"] = "book_unit"
+
+
+@dataclass(frozen=True)
+class ExamGradeScope:
+    """`kind: "grade"`: the pool is every visible Problem anywhere in the Profile's own
+    Grade (every Book of that Grade) -- no further input needed from whoever configures
+    the exam."""
+
+    kind: Literal["grade"] = "grade"
+
+
+ExamScope = ExamConceptScope | ExamBookUnitScope | ExamGradeScope
+
+
+@dataclass(frozen=True)
+class ExamRef:
+    """`kind: "exam"` (Story 8.1): a timed practice exam -- `count` Problems drawn at
+    random from `scope`, `time_limit_s` seconds to answer them. Both are required,
+    positive integers set by whoever configures the exam (parent or child); neither has a
+    default here since `api/sessions.py`'s request schema is the one place that actually
+    validates "positive" (this dataclass just carries whatever it's given)."""
+
+    scope: ExamScope
+    count: int
+    time_limit_s: int
+    kind: Literal["exam"] = "exam"
+
+
+ProblemSetRef = LessonRef | ReplayRef | RetryRef | ConceptRef | ExamRef
+
+
+def exam_scope_to_dict(scope: ExamScope) -> dict[str, object]:
+    """`ExamScope` -> plain JSON data. Shared by `ref_key()` (write-only) and
+    `learning.assignments` (which DOES need to parse `exam_scope_json` back, unlike
+    `ref_key` -- an assigned exam re-resolves a fresh random draw at every Session start,
+    so its scope must survive a round trip through storage)."""
+    if scope.kind == "concept":
+        return {"kind": "concept", "concept_ids": list(scope.concept_ids)}
+    if scope.kind == "book_unit":
+        return {
+            "kind": "book_unit",
+            "book_id": scope.book_id,
+            "unit_keys": None if scope.unit_keys is None else list(scope.unit_keys),
+        }
+    return {"kind": "grade"}
+
+
+def exam_scope_from_dict(data: dict[str, object]) -> ExamScope:
+    """The inverse of `exam_scope_to_dict()`."""
+    kind = data["kind"]
+    if kind == "concept":
+        return ExamConceptScope(concept_ids=list(data["concept_ids"]))  # type: ignore[arg-type]
+    if kind == "book_unit":
+        unit_keys = data.get("unit_keys")
+        return ExamBookUnitScope(
+            book_id=data["book_id"],  # type: ignore[arg-type]
+            unit_keys=None if unit_keys is None else list(unit_keys),  # type: ignore[arg-type]
+        )
+    if kind == "grade":
+        return ExamGradeScope()
+    raise ValueError(f"ExamScope kind={kind!r} không được hỗ trợ. / not supported.")
 
 
 class UnsupportedProblemSetRef(NotImplementedError):
@@ -104,7 +188,98 @@ def ref_key(ref: ProblemSetRef) -> str:
         return "retry"
     if ref.kind == "concept":
         return f"concept:{ref.concept_id}"
+    if ref.kind == "exam":
+        # Story 8.1: `scope` is a richer structure than any existing ref kind's own fields,
+        # so (implementer's call, per this story's spec Design Notes) this uses a short,
+        # deterministic JSON string instead of extending the naive `:`-join scheme above --
+        # `sort_keys` makes it reproducible for equal input, `separators` drops incidental
+        # whitespace. `ref_key` ITSELF is still write-only/dormant, same as every other ref
+        # kind (this module's own docstring) -- but `exam_scope_to_dict()` is reused by
+        # `learning.assignments`, which DOES need to parse the scope back.
+        return "exam:" + json.dumps(exam_scope_payload(ref), sort_keys=True, separators=(",", ":"))
     raise UnsupportedProblemSetRef(ref.kind)
+
+
+def exam_scope_payload(ref: ExamRef) -> dict[str, object]:
+    """The JSON-able `{scope, count, time_limit_s}` shape stored both in `ref_key()` and in
+    `progress_assignments.exam_scope_json` (the latter is parsed back by
+    `learning.assignments`; see `exam_scope_to_dict()`'s own docstring for why the two have
+    different parse-ability expectations despite sharing this exact shape)."""
+    return {
+        "scope": exam_scope_to_dict(ref.scope),
+        "count": ref.count,
+        "time_limit_s": ref.time_limit_s,
+    }
+
+
+def exam_ref_from_payload(data: dict[str, object]) -> ExamRef:
+    """The inverse of `exam_scope_payload()` -- used only by `learning.assignments` to
+    reconstruct the `ExamRef` an exam Assignment recorded, so starting it can re-resolve a
+    FRESH random draw (AD-9: an Assignment is a recipe, not a frozen Problem list)."""
+    return ExamRef(
+        scope=exam_scope_from_dict(data["scope"]),  # type: ignore[arg-type]
+        count=data["count"],  # type: ignore[arg-type]
+        time_limit_s=data["time_limit_s"],  # type: ignore[arg-type]
+    )
+
+
+def resolve_exam_scope(conn: Connection, scope: ExamScope, profile_id: str) -> list[str]:
+    """The pool of visible `problem_id`s `scope` draws from (NOT yet sampled/truncated to
+    `count` -- that happens in `resolve()`), always through `content.effective.
+    load_effective()`/`visible_to_child()`, the exact same eligibility gate every other
+    child-facing selection uses: hidden, retired, `needs_review`-unapproved and conflicted
+    Problems are never in the pool.
+
+    `kind: "concept"` silently ignores a `concept_id` that doesn't exist (rather than
+    raising, unlike `ConceptRef.resolve()`'s single-Concept 404): a multi-Concept scope with
+    one bad id among several good ones should still draw from the good ones, matching this
+    story's own "fewer eligible Problems than requested is not an error" philosophy rather
+    than failing the whole exam over one typo'd id (implementer's call, documented here and
+    in the story's Implementation Notes)."""
+    from hoctap.content import effective
+    from hoctap.content.catalog import service as catalog_service
+    from hoctap.content.review.models import content_review_problem_concepts
+    from hoctap.parent.models import parent_profiles
+
+    if scope.kind == "concept":
+        if not scope.concept_ids:
+            return []
+        linked = list(
+            dict.fromkeys(
+                conn.execute(
+                    select(content_review_problem_concepts.c.problem_id).where(
+                        content_review_problem_concepts.c.concept_id.in_(scope.concept_ids)
+                    )
+                ).scalars()
+            )
+        )
+        if not linked:
+            return []
+        return [v.problem_id for v in effective.visible_to_child(conn, linked)]
+    if scope.kind == "book_unit":
+        if scope.unit_keys is None:
+            return [v.problem_id for v in effective.visible_to_child(conn, book_id=scope.book_id)]
+        pool: list[str] = []
+        for unit_key in scope.unit_keys:
+            pool += [
+                v.problem_id
+                for v in effective.visible_to_child(
+                    conn, book_id=scope.book_id, unit_key=unit_key
+                )
+            ]
+        return pool
+    # kind == "grade": the Profile's own Grade, every Book of it.
+    grade = conn.execute(
+        select(parent_profiles.c.grade).where(parent_profiles.c.id == profile_id)
+    ).scalar_one_or_none()
+    if grade is None:
+        raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
+    pool = []
+    for book in catalog_service.list_books(conn):
+        if book.grade != grade:
+            continue
+        pool += [v.problem_id for v in effective.visible_to_child(conn, book_id=book.book_id)]
+    return pool
 
 
 def resolve(
@@ -208,4 +383,18 @@ def resolve(
                 "Chưa có bài nào cần luyện lại hôm nay.",
             )
         return due
+    if ref.kind == "exam":
+        # Story 8.1: random sample, truncated to `count` -- a scope with fewer eligible
+        # Problems than requested is NOT an error (this story's frozen Boundaries): the
+        # exam simply gets a smaller set, never padded with ineligible Problems. An empty
+        # pool returns `[]` here (not raised), same as `start_session()`'s generic
+        # `EMPTY_PROBLEM_SET` 422 every other ref kind already falls back to for an empty
+        # result -- unlike `retry`/`replay` above, exam mode has no bespoke empty-scope
+        # error code of its own (the I/O matrix reuses the generic one).
+        pool = resolve_exam_scope(conn, ref.scope, profile_id)
+        if not pool:
+            return []
+        # `random.sample` without replacement is exactly "shuffled, then truncated to
+        # count" in one call -- no separate `random.shuffle()` + slice needed.
+        return random.sample(pool, min(ref.count, len(pool)))
     raise UnsupportedProblemSetRef(ref.kind)

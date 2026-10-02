@@ -187,6 +187,24 @@ body {
   color: var(--color-primary, #0969da);
 }
 
+/* Story 8.1: the exam countdown -- a deliberate, visible exception to this app's own
+ * "no timers on child screens" rule, so it is styled to stand out a little (not loudly;
+ * the wording stays warm, only the timer itself is the exception). */
+.exam-countdown {
+  display: inline-block;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  background: #fff4e5;
+  color: #7a4a00;
+}
+
+.library-exam-entry {
+  display: inline-block;
+  font-weight: 600;
+}
+
 /* Parent Area: plain, readable styling only (design tokens arrive in Epic 2). */
 .parent {
   max-width: 32rem;

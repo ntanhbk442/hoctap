@@ -55,8 +55,12 @@ progress_sessions = Table(
     Column("completed_at", Text, nullable=True),
     # Story 4.3: the Assignment this Session was started from (Home's "Bài hôm nay" card).
     Column("assignment_id", Text, nullable=True),
+    # Story 8.1: the exam time limit in seconds, stored alongside `started_at` -- the
+    # backend, not the client, is the timer's source of truth. Nullable; set only when
+    # `mode == "exam"`.
+    Column("time_limit_s", Integer, nullable=True),
     CheckConstraint(
-        "mode IN ('practice', 'retry', 'concept', 'quiz', 'replay')",
+        "mode IN ('practice', 'retry', 'concept', 'quiz', 'replay', 'exam')",
         name="ck_progress_sessions_mode",
     ),
 )
@@ -74,7 +78,8 @@ progress_events = Table(
     Column("received_at", Text, nullable=False),  # server time (testable clock)
     CheckConstraint(
         "kind IN ('attempt', 'hint_requested', 'solution_shown', 'fallback_revealed', "
-        "'self_marked', 'quiz_submitted', 'session_started', 'session_completed')",
+        "'self_marked', 'quiz_submitted', 'exam_submitted', 'session_started', "
+        "'session_completed')",
         name="ck_progress_events_kind",
     ),
 )
@@ -123,12 +128,22 @@ progress_assignments = Table(
     Column("profile_id", Text, nullable=False),
     Column("ref_kind", Text, nullable=False),
     Column("ref_key", Text, nullable=False),
-    Column("book_id", Text, nullable=False),
-    Column("unit_key", Text, nullable=False),
-    Column("lesson_key", Text, nullable=False),
+    # Story 8.1: a Lesson ref (all three set) XOR an exam ref (`exam_scope_json` set,
+    # all three null) -- enforced by `ck_progress_assignments_ref_xor`, not just app logic.
+    Column("book_id", Text, nullable=True),
+    Column("unit_key", Text, nullable=True),
+    Column("lesson_key", Text, nullable=True),
+    Column("exam_scope_json", Text, nullable=True),
     Column("assigned_date", Text, nullable=False),  # local YYYY-MM-DD
     Column("created_at", Text, nullable=False),
     Column("deleted_at", Text, nullable=True),
+    CheckConstraint(
+        "(book_id IS NOT NULL AND unit_key IS NOT NULL AND lesson_key IS NOT NULL "
+        "AND exam_scope_json IS NULL) OR "
+        "(book_id IS NULL AND unit_key IS NULL AND lesson_key IS NULL "
+        "AND exam_scope_json IS NOT NULL)",
+        name="ck_progress_assignments_ref_xor",
+    ),
 )
 
 Index("ix_progress_sessions_assignment_id", progress_sessions.c.assignment_id)

@@ -208,17 +208,30 @@ def list_profiles(engine: Engine) -> list[Profile]:
                 parent_profiles.c.avatar,
                 parent_profiles.c.grade,
                 parent_profiles.c.auto_play,
+                parent_profiles.c.exams_enabled,
             ).order_by(parent_profiles.c.created_at, parent_profiles.c.id)
         ).all()
     return [
-        Profile(id=r.id, name=r.name, avatar=r.avatar, grade=r.grade, auto_play=bool(r.auto_play))
+        Profile(
+            id=r.id,
+            name=r.name,
+            avatar=r.avatar,
+            grade=r.grade,
+            auto_play=bool(r.auto_play),
+            exams_enabled=bool(r.exams_enabled),
+        )
         for r in rows
     ]
 
 
 def _profile_from_row(r) -> Profile:  # noqa: ANN001
     return Profile(
-        id=r.id, name=r.name, avatar=r.avatar, grade=r.grade, auto_play=bool(r.auto_play)
+        id=r.id,
+        name=r.name,
+        avatar=r.avatar,
+        grade=r.grade,
+        auto_play=bool(r.auto_play),
+        exams_enabled=bool(r.exams_enabled),
     )
 
 
@@ -257,6 +270,7 @@ def update_profile(engine: Engine, profile_id: str, patch: ProfilePatch) -> Prof
                 parent_profiles.c.avatar,
                 parent_profiles.c.grade,
                 parent_profiles.c.auto_play,
+                parent_profiles.c.exams_enabled,
             ).where(parent_profiles.c.id == profile_id)
         ).first()
     if row is None:

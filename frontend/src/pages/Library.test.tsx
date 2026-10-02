@@ -62,6 +62,31 @@ describe('Library', () => {
     expect(screen.getByText('0/3 ✓')).toBeInTheDocument()
   })
 
+  it('hides the exam entry point when exams_enabled is off (default)', async () => {
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: BOOKS },
+    })
+    renderAt('/library', <Library />)
+    await screen.findByText('Toán 1 – Quyển 1 (2020)')
+    expect(screen.queryByRole('link', { name: /Đề kiểm tra/ })).not.toBeInTheDocument()
+  })
+
+  it('shows the exam entry point when the Profile has exams_enabled (Story 8.1)', async () => {
+    mockApi({
+      'GET /api/v1/profiles': {
+        status: 200,
+        body: [{ ...ONE_PROFILE[0], exams_enabled: true }],
+      },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: BOOKS },
+    })
+    renderAt('/library', <Library />)
+    expect(await screen.findByRole('link', { name: /Đề kiểm tra/ })).toHaveAttribute(
+      'href',
+      '/exam/new',
+    )
+  })
+
   it('shows a real "done at least once" numerator (Story 2.4)', async () => {
     const withProgress = structuredClone(BOOKS)
     withProgress[0].units[0].lessons[0].attempted = 2

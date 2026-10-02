@@ -21,7 +21,17 @@ from hoctap.content import library as content_library
 from hoctap.content.schema import Solution
 from hoctap.content.views import ChildProblemView
 from hoctap.learning import sessions as service
-from hoctap.learning.problem_sets import ConceptRef, LessonRef, ReplayRef, RetryRef
+from hoctap.learning.problem_sets import (
+    ConceptRef,
+    ExamBookUnitScope,
+    ExamConceptScope,
+    ExamGradeScope,
+    ExamRef,
+    ExamScope,
+    LessonRef,
+    ReplayRef,
+    RetryRef,
+)
 from hoctap.learning.summary import LOCAL_TZ
 from hoctap.parent.service import get_db_epoch
 
@@ -80,15 +90,63 @@ class ConceptRefIn(BaseModel):
     concept_id: str
 
 
+class ExamConceptScopeIn(BaseModel):
+    kind: Literal["concept"] = "concept"
+    concept_ids: list[str] = Field(min_length=1)
+
+
+class ExamBookUnitScopeIn(BaseModel):
+    kind: Literal["book_unit"] = "book_unit"
+    book_id: str
+    # `None` (the default -- omitted or explicit null) means the whole Book.
+    unit_keys: list[str] | None = None
+
+
+class ExamGradeScopeIn(BaseModel):
+    kind: Literal["grade"] = "grade"
+
+
+class ExamRefIn(BaseModel):
+    """Story 8.1: a timed practice exam -- the SAME shape a parent-assign flow and a
+    child's on-demand picker both post (Anh's explicit call: one picker, not two). Also
+    reused, with `assignment_id` set, to start an ALREADY-assigned exam (the client echoes
+    back the scope/count/time_limit_s `GET /library/home` handed it for that Assignment's
+    card) -- `check_startable()` verifies it actually matches via `ref_key()` equality."""
+
+    kind: Literal["exam"] = "exam"
+    scope: ExamConceptScopeIn | ExamBookUnitScopeIn | ExamGradeScopeIn = Field(
+        discriminator="kind"
+    )
+    count: int = Field(gt=0)
+    time_limit_s: int = Field(gt=0)
+
+
+def exam_scope_from_in(
+    scope_in: ExamConceptScopeIn | ExamBookUnitScopeIn | ExamGradeScopeIn,
+) -> ExamScope:
+    if scope_in.kind == "concept":
+        return ExamConceptScope(concept_ids=list(scope_in.concept_ids))
+    if scope_in.kind == "book_unit":
+        return ExamBookUnitScope(
+            book_id=scope_in.book_id,
+            unit_keys=None if scope_in.unit_keys is None else list(scope_in.unit_keys),
+        )
+    return ExamGradeScope()
+
+
 class StartSessionIn(BaseModel):
     profile_id: str
-    ref: LessonRefIn | ReplayRefIn | RetryRefIn | ConceptRefIn = Field(discriminator="kind")
+    ref: LessonRefIn | ReplayRefIn | RetryRefIn | ConceptRefIn | ExamRefIn = Field(
+        discriminator="kind"
+    )
     # Epic 3 review: the Session mode is DERIVED from `ref.kind` on the server (lesson ->
-    # practice, or quiz for a quiz-sheet Lesson; replay -> replay; retry -> retry). The field
-    # stays optional for compatibility, but a value that disagrees with the derived mode is
-    # rejected (422 `MODE_REF_MISMATCH`). This reverses Story 2.10's "independent field".
-    mode: Literal["practice", "replay", "retry", "concept"] | None = None
-    # Story 4.3: the Assignment this Session is started from (Home's "Bài hôm nay" card).
+    # practice, or quiz for a quiz-sheet Lesson; replay -> replay; retry -> retry; exam ->
+    # exam, Story 8.1). The field stays optional for compatibility, but a value that
+    # disagrees with the derived mode is rejected (422 `MODE_REF_MISMATCH`). This reverses
+    # Story 2.10's "independent field".
+    mode: Literal["practice", "replay", "retry", "concept", "exam"] | None = None
+    # Story 4.3/8.1: the Assignment this Session is started from (Home's "Bài hôm nay" card
+    # -- a Lesson OR an exam Assignment).
     assignment_id: str | None = None
 
 
@@ -102,6 +160,8 @@ class SessionOut(BaseModel):
     started_at: str
     # Story 7.2: the database generation; the client stamps its outbox events with it.
     db_epoch: str = ""
+    # Story 8.1: set only for `mode == "exam"` -- see `service.SessionOut`'s own docstring.
+    time_limit_s: int | None = None
 
 
 def _session_out(s: service.SessionOut, db_epoch: str = "") -> SessionOut:
@@ -114,6 +174,7 @@ def _session_out(s: service.SessionOut, db_epoch: str = "") -> SessionOut:
         chunk_size=s.chunk_size,
         mode=s.mode,
         started_at=s.started_at,
+        time_limit_s=s.time_limit_s,
     )
 
 
@@ -123,6 +184,7 @@ def _session_out(s: service.SessionOut, db_epoch: str = "") -> SessionOut:
     status_code=201,
     operation_id="start_session",
     responses={
+        403: {"model": ErrorResponse, "description": "EXAMS_DISABLED"},
         404: {"model": ErrorResponse, "description": "Unknown profile or Assignment"},
         409: {"model": ErrorResponse, "description": "ASSIGNMENT_DONE"},
         422: {
@@ -135,7 +197,7 @@ def _session_out(s: service.SessionOut, db_epoch: str = "") -> SessionOut:
     },
 )
 def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> SessionOut:
-    ref: LessonRef | ReplayRef | RetryRef | ConceptRef
+    ref: LessonRef | ReplayRef | RetryRef | ConceptRef | ExamRef
     if body.ref.kind == "concept":
         ref = ConceptRef(concept_id=body.ref.concept_id)
         mode = "concept"
@@ -147,6 +209,13 @@ def start_session(body: StartSessionIn, engine: EngineDep, now: NowDep) -> Sessi
             book_id=body.ref.book_id, unit_key=body.ref.unit_key, lesson_key=body.ref.lesson_key
         )
         mode = "practice"
+    elif body.ref.kind == "exam":
+        ref = ExamRef(
+            scope=exam_scope_from_in(body.ref.scope),
+            count=body.ref.count,
+            time_limit_s=body.ref.time_limit_s,
+        )
+        mode = "exam"
     else:
         ref = ReplayRef(source_session_id=body.ref.source_session_id)
         mode = "replay"
@@ -190,6 +259,12 @@ class BundleOut(BaseModel):
     chunk_label: str
     problems: list[BundleProblemOut]
     db_epoch: str = ""
+    # Story 8.1: re-fetched on every bundle load (not just the one-time `POST /sessions`
+    # response) so a closed-and-reopened tablet mid-exam computes the real remaining time
+    # from these two fields, never a reset countdown. `time_limit_s` is set only for
+    # `mode == "exam"`.
+    started_at: str = ""
+    time_limit_s: int | None = None
 
 
 def _bundle_out(b: service.BundleOut, db_epoch: str = "") -> BundleOut:
@@ -200,6 +275,8 @@ def _bundle_out(b: service.BundleOut, db_epoch: str = "") -> BundleOut:
         chunk=b.chunk,
         chunk_count=b.chunk_count,
         chunk_label=b.chunk_label,
+        started_at=b.started_at,
+        time_limit_s=b.time_limit_s,
         problems=[
             BundleProblemOut(
                 problem=p.view,
@@ -304,6 +381,17 @@ class QuizResultOut(BaseModel):
     solutions: list[QuizPartSolution]
 
 
+class ExamResultOut(BaseModel):
+    """One Problem's verdict in an `exam_submitted` response: ✔ (`correct`) or ↻, and, for
+    ↻ only, the Solutions of the Parts that were not right. No `stars` field (unlike
+    `QuizResultOut`) -- exam mode never awards Stars, so there is nothing to report here."""
+
+    problem_id: str
+    display_label: str
+    correct: bool
+    solutions: list[QuizPartSolution]
+
+
 class EventOut(BaseModel):
     id: str
     session_id: str
@@ -320,6 +408,9 @@ class EventOut(BaseModel):
     # submission awarded Stars at all (`False` for a retake of an already-submitted Lesson).
     quiz_results: list[QuizResultOut] | None = None
     quiz_stars_awarded: bool | None = None
+    # Story 8.1: only on `exam_submitted` -- every Problem's verdict. Always zero Stars,
+    # zero Retry Queue rows and zero Streak effect, so there is no `exam_stars_awarded` twin.
+    exam_results: list[ExamResultOut] | None = None
     db_epoch: str = ""
 
 
@@ -340,6 +431,9 @@ def _event_out(e: service.EventOut, db_epoch: str = "") -> EventOut:
         if e.quiz_results is None
         else [QuizResultOut.model_validate(r) for r in e.quiz_results],
         quiz_stars_awarded=e.quiz_stars_awarded,
+        exam_results=None
+        if e.exam_results is None
+        else [ExamResultOut.model_validate(r) for r in e.exam_results],
     )
 
 

@@ -164,9 +164,15 @@ class ContinueSessionOut(BaseModel):
 class HomeAssignmentOut(BaseModel):
     """Story 4.3's "Bài hôm nay" card. `session_id` is the unfinished linked Session to
     resume (set only while `status == "doing"`); otherwise the card starts one from the
-    Lesson, linked by `id`."""
+    Lesson (or, Story 8.1, the exam), linked by `id`.
+
+    `ref_kind == "exam"`: `book_id`/`unit_key`/`lesson_key`/`book_title_vi`/`unit_label`/
+    `lesson_label`/`lesson_title` are all empty strings (there IS no Lesson); the child
+    instead reads `exam_scope`/`exam_count`/`exam_time_limit_s` and echoes them straight
+    back as `POST /sessions`' `ExamRefIn` (plus `assignment_id=id`) to start it."""
 
     id: str
+    ref_kind: str = "lesson"
     book_id: str
     book_title_vi: str
     unit_key: str
@@ -179,6 +185,9 @@ class HomeAssignmentOut(BaseModel):
     part_count: int | None = None
     session_id: str | None = None
     carried_over: bool = False
+    exam_scope: dict[str, object] | None = None
+    exam_count: int | None = None
+    exam_time_limit_s: int | None = None
 
 
 class LibraryHomeOut(BaseModel):
@@ -247,10 +256,11 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
             if due is None
             else HomeAssignmentOut(
                 id=due.id,
-                book_id=due.book_id,
+                ref_kind=due.ref_kind,
+                book_id=due.book_id or "",
                 book_title_vi=due.book_title_vi,
-                unit_key=due.unit_key,
-                lesson_key=due.lesson_key,
+                unit_key=due.unit_key or "",
+                lesson_key=due.lesson_key or "",
                 lesson_label=due.lesson_label,
                 lesson_title=due.lesson_title,
                 assigned_date=due.assigned_date,
@@ -259,6 +269,9 @@ def get_home(profile_id: str, engine: EngineDep, now: NowDep) -> LibraryHomeOut:
                 part_count=due.part_count,
                 session_id=due.session_id,
                 carried_over=due.carried_over,
+                exam_scope=due.exam_scope,
+                exam_count=due.exam_count,
+                exam_time_limit_s=due.exam_time_limit_s,
             ),
         )
 

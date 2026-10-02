@@ -339,7 +339,7 @@ export function useStartSession() {
     }: {
       profileId: string
       ref: StartSessionRefIn
-      mode?: 'practice' | 'replay' | 'retry' | 'concept'
+      mode?: 'practice' | 'replay' | 'retry' | 'concept' | 'exam'
       assignmentId?: string
     }) => startSession(profileId, ref, mode, assignmentId),
   })

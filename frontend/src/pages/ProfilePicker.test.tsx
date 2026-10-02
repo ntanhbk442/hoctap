@@ -4,8 +4,8 @@ import type { Profile } from '../api/client'
 import ProfilePicker from './ProfilePicker'
 
 const PROFILES: Profile[] = [
-  { id: 'a', name: 'Bin', avatar: 'cat', grade: 1, auto_play: true },
-  { id: 'b', name: 'An', avatar: 'dog', grade: 2, auto_play: true },
+  { id: 'a', name: 'Bin', avatar: 'cat', grade: 1, auto_play: true, exams_enabled: false },
+  { id: 'b', name: 'An', avatar: 'dog', grade: 2, auto_play: true, exams_enabled: false },
 ]
 
 describe('ProfilePicker', () => {

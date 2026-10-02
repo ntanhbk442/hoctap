@@ -46,13 +46,26 @@ export type RetryRefIn = Schemas['RetryRefIn']
 export type ConceptRefIn = Schemas['ConceptRefIn']
 export type LibraryConcept = Schemas['LibraryConcept']
 export type ConceptDetailOut = Schemas['ConceptDetailOut']
-export type StartSessionRefIn = LessonRefIn | ReplayRefIn | RetryRefIn | ConceptRefIn
+// Story 8.1: a timed practice exam -- the SAME scope/count/time_limit_s shape a parent-
+// assign flow and a child's on-demand picker both post.
+export type ExamRefIn = Schemas['ExamRefIn']
+export type ExamConceptScopeIn = Schemas['ExamConceptScopeIn']
+export type ExamBookUnitScopeIn = Schemas['ExamBookUnitScopeIn']
+export type ExamGradeScopeIn = Schemas['ExamGradeScopeIn']
+export type ExamScopeIn = ExamConceptScopeIn | ExamBookUnitScopeIn | ExamGradeScopeIn
+export type StartSessionRefIn =
+  | LessonRefIn
+  | ReplayRefIn
+  | RetryRefIn
+  | ConceptRefIn
+  | ExamRefIn
 export type BundleOut = Schemas['BundleOut']
 export type BundleProblemOut = Schemas['BundleProblemOut']
 export type EventIn = Schemas['EventIn']
 export type EventOut = Schemas['EventOut']
 export type SummaryOut = Schemas['SummaryOut']
 export type QuizResultOut = Schemas['QuizResultOut']
+export type ExamResultOut = Schemas['ExamResultOut']
 export type BadgeOut = Schemas['BadgeOut']
 export type BadgeKey = BadgeOut['badge_key']
 export type DashboardOut = Schemas['DashboardOut']
@@ -309,7 +322,7 @@ const SESSIONS = '/sessions'
 export function startSession(
   profileId: string,
   ref: StartSessionRefIn,
-  mode?: 'practice' | 'replay' | 'retry' | 'concept',
+  mode?: 'practice' | 'replay' | 'retry' | 'concept' | 'exam',
   assignmentId?: string,
 ): Promise<SessionOut> {
   return apiPost<SessionOut>(SESSIONS, {

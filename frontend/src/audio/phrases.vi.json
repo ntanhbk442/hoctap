@@ -49,5 +49,21 @@
   "flag_yes": "Có",
   "flag_no": "Không",
   "flag_done": "Đã báo cho bố mẹ",
-  "flag_failed": "Chưa gửi được, thử lại nhé"
+  "flag_failed": "Chưa gửi được, thử lại nhé",
+  "exam_entry_point": "Đề kiểm tra",
+  "exam_saved": "Đã lưu",
+  "exam_indicator": "Đề kiểm tra",
+  "exam_start": "Bắt đầu làm bài",
+  "exam_time_up": "Hết giờ rồi! Bài đã được nộp.",
+  "exam_results_title": "Kết quả đề kiểm tra",
+  "exam_result_right": "Em làm đúng rồi",
+  "exam_result_retry": "Mình cùng xem lại bài này nhé",
+  "exam_picker_title": "Chọn đề kiểm tra",
+  "exam_picker_scope_concept": "Theo khái niệm",
+  "exam_picker_scope_book_unit": "Theo sách/tuần",
+  "exam_picker_scope_grade": "Cả lớp học",
+  "exam_picker_count": "Số bài",
+  "exam_picker_time_limit": "Thời gian (phút)",
+  "exams_disabled": "Tính năng đề kiểm tra chưa được bật cho hồ sơ này.",
+  "exam_not_submitted": "Đề kiểm tra chưa được nộp."
 }

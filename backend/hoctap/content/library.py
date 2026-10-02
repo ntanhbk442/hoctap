@@ -9,15 +9,29 @@ flag) in one query pass per Book, to avoid one `visible_to_child()` call per Les
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import Connection, select
 
 from hoctap.content import effective
 from hoctap.content.catalog import service as catalog_service
-from hoctap.content.catalog.models import content_catalog_lessons, content_catalog_units
+from hoctap.content.catalog.models import (
+    content_catalog_lessons,
+    content_catalog_problems,
+    content_catalog_units,
+)
+from hoctap.content.review.models import (
+    content_review_error_reports,
+    content_review_overrides,
+    content_review_status,
+)
 from hoctap.content.views import ChildProblemView
+
+
+def _chunks(ids: Sequence[str], size: int = 500) -> list[Sequence[str]]:
+    return [ids[i : i + size] for i in range(0, len(ids), size)]
 
 
 @dataclass(frozen=True)
@@ -50,13 +64,81 @@ class BookGroup:
 
 
 def _visible_counts(conn: Connection, book_id: str) -> dict[tuple[str, str], int]:
-    """visible-Problem count per (unit_key, lesson_key) of one Book, in one query pass."""
+    """visible-Problem count per (unit_key, lesson_key) of one Book.
+
+    Performance fix (2026-10-02): this used to run EVERY Problem of the Book through
+    `effective.load_effective()` -- a full merge, Pydantic validation and content-hash
+    computation per Problem -- just to count how many are visible. With a real, full-size
+    catalogue (hundreds of Problems per Book) that made the Library screen (a core,
+    frequently-opened child surface) take several seconds to load.
+
+    `EffectiveProblem.visible` is `not retired and doc is not None and not hidden and not
+    open_reports['parent'] and not has_conflict and not awaiting_approval`. For a Problem
+    with NO override and `needs_review=False`: `has_conflict` is always False (`merge()`
+    only ever produces a conflict from an override) and `awaiting_approval` is always
+    False (it's gated on `needs_review` first) -- so `visible` reduces to the three cheap,
+    already-fetched columns (`retired_at`, `hidden`, open `parent` report), with no need
+    to touch `doc_json`/overrides/validation at all. Only Problems that DO have an
+    override or ARE `needs_review` still need the real, slow `load_effective()` check (a
+    small minority -- the rest of this catalogue's correctness guarantees are completely
+    unchanged for that subset, and every OTHER consumer of `effective.py` is untouched by
+    this function's own internals).
+    """
+    t = content_catalog_problems
+    rows = conn.execute(
+        select(t.c.problem_id, t.c.unit_key, t.c.lesson_key, t.c.needs_review)
+        .where(t.c.book_id == book_id, t.c.retired_at.is_(None))
+        .order_by(t.c.problem_id)
+    ).all()
+    if not rows:
+        return {}
+    ids = [r.problem_id for r in rows]
+
+    s, er, ov = content_review_status, content_review_error_reports, content_review_overrides
+    hidden_ids: set[str] = set()
+    for chunk in _chunks(ids):
+        hidden_ids |= {
+            row.problem_id
+            for row in conn.execute(
+                select(s.c.problem_id).where(s.c.problem_id.in_(chunk), s.c.hidden == 1)
+            )
+        }
+    open_parent_report_ids: set[str] = set()
+    for chunk in _chunks(ids):
+        open_parent_report_ids |= {
+            row.problem_id
+            for row in conn.execute(
+                select(er.c.problem_id).where(
+                    er.c.problem_id.in_(chunk), er.c.kind == "parent", er.c.status == "open"
+                )
+            )
+        }
+    override_ids: set[str] = set()
+    for chunk in _chunks(ids):
+        override_ids |= {
+            row.problem_id
+            for row in conn.execute(
+                select(ov.c.problem_id).where(ov.c.problem_id.in_(chunk)).distinct()
+            )
+        }
+
     counts: dict[tuple[str, str], int] = {}
-    for state in effective.load_effective(conn, book_id=book_id, include_retired=False):
-        if not state.visible:
+    needs_slow_check: list[Any] = []
+    for row in rows:
+        if row.problem_id in hidden_ids or row.problem_id in open_parent_report_ids:
             continue
-        key = (state.unit_key, state.lesson_key)
+        if row.needs_review or row.problem_id in override_ids:
+            needs_slow_check.append(row)
+            continue
+        key = (row.unit_key, row.lesson_key)
         counts[key] = counts.get(key, 0) + 1
+
+    if needs_slow_check:
+        slow_ids = [r.problem_id for r in needs_slow_check]
+        for state in effective.load_effective(conn, problem_ids=slow_ids):
+            if state.visible:
+                key = (state.unit_key, state.lesson_key)
+                counts[key] = counts.get(key, 0) + 1
     return counts
 
 

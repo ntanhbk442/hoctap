@@ -91,3 +91,7 @@ development_status:
   7-1-printable-worksheets: done
   7-2-backup-and-restore: done
   epic-7-retrospective: optional
+
+  epic-8: done
+  8-1-exam-generation: done
+  epic-8-retrospective: optional

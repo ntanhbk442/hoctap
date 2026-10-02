@@ -1,7 +1,7 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import type { EventOut, QuizResultOut, SummaryOut } from '../api/client'
+import type { EventOut, ExamResultOut, QuizResultOut, SummaryOut } from '../api/client'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/errors'
 import {
@@ -59,6 +59,13 @@ function SessionPlayerInner() {
   // Story 3.4: the server's `quiz_submitted` response (every Problem's ✔/↻ + Solutions).
   // The client never grades; this is the only source of a quiz's results.
   const [quizSubmitted, setQuizSubmitted] = useState<EventOut | null>(null)
+  // Story 8.1: same shape, for `exam_submitted`.
+  const [examSubmitted, setExamSubmitted] = useState<EventOut | null>(null)
+  // Story 8.1: true once the backend-computed countdown (`started_at` + `time_limit_s`)
+  // reaches zero -- the frontend never owns the clock, only reads it (see `ExamCountdown`).
+  // Setting this re-arms the SAME `session_completed`/`exam_submitted` effect `trueEnd`
+  // already drives, regardless of how many Problems are actually answered yet.
+  const [examTimedOut, setExamTimedOut] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   // Home "Tiếp tục": any mode resumes at the first Problem not yet finished IN THIS Session
   // (the bundle's Session-scoped `done_in_session`), skipping whole finished chunks.
@@ -104,6 +111,7 @@ function SessionPlayerInner() {
 
   const problems = bundle.data?.problems ?? []
   const isQuiz = bundle.data?.mode === 'quiz'
+  const isExam = bundle.data?.mode === 'exam'
   if (bundle.data && !resumed) {
     const first = bundle.data.problems.findIndex((p) => !p.done_in_session)
     if (first === -1 && bundle.data.chunk < bundle.data.chunk_count) {
@@ -118,6 +126,10 @@ function SessionPlayerInner() {
   const chunkDone = bundle.data !== undefined && problemIndex >= problems.length
   const hasNextChunk = bundle.data !== undefined && bundle.data.chunk < bundle.data.chunk_count
   const trueEnd = chunkDone && !hasNextChunk
+  // Story 8.1: an exam's real end is either the ordinary `trueEnd` (every Problem of every
+  // chunk done) OR the countdown reaching zero, whichever comes first -- "no further input
+  // accepted" applies the instant the clock runs out, even mid-chunk.
+  const examEnd = isExam && (trueEnd || examTimedOut)
 
   const postEvent = usePostEvent(sessionId)
   const summary = useSessionSummary(sessionId, profileId, completedPosted)
@@ -147,7 +159,8 @@ function SessionPlayerInner() {
   })
 
   useEffect(() => {
-    if (!trueEnd || completedPosted || postingCompletedRef.current) return
+    const shouldFinish = trueEnd || examEnd
+    if (!shouldFinish || completedPosted || postingCompletedRef.current) return
     postingCompletedRef.current = true
     const post = async () => {
       if (isQuiz) {
@@ -167,6 +180,25 @@ function SessionPlayerInner() {
           ],
         })
         setQuizSubmitted(submitted)
+      }
+      if (isExam) {
+        // Story 8.1: `exam_submitted` grades the whole exam Session once, the same
+        // "server grades, client never does" posture quiz's own submit has -- fired here
+        // whether this is the ordinary true end OR the countdown ran out (`examEnd`),
+        // with whatever is answered so far (unanswered Problems grade wrong server-side).
+        const [submitted] = await postEvent.mutateAsync({
+          profileId,
+          events: [
+            {
+              id: newEventId(),
+              kind: 'exam_submitted',
+              problem_id: null,
+              payload: {},
+              occurred_at: new Date().toISOString(),
+            },
+          ],
+        })
+        setExamSubmitted(submitted)
       }
       await postEvent.mutateAsync({
         profileId,
@@ -191,9 +223,9 @@ function SessionPlayerInner() {
       else setSubmitError(errorMessage(err))
     })
     // `postEvent` is a fresh `useMutation()` object identity on every render -- only
-    // `trueEnd`/`completedPosted`/`retryTick` should ever re-arm this effect.
+    // `trueEnd`/`examEnd`/`completedPosted`/`retryTick` should ever re-arm this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trueEnd, completedPosted, retryTick])
+  }, [trueEnd, examEnd, completedPosted, retryTick])
 
   async function handleRetryOnline() {
     setRetrying(true)
@@ -260,6 +292,18 @@ function SessionPlayerInner() {
         <>
           <p className="session-chunk-label">{bundle.data.chunk_label}</p>
 
+          {isExam && !examEnd && bundle.data.time_limit_s != null && (
+            // Story 8.1: a REAL, visible countdown -- a deliberate departure from this
+            // app's own "no timers on child screens" rule, gated to exam mode only. Ticks
+            // through both ordinary play and the "Phần tiếp theo" interstitial between
+            // chunks; stops once `examEnd` fires (either naturally or by timing out).
+            <ExamCountdown
+              startedAt={bundle.data.started_at}
+              timeLimitS={bundle.data.time_limit_s}
+              onExpire={() => setExamTimedOut(true)}
+            />
+          )}
+
           {offline ? (
             // Story 2.11: replaces the whole Session view -- no local grading happens
             // while an event is queued in the offline outbox.
@@ -270,6 +314,29 @@ function SessionPlayerInner() {
             />
           ) : problems.length === 0 ? (
             <p className="home-empty">Phần này chưa có bài tập nào để hiển thị.</p>
+          ) : examEnd && !examSubmitted ? (
+            // Story 8.1: mirrors quiz's own "submitting, no feedback yet" screen below --
+            // reached either from the ordinary true end OR the countdown running out.
+            <div className="session-done">
+              {submitError ? (
+                <>
+                  <p role="alert" className="form-error">
+                    {submitError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubmitError(null)
+                      setRetryTick((t) => t + 1)
+                    }}
+                  >
+                    Thử lại
+                  </button>
+                </>
+              ) : (
+                <p>{examTimedOut ? phrase('exam_time_up') : 'Đang tải…'}</p>
+              )}
+            </div>
           ) : trueEnd && isQuiz && !quizSubmitted ? (
             <div className="session-done">
               {submitError ? (
@@ -291,7 +358,7 @@ function SessionPlayerInner() {
                 <p>Đang tải…</p>
               )}
             </div>
-          ) : trueEnd ? (
+          ) : trueEnd || examEnd ? (
             <>
               {submitError && !completedPosted && (
                 // `session_completed` failed for a non-offline reason (any mode; for a quiz
@@ -312,7 +379,11 @@ function SessionPlayerInner() {
                 </div>
               )}
               {isQuiz && quizSubmitted && <QuizResultsScreen submitted={quizSubmitted} />}
-              {!(submitError && !completedPosted) && (
+              {/* Story 8.1: exam shows ONLY its own results screen -- never the generic
+               * `SessionSummaryScreen` (StarBurst/Streak/"Luyện lại bài sai" would all be
+               * zero/misleading for a mode that awards none of those by design). */}
+              {isExam && examSubmitted && <ExamResultsScreen submitted={examSubmitted} />}
+              {!isExam && !(submitError && !completedPosted) && (
                 <SessionSummaryScreen
                   autoPlay={autoPlay}
                   summary={summary}
@@ -336,7 +407,7 @@ function SessionPlayerInner() {
             <p>Đang tải…</p>
           ) : (
             <>
-              {isQuiz && (
+              {(isQuiz || isExam) && (
                 <ProgressDots
                   dots={problems.map((_, i): DotState =>
                     i < problemIndex ? 'done' : i === problemIndex ? 'current' : 'todo',
@@ -348,7 +419,7 @@ function SessionPlayerInner() {
                 problemId={problems[problemIndex].problem.problem_id}
                 profileId={profileId}
               />
-              {!isQuiz && problems[problemIndex].problem.concept_ids.length > 0 && (
+              {!isQuiz && !isExam && problems[problemIndex].problem.concept_ids.length > 0 && (
                 <button
                   type="button"
                   className="concept-guide-open"
@@ -358,7 +429,7 @@ function SessionPlayerInner() {
                   📖
                 </button>
               )}
-              {guideOpen && !isQuiz && (
+              {guideOpen && !isQuiz && !isExam && (
                 <ConceptGuide
                   key={`guide-${problems[problemIndex].problem.problem_id}`}
                   conceptIds={problems[problemIndex].problem.concept_ids}
@@ -377,7 +448,7 @@ function SessionPlayerInner() {
                 onDone={() => setProblemIndex((i) => i + 1)}
                 autoPlay={autoPlay}
                 onOffline={() => setOffline(true)}
-                quiz={isQuiz}
+                quiz={isQuiz || isExam}
                 grade={profiles.data?.find((p) => p.id === profileId)?.grade ?? 0}
               />
             </>
@@ -522,6 +593,97 @@ function QuizResultsScreen({ submitted }: { submitted: EventOut }) {
         ))}
       </ol>
       {submitted.quiz_stars_awarded === false && <p>{phrase('quiz_retake_no_stars')}</p>}
+    </div>
+  )
+}
+
+/** Story 8.1: a REAL, visible countdown -- the backend (`started_at` + `time_limit_s`,
+ * both re-read from the bundle on every mount, never a client-side anchor) is the single
+ * source of truth, so a closed-and-reopened tablet mid-exam shows the actual remaining
+ * time, never a reset one. Fires `onExpire()` exactly once, the instant remaining time
+ * reaches zero -- this is this codebase's first `setInterval`-driven live UI element (no
+ * existing countdown precedent to follow; every other timer in this app is a one-shot
+ * `setTimeout` delay), so it follows the same "ref'd handle, cleared on unmount/re-run"
+ * convention `ProblemPlayer.tsx`'s own one-shot timers already use. */
+function ExamCountdown({
+  startedAt,
+  timeLimitS,
+  onExpire,
+}: {
+  startedAt: string
+  timeLimitS: number
+  onExpire: () => void
+}) {
+  const deadlineMs = new Date(startedAt).getTime() + timeLimitS * 1000
+  const [remainingMs, setRemainingMs] = useState(() => deadlineMs - Date.now())
+  const expiredRef = useRef(false)
+
+  useEffect(() => {
+    expiredRef.current = false
+    const tick = () => {
+      const left = deadlineMs - Date.now()
+      setRemainingMs(left)
+      if (left <= 0 && !expiredRef.current) {
+        expiredRef.current = true
+        onExpire()
+      }
+    }
+    tick()
+    const handle = window.setInterval(tick, 1000)
+    return () => window.clearInterval(handle)
+    // `onExpire` is a fresh closure every render (it captures `setExamTimedOut`, which is
+    // itself stable) -- only `deadlineMs` should ever restart the interval.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadlineMs])
+
+  const clamped = Math.max(0, remainingMs)
+  const totalSeconds = Math.ceil(clamped / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return (
+    <p className="exam-countdown" data-testid="exam-countdown" aria-live="polite">
+      {phrase('exam_indicator')}: {minutes}:{String(seconds).padStart(2, '0')}
+    </p>
+  )
+}
+
+/** Story 8.1: the exam results, straight from the server's `exam_submitted` response --
+ * every Problem marked ✔ (right) or ↻ (to practise again, with its Solution). Never red,
+ * never ✗ or "Sai!" -- same warm wording rule as quiz's own results, even though exam mode
+ * itself is the deliberate "real timer" exception. Deliberately has NO Stars line (exam
+ * mode awards zero, always) and is shown INSTEAD OF `SessionSummaryScreen` (no Streak, no
+ * "Luyện lại bài sai" -- none of those apply to a pure assessment). */
+function ExamResultsScreen({ submitted }: { submitted: EventOut }) {
+  const results: ExamResultOut[] = submitted.exam_results ?? []
+  return (
+    <div className="session-done" data-testid="exam-results">
+      <h2>{phrase('exam_results_title')}</h2>
+      <ol className="quiz-results">
+        {results.map((r) => (
+          <li
+            key={r.problem_id}
+            className={r.correct ? 'quiz-result-right' : 'quiz-result-retry'}
+            data-testid={`exam-result-${r.correct ? 'right' : 'retry'}`}
+          >
+            <span
+              className="quiz-result-mark"
+              role="img"
+              aria-label={r.correct ? phrase('exam_result_right') : phrase('exam_result_retry')}
+            >
+              {r.correct ? '✔' : '↻'}
+            </span>
+            <span>{r.display_label}</span>
+            {!r.correct &&
+              r.solutions.map((s) => (
+                <SolutionPanel
+                  key={s.part_key}
+                  steps={s.solution.steps}
+                  revealedCount={s.solution.steps.length}
+                />
+              ))}
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }

@@ -233,6 +233,63 @@ def test_lesson_count_excludes_hidden_needs_review_retired(
     assert lesson["problem_count"] != 3
 
 
+def test_visible_counts_with_overrides_and_needs_review_matches_slow_path(
+    client: TestClient, engine: Engine
+) -> None:
+    """A performance fix (2026-10-02, `_visible_counts()` is now a fast raw-column pass
+    that only falls back to the full `effective.load_effective()` machinery for Problems
+    that actually have an override or are `needs_review`) must not change the result for
+    any combination: a clean Problem (fast path), one with a non-conflicting override,
+    one with a conflicting override (base changed), and a `needs_review` Problem approved
+    for its current hash -- all visible; compared against the slow, known-correct
+    `load_effective().visible` computation directly."""
+    from hoctap.content.effective import load_effective
+    from hoctap.content.library import _visible_counts
+    from hoctap.content.review.models import content_review_overrides as t_overrides
+
+    pub = Pub(engine, BOOK_2020, "2020", 1)
+    clean = make_doc(BOOK_2020, "bai-1")
+    overridden = make_doc(BOOK_2020, "bai-2")
+    conflicted = make_doc(BOOK_2020, "bai-3")
+    approved_review = make_doc(BOOK_2020, "bai-4")
+    pub(
+        clean,
+        overridden,
+        conflicted,
+        approved_review,
+        needs_review={approved_review["problem_id"]},
+    )
+
+    with engine.begin() as conn:
+        review.save_overrides(
+            conn, overridden["problem_id"], [review.Edit(field="display_label", value="Bài 2 mới")]
+        )
+        review.save_overrides(
+            conn, conflicted["problem_id"], [review.Edit(field="display_label", value="Bài 3 mới")]
+        )
+        # Force a stale base_hash so merge() flags this one as a conflict (not visible).
+        conn.execute(
+            t_overrides.update()
+            .where(t_overrides.c.problem_id == conflicted["problem_id"])
+            .values(base_hash="deadbeef")
+        )
+        [state] = load_effective(conn, problem_ids=[approved_review["problem_id"]])
+        assert state.content_hash is not None
+        review.approve(conn, approved_review["problem_id"], state.content_hash)
+
+    with engine.connect() as conn:
+        fast = _visible_counts(conn, BOOK_2020)
+        slow: dict[tuple[str, str], int] = {}
+        for state in load_effective(conn, book_id=BOOK_2020, include_retired=False):
+            if state.visible:
+                key = (state.unit_key, state.lesson_key)
+                slow[key] = slow.get(key, 0) + 1
+
+    assert fast == slow
+    # clean + non-conflicting override + approved needs_review = 3 (conflicted excluded).
+    assert fast[(UNIT, LESSON)] == 3
+
+
 def test_lesson_count_no_profile_never_shows_a_nonzero_numerator(
     client: TestClient, engine: Engine
 ) -> None:

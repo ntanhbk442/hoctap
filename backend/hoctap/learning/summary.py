@@ -164,7 +164,10 @@ def first_try_solved_problem_ids(
     conn: Any, profile_id: str, problem_ids: list[str]
 ) -> set[str]:
     """Of `problem_ids`, those the Profile solved correctly on the first try in some earlier
-    `practice`/`retry`/`concept` Session (`quiz` and `replay` Sessions do not count). Same
+    `practice`/`retry`/`concept` Session (`quiz`, `replay` and `exam` Sessions do not count
+    -- Story 8.1 extends this module's existing quiz/replay exclusion to exam Sessions too,
+    for the same reason: a Concept practice Session's "already solved" prioritisation
+    should reflect ordinary practice history, not a timed assessment). Same
     rule as `session_wrong_problem_ids()` (earliest `attempt` per Part by rowid, every Part
     correct; a Problem with no `attempt` uses its earliest `self_marked`), evaluated per
     Session in ONE query over the Profile's events."""
@@ -185,7 +188,7 @@ def first_try_solved_problem_ids(
         )
         .where(
             progress_sessions.c.profile_id == profile_id,
-            progress_sessions.c.mode.notin_(["quiz", "replay"]),
+            progress_sessions.c.mode.notin_(["quiz", "replay", "exam"]),
             progress_events.c.kind.in_(["attempt", "self_marked"]),
             progress_events.c.problem_id.in_(list(wanted)),
         )
@@ -216,8 +219,10 @@ def first_try_solved_problem_ids(
 
 def compute_streak(conn: Any, profile_id: str, today: date) -> int:
     """Days in a row (Asia/Ho_Chi_Minh calendar dates), ending today or yesterday, with at
-    least one completed, non-`replay`-mode Session (AD-6 excludes `replay` from every
-    derived metric).
+    least one completed, non-`replay`/non-`exam`-mode Session (AD-6 excludes `replay` from
+    every derived metric; Story 8.1 extends the same exclusion to `exam` -- a pure
+    assessment Session contributes NOTHING to the Streak, same as it awards zero Stars and
+    adds zero Retry Queue rows).
 
     "Still alive" boundary (implementer's call, documented per the spec's own note): a
     Streak survives a day with nothing completed YET -- it counts backward from today if
@@ -229,7 +234,7 @@ def compute_streak(conn: Any, profile_id: str, today: date) -> int:
     rows = conn.execute(
         select(progress_sessions.c.completed_at).where(
             progress_sessions.c.profile_id == profile_id,
-            progress_sessions.c.mode != "replay",
+            progress_sessions.c.mode.notin_(("replay", "exam")),
             progress_sessions.c.completed_at.isnot(None),
         )
     )

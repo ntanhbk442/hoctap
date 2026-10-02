@@ -6,6 +6,7 @@ import { useOutboxAutoFlush } from './offline/useOutboxAutoFlush.ts'
 import Assignments from './pages/Assignments.tsx'
 import Badges from './pages/Badges.tsx'
 import Dashboard from './pages/Dashboard.tsx'
+import ExamStart from './pages/ExamStart.tsx'
 import ExtractionPage from './pages/ExtractionPage.tsx'
 import Home from './pages/Home.tsx'
 import LessonDetail from './pages/LessonDetail.tsx'
@@ -26,6 +27,7 @@ const routes = [
   { path: '/setup', element: <Setup /> },
   { path: '/library', element: <Library /> },
   { path: '/library/:bookId/:unitKey/:lessonKey', element: <LessonDetail /> },
+  { path: '/exam/new', element: <ExamStart /> },
   { path: '/badges', element: <Badges /> },
   { path: '/sessions/:sessionId', element: <SessionPlayer /> },
   { path: '/parent/login', element: <ParentLogin /> },

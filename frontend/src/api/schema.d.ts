@@ -1140,16 +1140,30 @@ export interface components {
              */
             enough_problems: boolean;
         };
+        /**
+         * AssignmentExamIn
+         * @description Story 8.1: the exam-assign payload, the SAME scope/count/time_limit_s shape
+         *     `api.sessions.ExamRefIn` uses for an on-demand exam (one picker, both flows).
+         */
+        AssignmentExamIn: {
+            /** Scope */
+            scope: components["schemas"]["ExamConceptScopeIn"] | components["schemas"]["ExamBookUnitScopeIn"] | components["schemas"]["ExamGradeScopeIn"];
+            /** Count */
+            count: number;
+            /** Time Limit S */
+            time_limit_s: number;
+        };
         /** AssignmentIn */
         AssignmentIn: {
             /** Profile Id */
             profile_id: string;
             /** Book Id */
-            book_id: string;
+            book_id?: string | null;
             /** Unit Key */
-            unit_key: string;
+            unit_key?: string | null;
             /** Lesson Key */
-            lesson_key: string;
+            lesson_key?: string | null;
+            exam?: components["schemas"]["AssignmentExamIn"] | null;
             /**
              * Assigned Date
              * Format: date
@@ -1162,12 +1176,14 @@ export interface components {
             id: string;
             /** Profile Id */
             profile_id: string;
+            /** Ref Kind */
+            ref_kind: string;
             /** Book Id */
-            book_id: string;
+            book_id?: string | null;
             /** Unit Key */
-            unit_key: string;
+            unit_key?: string | null;
             /** Lesson Key */
-            lesson_key: string;
+            lesson_key?: string | null;
             /** Assigned Date */
             assigned_date: string;
             /** Status */
@@ -1186,6 +1202,14 @@ export interface components {
             lesson_label: string;
             /** Lesson Title */
             lesson_title: string;
+            /** Exam Scope */
+            exam_scope?: {
+                [key: string]: unknown;
+            } | null;
+            /** Exam Count */
+            exam_count?: number | null;
+            /** Exam Time Limit S */
+            exam_time_limit_s?: number | null;
             /**
              * Resolvable
              * @default true
@@ -1245,6 +1269,13 @@ export interface components {
              * @default
              */
             db_epoch: string;
+            /**
+             * Started At
+             * @default
+             */
+            started_at: string;
+            /** Time Limit S */
+            time_limit_s?: number | null;
         };
         /** BundleProblemOut */
         BundleProblemOut: {
@@ -1896,11 +1927,80 @@ export interface components {
             quiz_results?: components["schemas"]["QuizResultOut"][] | null;
             /** Quiz Stars Awarded */
             quiz_stars_awarded?: boolean | null;
+            /** Exam Results */
+            exam_results?: components["schemas"]["ExamResultOut"][] | null;
             /**
              * Db Epoch
              * @default
              */
             db_epoch: string;
+        };
+        /** ExamBookUnitScopeIn */
+        ExamBookUnitScopeIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "book_unit";
+            /** Book Id */
+            book_id: string;
+            /** Unit Keys */
+            unit_keys?: string[] | null;
+        };
+        /** ExamConceptScopeIn */
+        ExamConceptScopeIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "concept";
+            /** Concept Ids */
+            concept_ids: string[];
+        };
+        /** ExamGradeScopeIn */
+        ExamGradeScopeIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "grade";
+        };
+        /**
+         * ExamRefIn
+         * @description Story 8.1: a timed practice exam -- the SAME shape a parent-assign flow and a
+         *     child's on-demand picker both post (Anh's explicit call: one picker, not two). Also
+         *     reused, with `assignment_id` set, to start an ALREADY-assigned exam (the client echoes
+         *     back the scope/count/time_limit_s `GET /library/home` handed it for that Assignment's
+         *     card) -- `check_startable()` verifies it actually matches via `ref_key()` equality.
+         */
+        ExamRefIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "exam";
+            /** Scope */
+            scope: components["schemas"]["ExamConceptScopeIn"] | components["schemas"]["ExamBookUnitScopeIn"] | components["schemas"]["ExamGradeScopeIn"];
+            /** Count */
+            count: number;
+            /** Time Limit S */
+            time_limit_s: number;
+        };
+        /**
+         * ExamResultOut
+         * @description One Problem's verdict in an `exam_submitted` response: ✔ (`correct`) or ↻, and, for
+         *     ↻ only, the Solutions of the Parts that were not right. No `stars` field (unlike
+         *     `QuizResultOut`) -- exam mode never awards Stars, so there is nothing to report here.
+         */
+        ExamResultOut: {
+            /** Problem Id */
+            problem_id: string;
+            /** Display Label */
+            display_label: string;
+            /** Correct */
+            correct: boolean;
+            /** Solutions */
+            solutions: components["schemas"]["QuizPartSolution"][];
         };
         /**
          * ExpressionEntry
@@ -2433,11 +2533,21 @@ export interface components {
          * HomeAssignmentOut
          * @description Story 4.3's "Bài hôm nay" card. `session_id` is the unfinished linked Session to
          *     resume (set only while `status == "doing"`); otherwise the card starts one from the
-         *     Lesson, linked by `id`.
+         *     Lesson (or, Story 8.1, the exam), linked by `id`.
+         *
+         *     `ref_kind == "exam"`: `book_id`/`unit_key`/`lesson_key`/`book_title_vi`/`unit_label`/
+         *     `lesson_label`/`lesson_title` are all empty strings (there IS no Lesson); the child
+         *     instead reads `exam_scope`/`exam_count`/`exam_time_limit_s` and echoes them straight
+         *     back as `POST /sessions`' `ExamRefIn` (plus `assignment_id=id`) to start it.
          */
         HomeAssignmentOut: {
             /** Id */
             id: string;
+            /**
+             * Ref Kind
+             * @default lesson
+             */
+            ref_kind: string;
             /** Book Id */
             book_id: string;
             /** Book Title Vi */
@@ -2465,6 +2575,14 @@ export interface components {
              * @default false
              */
             carried_over: boolean;
+            /** Exam Scope */
+            exam_scope?: {
+                [key: string]: unknown;
+            } | null;
+            /** Exam Count */
+            exam_count?: number | null;
+            /** Exam Time Limit S */
+            exam_time_limit_s?: number | null;
         };
         /** HomeLessonOut */
         HomeLessonOut: {
@@ -3228,6 +3346,11 @@ export interface components {
              * @default true
              */
             auto_play: boolean;
+            /**
+             * Exams Enabled
+             * @default false
+             */
+            exams_enabled: boolean;
         };
         /** ProfileIn */
         ProfileIn: {
@@ -3254,6 +3377,8 @@ export interface components {
             grade?: number | null;
             /** Auto Play */
             auto_play?: boolean | null;
+            /** Exams Enabled */
+            exams_enabled?: boolean | null;
         };
         /** ProposalOut */
         ProposalOut: {
@@ -3556,6 +3681,8 @@ export interface components {
              * @default
              */
             db_epoch: string;
+            /** Time Limit S */
+            time_limit_s?: number | null;
         };
         /** SessionStatus */
         SessionStatus: {
@@ -3761,9 +3888,9 @@ export interface components {
             /** Profile Id */
             profile_id: string;
             /** Ref */
-            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"] | components["schemas"]["RetryRefIn"] | components["schemas"]["ConceptRefIn"];
+            ref: components["schemas"]["LessonRefIn"] | components["schemas"]["ReplayRefIn"] | components["schemas"]["RetryRefIn"] | components["schemas"]["ConceptRefIn"] | components["schemas"]["ExamRefIn"];
             /** Mode */
-            mode?: ("practice" | "replay" | "retry" | "concept") | null;
+            mode?: ("practice" | "replay" | "retry" | "concept" | "exam") | null;
             /** Assignment Id */
             assignment_id?: string | null;
         };
@@ -6452,6 +6579,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description EXAMS_DISABLED */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unknown profile or Assignment */

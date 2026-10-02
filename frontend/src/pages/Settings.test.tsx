@@ -88,6 +88,22 @@ describe('Settings', () => {
     await waitFor(() => expect(bodyOf(fetchMock, 'PATCH')).toEqual({ auto_play: false }))
   })
 
+  it('toggles exams_enabled for one child (Story 8.1)', async () => {
+    const fetchMock = mockApi({
+      'GET /api/v1/parent/session': SESSION,
+      'GET /api/v1/profiles': { status: 200, body: [{ ...P1, exams_enabled: false }, P2] },
+      'PATCH /api/v1/profiles/p1': {
+        status: 200,
+        body: { ...P1, exams_enabled: true },
+      },
+    })
+    renderAt('/parent/settings', <Settings />)
+    fireEvent.click(
+      await screen.findByLabelText('Cho phép Bin làm đề kiểm tra có đếm giờ'),
+    )
+    await waitFor(() => expect(bodyOf(fetchMock, 'PATCH')).toEqual({ exams_enabled: true }))
+  })
+
   it('names the child in the delete confirmation and removes on confirm', async () => {
     const fetchMock = mockApi({
       'GET /api/v1/parent/session': SESSION,

@@ -119,6 +119,16 @@ function ProfileItem({ profile, canDelete }: { profile: Profile; canDelete: bool
     update.mutate({ id: profile.id, body: { auto_play: next } }, { onError: (e) => setError(errorMessage(e)) })
   }
 
+  // Story 8.1: gates every exam entry point (parent-assigned and child-on-demand) for this
+  // Profile -- same shape as `auto_play`'s own toggle, defaults off.
+  function toggleExamsEnabled(next: boolean) {
+    setError(null)
+    update.mutate(
+      { id: profile.id, body: { exams_enabled: next } },
+      { onError: (e) => setError(errorMessage(e)) },
+    )
+  }
+
   function confirmDelete() {
     setError(null)
     remove.mutate(profile.id, { onError: (e) => setError(errorMessage(e)) })
@@ -141,6 +151,16 @@ function ProfileItem({ profile, canDelete }: { profile: Profile; canDelete: bool
           onChange={(e) => toggleAutoPlay(e.target.checked)}
         />
         Tự động đọc đề của {profile.name}
+      </label>
+
+      <label className="settings-row">
+        <input
+          type="checkbox"
+          checked={profile.exams_enabled}
+          disabled={update.isPending}
+          onChange={(e) => toggleExamsEnabled(e.target.checked)}
+        />
+        Cho phép {profile.name} làm đề kiểm tra có đếm giờ
       </label>
 
       {editing ? (

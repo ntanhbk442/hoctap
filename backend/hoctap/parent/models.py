@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, Column, Integer, MetaData, Table, Text, true
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    false,
+    true,
+)
 
 metadata = MetaData()
 
@@ -36,5 +46,11 @@ parent_profiles = Table(
     # existing and new Profile -- no Parent-Area toggle ships with this story (see
     # spec-2-9's Boundaries & Constraints / deferred-work.md).
     Column("auto_play", Boolean, nullable=False, server_default=true()),
+    # Story 8.1: gates every exam entry point (parent-assigned and child-on-demand) for
+    # this Profile. Default off -- a parent must opt a Profile in before any exam entry
+    # point appears, the same off-by-default posture `auto_play` never needed (that one
+    # defaults ON) but `exams_enabled` explicitly does, since exam mode's real countdown is
+    # a deliberate departure from this app's own "no timers on child screens" rule.
+    Column("exams_enabled", Boolean, nullable=False, server_default=false()),
     CheckConstraint("grade BETWEEN 1 AND 5", name="ck_parent_profiles_grade"),
 )

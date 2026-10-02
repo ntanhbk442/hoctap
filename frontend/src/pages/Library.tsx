@@ -62,6 +62,16 @@ export default function Library() {
     <main className="home library">
       <h1>Sách</h1>
 
+      {/* Story 8.1: the on-demand exam entry point -- gated on `exams_enabled` (a parent
+       * must turn it on per Child Profile; off by default), never shown at all otherwise. */}
+      {current.exams_enabled && (
+        <p>
+          <Link to="/exam/new" className="library-exam-entry">
+            📝 {phrase('exam_entry_point')}
+          </Link>
+        </p>
+      )}
+
       <div className="library-tabs" role="tablist">
         <button
           type="button"

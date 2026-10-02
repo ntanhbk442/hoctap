@@ -61,6 +61,8 @@ class ProfilePatch(BaseModel):
     avatar: Avatar | None = None
     grade: int | None = Field(default=None, ge=1, le=5)
     auto_play: bool | None = None
+    # Story 8.1: per-Profile exam gate, same shape as `auto_play`.
+    exams_enabled: bool | None = None
 
     @field_validator("name")
     @classmethod
@@ -69,7 +71,7 @@ class ProfilePatch(BaseModel):
 
     @model_validator(mode="after")
     def _not_null(self) -> ProfilePatch:
-        for field in ("name", "avatar", "grade", "auto_play"):
+        for field in ("name", "avatar", "grade", "auto_play", "exams_enabled"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
@@ -91,6 +93,9 @@ class Profile(BaseModel):
     # Story 2.9: whether a Problem's instruction auto-plays on open. Defaults on; no
     # Parent-Area control ships with this story.
     auto_play: bool = True
+    # Story 8.1: gates every exam entry point (parent-assigned and child-on-demand) for
+    # this Profile. Defaults off -- an explicit per-Profile opt-in.
+    exams_enabled: bool = False
 
 
 class SetupStatus(BaseModel):

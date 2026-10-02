@@ -859,3 +859,83 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
     })
   })
 })
+
+describe('SessionPlayer exam mode (Story 8.1)', () => {
+  const EXAM_EVENT = {
+    id: 'e1',
+    session_id: 'session-1',
+    kind: 'attempt',
+    problem_id: PROBLEM.problem_id,
+    occurred_at: 'x',
+    received_at: 'x',
+    exam_results: [
+      {
+        problem_id: PROBLEM.problem_id,
+        display_label: 'Bài 1',
+        correct: false,
+        solutions: [{ part_key: 'a', solution: { steps: ['3 + 2 = 5'] } }],
+      },
+    ],
+  }
+
+  function mockExam(overrides: Partial<Record<string, unknown>> = {}) {
+    return mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({
+          mode: 'exam',
+          // Started "now" (not a fixed past date) so the countdown has real time left --
+          // this test is about mid-play behaviour, not the timeout itself (see the
+          // dedicated "auto-submits when the countdown reaches zero" test below).
+          started_at: new Date().toISOString(),
+          time_limit_s: 600,
+          ...overrides,
+        }),
+      },
+      'POST /api/v1/sessions/session-1/events': { status: 201, body: [EXAM_EVENT] },
+    })
+  }
+
+  it('shows only "Đã lưu" during play, then the exam results -- never the Stars/Streak summary', async () => {
+    const fetchMock = mockExam()
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    expect(screen.getByTestId('exam-countdown')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
+    expect(await screen.findByText('Đã lưu')).toBeInTheDocument()
+    expect(screen.queryByText(/Đúng rồi|Chưa đúng|Sai/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /gợi ý|💡/i })).not.toBeInTheDocument()
+
+    expect(await screen.findByTestId('exam-results', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByTestId('exam-result-retry')).toHaveTextContent('↻')
+    expect(screen.getByText('3 + 2 = 5')).toBeInTheDocument()
+    // Story 8.1: zero Stars, zero Streak -- the generic summary screen never shows for exam.
+    expect(screen.queryByTestId('stars-earned')).not.toBeInTheDocument()
+    expect(screen.queryByText(/liên tiếp!/)).not.toBeInTheDocument()
+
+    const kinds = fetchMock.mock.calls
+      .filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+      .flatMap(([, init]) => JSON.parse((init as RequestInit).body as string).events)
+      .map((e: { kind: string }) => e.kind)
+    expect(kinds).toEqual(['attempt', 'exam_submitted', 'session_completed'])
+  })
+
+  it('auto-submits when the countdown reaches zero, even with Problems unanswered', async () => {
+    const fetchMock = mockExam({
+      // Already overdue at mount -- the countdown's very first tick fires `onExpire()`.
+      started_at: '2020-01-01T00:00:00.000000+00:00',
+      time_limit_s: 1,
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByTestId('exam-results', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByTestId('exam-result-retry')).toBeInTheDocument()
+    const kinds = fetchMock.mock.calls
+      .filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+      .flatMap(([, init]) => JSON.parse((init as RequestInit).body as string).events)
+      .map((e: { kind: string }) => e.kind)
+    // No `attempt` at all -- the child never answered before time ran out.
+    expect(kinds).toEqual(['exam_submitted', 'session_completed'])
+  })
+})

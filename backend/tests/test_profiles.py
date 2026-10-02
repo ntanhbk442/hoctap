@@ -76,8 +76,20 @@ def test_patch_profile(client: TestClient) -> None:
     assert resp.status_code == 200
     assert resp.json() == {
         "id": pid, "name": "Bin B", "avatar": "cat", "grade": 1, "auto_play": False,
+        "exams_enabled": False,
     }  # fmt: skip
     assert client.get(f"{API}/profiles").json()[0]["auto_play"] is False
+
+
+def test_patch_profile_exams_enabled(client: TestClient) -> None:
+    """Story 8.1: the per-Profile exam gate toggles the same shape `auto_play` already
+    does, defaults off."""
+    pid = _ids(client)[0]
+    assert client.get(f"{API}/profiles").json()[0]["exams_enabled"] is False
+    resp = client.patch(f"{API}/profiles/{pid}", json={"exams_enabled": True})
+    assert resp.status_code == 200
+    assert resp.json()["exams_enabled"] is True
+    assert client.get(f"{API}/profiles").json()[0]["exams_enabled"] is True
 
 
 def test_patch_errors(client: TestClient) -> None:

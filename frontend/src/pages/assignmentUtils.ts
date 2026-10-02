@@ -35,6 +35,22 @@ export function statusText(a: Pick<AssignmentOut, 'status' | 'part' | 'part_coun
  * plain-language reason to delete it or fix/unhide the Lesson's content, instead of just
  * seeing "Chưa làm" forever with no clue why Bin never seems to get it.
  */
+/** Story 8.1: a short Vietnamese description of an exam Assignment's scope, for the
+ * Dashboard/parent Assignment list (`AssignmentOut.exam_scope`'s plain JSON shape). */
+export function examScopeText(scope: Record<string, unknown> | null | undefined): string {
+  if (!scope) return 'không rõ phạm vi'
+  if (scope.kind === 'grade') return 'cả lớp học'
+  if (scope.kind === 'book_unit') {
+    const unitKeys = scope.unit_keys as string[] | null
+    return unitKeys && unitKeys.length > 0 ? `${unitKeys.length} tuần/bài` : 'cả sách'
+  }
+  if (scope.kind === 'concept') {
+    const ids = (scope.concept_ids as string[] | undefined) ?? []
+    return `${ids.length} khái niệm`
+  }
+  return 'không rõ phạm vi'
+}
+
 export function unavailableNote(
   a: Pick<AssignmentOut, 'status' | 'resolvable'>,
 ): string | null {

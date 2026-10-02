@@ -27,7 +27,14 @@ from hoctap.learning import assignments
 from hoctap.learning.badges import maybe_award_badges
 from hoctap.learning.graders import grade_part
 from hoctap.learning.models import progress_events, progress_sessions, progress_stars
-from hoctap.learning.problem_sets import CHUNK_SIZE, LessonRef, ProblemSetRef, ref_key, resolve
+from hoctap.learning.problem_sets import (
+    CHUNK_SIZE,
+    ExamRef,
+    LessonRef,
+    ProblemSetRef,
+    ref_key,
+    resolve,
+)
 from hoctap.learning.retry import add_retry_item, device_time_iso, maybe_resolve_retry_item
 from hoctap.learning.scoring import (
     STAR_AWARDING_MODES,
@@ -49,12 +56,16 @@ EVENT_KINDS = frozenset(
         "fallback_revealed",
         "self_marked",
         "quiz_submitted",
+        "exam_submitted",
         "session_started",
         "session_completed",
     }
 )
 
-# Story 3.4: events that hand out help; none of them exist in quiz play.
+# Story 3.4: events that hand out help; none of them exist in quiz play. Story 8.1: exam
+# play has the IDENTICAL restriction (no Hint/Solution/self-mark until submitted), so this
+# same frozenset is reused as-is for `mode == "exam"` too -- see
+# `_validate_event_against_session()`.
 QUIZ_BLOCKED_KINDS = frozenset(
     {"hint_requested", "solution_shown", "fallback_revealed", "self_marked"}
 )
@@ -74,6 +85,10 @@ class SessionOut:
     chunk_size: int
     mode: str
     started_at: str
+    # Story 8.1: set only for `mode == "exam"` -- the frontend computes the remaining time
+    # from `started_at + time_limit_s`, never its own client-side countdown anchor, so a
+    # closed-and-reopened tablet mid-exam shows the real remaining time.
+    time_limit_s: int | None = None
 
 
 def start_session(
@@ -106,15 +121,27 @@ def start_session(
     stops being "unfinished" and drops out of `find_unfinished_session()` without being
     backdated to some earlier, arbitrary time.
     """
-    profile_exists = conn.execute(
-        select(parent_profiles.c.id).where(parent_profiles.c.id == profile_id)
-    ).scalar_one_or_none()
-    if profile_exists is None:
+    profile_row = conn.execute(
+        select(parent_profiles.c.id, parent_profiles.c.exams_enabled).where(
+            parent_profiles.c.id == profile_id
+        )
+    ).one_or_none()
+    if profile_row is None:
         raise AppError(404, "PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ.")
 
+    if isinstance(ref, ExamRef) and not profile_row.exams_enabled:
+        # Story 8.1: `exams_enabled` gates every exam entry point -- parent-assigned AND
+        # child-on-demand alike. Checked here (not only at the API layer) since this is the
+        # ONE function both entry points funnel through to actually create the Session.
+        raise AppError(
+            403,
+            "EXAMS_DISABLED",
+            "Tính năng đề kiểm tra chưa được bật cho hồ sơ này.",
+        )
+
     if assignment_id is not None:
-        # Story 4.3: only a Lesson ref can carry an Assignment.
-        if not isinstance(ref, LessonRef):
+        # Story 4.3/8.1: only a Lesson ref or an exam ref can carry an Assignment.
+        if not isinstance(ref, LessonRef | ExamRef):
             raise AppError(422, "ASSIGNMENT_REF_MISMATCH", "Bài học không khớp với bài được giao.")
         assignments.check_startable(conn, assignment_id, profile_id, ref)
 
@@ -128,6 +155,7 @@ def start_session(
 
     session_id = new_id()
     started_at = to_iso(now)
+    time_limit_s = ref.time_limit_s if isinstance(ref, ExamRef) else None
     # Review Triage Log #12: abandon any prior unfinished Session for this Profile before
     # starting this new one -- see this function's own docstring for the reasoning.
     conn.execute(
@@ -150,6 +178,7 @@ def start_session(
             started_at=started_at,
             completed_at=None,
             assignment_id=assignment_id,
+            time_limit_s=time_limit_s,
         )
     )
     conn.execute(
@@ -172,6 +201,7 @@ def start_session(
         chunk_size=CHUNK_SIZE,
         mode=mode,
         started_at=started_at,
+        time_limit_s=time_limit_s,
     )
 
 
@@ -248,6 +278,13 @@ class BundleOut:
     chunk_label: str
     mode: str = "practice"
     problems: list[BundleProblem] = field(default_factory=list)
+    # Story 8.1: the Session's own `started_at`/`time_limit_s` (set only for `mode ==
+    # "exam"`) -- surfaced on the BUNDLE, not just `SessionOut`'s one-time start response,
+    # because reopening a closed tablet mid-exam re-fetches the bundle, never the original
+    # start response. The frontend computes remaining time from these two fields alone, so
+    # a closed-and-reopened tablet shows the real remaining time, never a reset countdown.
+    started_at: str = ""
+    time_limit_s: int | None = None
 
 
 def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> BundleOut:
@@ -286,9 +323,10 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
             graded_keys[problem_id] = {
                 p.part_key for p in doc.parts if not isinstance(p, FallbackPart)
             }
-    if slice_ids and session.mode == "quiz":
-        # Story 3.4: a quiz resumes from its own answers; an earlier Session's attempts
-        # at the same Problems must not make a retake look already answered.
+    if slice_ids and session.mode in ("quiz", "exam"):
+        # Story 3.4 (quiz) / 8.1 (exam): both resume from THIS Session's own answers only
+        # -- an earlier Session's attempts at the same Problems must not make a retake (or
+        # a fresh exam draw that happens to repeat a Problem) look already answered.
         rows = conn.execute(
             select(progress_events.c.problem_id, progress_events.c.payload_json).where(
                 progress_events.c.profile_id == session.profile_id,
@@ -320,7 +358,7 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
     # otherwise a Problem is done once each graded Part has a correct attempt or one that
     # released the Solution here, and a fallback Problem once it has been self-marked.
     done_ids: set[str] = set()
-    if session.mode == "quiz":
+    if session.mode in ("quiz", "exam"):
         done_ids = set(attempted_ids)
     elif slice_ids:
         done_parts: dict[str, set[str]] = {}
@@ -384,6 +422,8 @@ def get_bundle(conn: Any, session_id: str, profile_id: str, chunk: int) -> Bundl
         chunk_label=f"Phần {chunk}/{chunk_count}",
         mode=session.mode,
         problems=problems,
+        started_at=session.started_at,
+        time_limit_s=session.time_limit_s,
     )
 
 
@@ -414,23 +454,31 @@ class EventOut:
     # Story 3.4: only on `quiz_submitted`, read back from its stored payload.
     quiz_results: list[dict[str, Any]] | None = None
     quiz_stars_awarded: bool | None = None
+    # Story 8.1: only on `exam_submitted`, read back from its stored payload. No
+    # `exam_stars_awarded` twin -- exam mode NEVER awards Stars (this story's whole point),
+    # so there is nothing equivalent to `quiz_stars_awarded`'s "was this a no-op retake?".
+    exam_results: list[dict[str, Any]] | None = None
 
 
 def _row_to_event_out(row: Any) -> EventOut:
     correct = wrong_keys = hint = solution = None
     quiz_results = quiz_stars_awarded = None
+    exam_results = None
     if row.kind == "quiz_submitted":
         stored = json.loads(row.payload_json)
         quiz_results = stored.get("results")
         quiz_stars_awarded = stored.get("stars_awarded")
+    elif row.kind == "exam_submitted":
+        stored = json.loads(row.payload_json)
+        exam_results = stored.get("results")
     # `fallback_revealed` (Story 2.8) reuses the same "solution" response field an
     # `attempt` uses -- see `_fallback_solution()`'s docstring for why the child_view
     # bundle can never carry it instead.
     if row.kind in ("attempt", "fallback_revealed"):
         payload = json.loads(row.payload_json)
-        # Story 3.4: a quiz `attempt` keeps its verdict in the stored payload (for grading
-        # at `quiz_submitted`) but exposes none of it.
-        if not payload.get("quiz"):
+        # Story 3.4/8.1: a quiz/exam `attempt` keeps its verdict in the stored payload (for
+        # grading at `quiz_submitted`/`exam_submitted`) but exposes none of it.
+        if not (payload.get("quiz") or payload.get("exam")):
             correct = payload.get("correct")
             wrong_keys = payload.get("wrong_keys")
             hint = payload.get("hint")
@@ -448,6 +496,7 @@ def _row_to_event_out(row: Any) -> EventOut:
         solution=solution,
         quiz_results=quiz_results,
         quiz_stars_awarded=quiz_stars_awarded,
+        exam_results=exam_results,
     )
 
 
@@ -459,10 +508,14 @@ def _validate_event_against_session(session_row: Any, event: EventIn) -> None:
     up afterward."""
     if event.kind not in EVENT_KINDS:
         raise AppError(422, "INVALID_EVENT_KIND", "Loại sự kiện không hợp lệ.")
-    if session_row.mode == "quiz" and event.kind in QUIZ_BLOCKED_KINDS:
+    # Story 8.1: exam play has the IDENTICAL no-feedback-until-submit restriction quiz play
+    # already has -- same error code, reused as-is (see `QUIZ_BLOCKED_KINDS`'s own comment).
+    if session_row.mode in ("quiz", "exam") and event.kind in QUIZ_BLOCKED_KINDS:
         raise AppError(422, "NOT_ALLOWED_IN_QUIZ", "Bài kiểm tra không có gợi ý hay đáp án.")
     if event.kind == "quiz_submitted" and session_row.mode != "quiz":
         raise AppError(422, "NOT_A_QUIZ_SESSION", "Lượt học này không phải bài kiểm tra.")
+    if event.kind == "exam_submitted" and session_row.mode != "exam":
+        raise AppError(422, "NOT_AN_EXAM_SESSION", "Lượt học này không phải đề kiểm tra.")
     if event.problem_id is not None:
         problem_ids = json.loads(session_row.problem_ids_json)
         if event.problem_id not in problem_ids:
@@ -644,12 +697,15 @@ def _grade_and_stage(
     payload = dict(payload)
     payload["correct"] = result.correct
     payload["wrong_keys"] = result.wrong_keys
-    if mode == "quiz":
-        # Story 3.4: stored for grading at `quiz_submitted`, never released: no Hint, no
-        # Solution, no Retry Queue row per attempt (that happens once, at submit).
+    if mode in ("quiz", "exam"):
+        # Story 3.4 (quiz) / 8.1 (exam): stored for grading at `quiz_submitted`/
+        # `exam_submitted`, never released: no Hint, no Solution, no Retry Queue row per
+        # attempt (that happens once, at submit -- for exam, never at all). The stored
+        # `mode` flag (`"quiz"` or `"exam"`) is what `_row_to_event_out()` reads back to
+        # keep hiding the verdict on a resent/re-fetched event.
         payload["hint"] = None
         payload["solution"] = None
-        payload["quiz"] = True
+        payload[mode] = True
         return payload
     hint: str | None = None
     solution: dict[str, Any] | None = None
@@ -728,6 +784,71 @@ def _quiz_submitted(conn: Any, session_id: str) -> bool:
         ).first()
         is not None
     )
+
+
+def _exam_submitted(conn: Any, session_id: str) -> bool:
+    return (
+        conn.execute(
+            select(progress_events.c.id)
+            .where(
+                progress_events.c.session_id == session_id,
+                progress_events.c.kind == "exam_submitted",
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def _grade_exam(conn: Any, session_id: str, problem_ids: list[str]) -> dict[str, Any]:
+    """Story 8.1: grades a whole exam Session at `exam_submitted`, inside `post_event()`'s
+    SAVEPOINT -- every Problem gets a ✔/↻ verdict and Solutions for the wrong Parts.
+    Reuses `learning.scoring`'s mode-agnostic `compute_quiz_stars()`/`quiz_part_verdicts()`
+    as-is: both only ever read this Session's own stored `attempt` events for a Problem,
+    never caring which mode wrote them -- an exam `attempt` is stored in the exact same
+    shape a quiz `attempt` is, via `_grade_and_stage()`'s shared `mode in ("quiz", "exam")`
+    branch, so "every graded Part's first stored attempt was correct" means the same thing
+    in both modes.
+
+    Deliberately the STRICT SUBSET of `_grade_quiz()` this story's Design Notes describe:
+    no `award_quiz_stars()` call (zero Stars, ever, per `STAR_AWARDING_MODES` excluding
+    `exam` by construction), no `add_retry_item()` call (zero Retry Queue rows, ever) --
+    grading happens, nothing is rewarded or queued."""
+    results: list[dict[str, Any]] = []
+    for problem_id in problem_ids:
+        try:
+            state = load_one(conn, problem_id)
+        except ProblemNotFound:
+            continue  # same skip as `get_bundle()`/`_grade_quiz()`: the child never saw it
+        doc = state.doc
+        if doc is None:
+            continue
+        parts = list(doc.parts)
+        fallback = any(isinstance(p, FallbackPart) for p in parts)
+        # A `fallback` Problem is never graded in an exam either -- same as quiz
+        # (`compute_quiz_stars()`'s own docstring); it always shows as ↻ with no Solutions
+        # singled out below (its Parts have no `solution` worth listing per-Part here).
+        correct = compute_quiz_stars(conn, session_id, problem_id) == 3
+        solutions: list[dict[str, Any]] = []
+        if not correct and not fallback:
+            by_part = quiz_part_verdicts(
+                conn, session_id, problem_id, [p.part_key for p in parts]
+            )
+            wrong_keys = [k for k, ok in by_part.items() if not ok]
+            solutions = [
+                {"part_key": p.part_key, "solution": p.solution.model_dump(mode="json")}
+                for p in parts
+                if p.part_key in wrong_keys
+            ]
+        results.append(
+            {
+                "problem_id": problem_id,
+                "display_label": child_view(doc).display_label,
+                "correct": correct,
+                "solutions": solutions,
+            }
+        )
+    return {"results": results}
 
 
 def _grade_quiz(
@@ -867,14 +988,15 @@ def post_event(
             )
         return _row_to_event_out(already_stored)
 
-    if event.kind == "quiz_submitted":
-        # Story 3.4: grading runs once per Session -- a second submit (new id) returns the
-        # stored result, with no new Stars or Retry Queue rows.
+    if event.kind in ("quiz_submitted", "exam_submitted"):
+        # Story 3.4/8.1: grading runs once per Session -- a second submit (new id) returns
+        # the stored result, never re-grading (and, for quiz, never awarding new Stars or
+        # Retry Queue rows a second time -- for exam there is never anything to award).
         first_submit = conn.execute(
             select(progress_events)
             .where(
                 progress_events.c.session_id == session_id,
-                progress_events.c.kind == "quiz_submitted",
+                progress_events.c.kind == event.kind,
             )
             .order_by(text("progress_events.rowid ASC"))
             .limit(1)
@@ -911,12 +1033,23 @@ def post_event(
                     profile_id,
                     json.loads(session.problem_ids_json),
                 )
+            elif event.kind == "exam_submitted":
+                # Story 8.1: unlike quiz's `_grade_quiz()`, no `received_at`/`submitted_at`/
+                # `profile_id` needed -- nothing here ever touches Stars or the Retry Queue,
+                # so there's no awarding clock to thread through.
+                payload = _grade_exam(conn, session_id, json.loads(session.problem_ids_json))
             elif event.kind == "session_completed":
                 if mode == "quiz" and not _quiz_submitted(conn, session_id):
                     raise AppError(
                         422,
                         "QUIZ_NOT_SUBMITTED",
                         "Bài kiểm tra chưa được nộp.",
+                    )
+                if mode == "exam" and not _exam_submitted(conn, session_id):
+                    raise AppError(
+                        422,
+                        "EXAM_NOT_SUBMITTED",
+                        "Đề kiểm tra chưa được nộp.",
                     )
                 # Review Triage Log #1 (2026-09-29, high): the `already_stored` check
                 # above only catches a literal RESEND of the same event id. A second,

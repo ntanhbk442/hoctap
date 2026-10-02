@@ -433,7 +433,14 @@ def test_profiles(client: TestClient) -> None:
     resp = client.get("/api/v1/profiles")  # no auth needed
     assert resp.status_code == 200
     assert resp.json() == [
-        {"id": created["id"], "name": "Bin", "avatar": "cat", "grade": 1, "auto_play": True}
+        {
+            "id": created["id"],
+            "name": "Bin",
+            "avatar": "cat",
+            "grade": 1,
+            "auto_play": True,
+            "exams_enabled": False,
+        }
     ]
 
 

@@ -131,6 +131,7 @@ describe("Dashboard", () => {
   it("lists Assignment statuses with the chunk of a started one", async () => {
     const base = {
       profile_id: "p1",
+      ref_kind: "lesson",
       book_id: "b",
       unit_key: "u",
       lesson_key: "l",
@@ -183,6 +184,7 @@ describe("Dashboard", () => {
             {
               id: "a1",
               profile_id: "p1",
+              ref_kind: "lesson",
               book_id: "b",
               unit_key: "u",
               lesson_key: "l",
