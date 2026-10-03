@@ -1,10 +1,11 @@
-import { Link, Navigate } from 'react-router'
+import { Navigate, useNavigate } from 'react-router'
 import type { BadgeKey } from '../api/client'
 import { errorMessage } from '../api/errors'
 import { useProfileBadges, useProfiles } from '../api/queries'
 import { phrase } from '../audio/phrases'
 import { speak } from '../audio/speech'
 import Badge from '../components/Badge/Badge'
+import ChildTopBar from '../components/ChildTopBar/ChildTopBar'
 import { getCurrentProfileId } from '../profile'
 
 // Fixed display order -- matches `progress_badges`'s own CHECK constraint/enum order
@@ -17,6 +18,7 @@ const BADGE_ORDER: BadgeKey[] = ['week1', 'streak7', 'stars100']
  * (this story's frozen Boundaries).
  */
 export default function Badges() {
+  const navigate = useNavigate()
   const profiles = useProfiles()
   const profileId = getCurrentProfileId()
   const list = profiles.data ?? []
@@ -26,6 +28,7 @@ export default function Badges() {
   if (profiles.isPending) {
     return (
       <main className="home">
+        <ChildTopBar onBack={() => navigate('/')} />
         <p>Đang tải…</p>
       </main>
     )
@@ -34,6 +37,7 @@ export default function Badges() {
   if (profiles.isError) {
     return (
       <main className="home">
+        <ChildTopBar onBack={() => navigate('/')} />
         <h1>{phrase('your_badges')}</h1>
         <p role="alert" className="form-error">
           {errorMessage(profiles.error)}
@@ -52,6 +56,7 @@ export default function Badges() {
 
   return (
     <main className="home">
+      <ChildTopBar onBack={() => navigate('/')} />
       <h1>{phrase('your_badges')}</h1>
 
       {badges.isPending && <p>Đang tải…</p>}
@@ -79,10 +84,6 @@ export default function Badges() {
           ))}
         </div>
       )}
-
-      <p className="parent-link">
-        <Link to="/">Về trang chủ</Link>
-      </p>
     </main>
   )
 }

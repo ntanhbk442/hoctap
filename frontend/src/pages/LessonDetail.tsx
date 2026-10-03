@@ -1,7 +1,8 @@
-import { Link, useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import { errorMessage } from '../api/errors'
 import { useLibraryBooks, useLibraryLesson, useProfiles, useStartSession } from '../api/queries'
 import { phrase } from '../audio/phrases'
+import ChildTopBar from '../components/ChildTopBar/ChildTopBar'
 import { getCurrentProfileId } from '../profile'
 
 /**
@@ -50,6 +51,7 @@ export default function LessonDetail() {
 
   return (
     <main className="home">
+      <ChildTopBar onBack={() => navigate('/library')} />
       <h1>Bài học</h1>
 
       {isQuiz && (
@@ -95,9 +97,6 @@ export default function LessonDetail() {
         </p>
       )}
 
-      <p className="parent-link">
-        <Link to="/library">Về Sách</Link>
-      </p>
     </main>
   )
 }

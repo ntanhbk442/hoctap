@@ -84,6 +84,14 @@ describe('SessionPlayer', () => {
     expect(screen.queryByText(/answer/i)).not.toBeInTheDocument()
   })
 
+  it('ChildTopBar\'s ⬅ back button goes to Library -- the same target the old "Về Sách" link had', async () => {
+    mockApi({ 'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() } })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Quay lại' }))
+    expect(await screen.findByText('library screen')).toBeInTheDocument()
+  })
+
   it('mounts the child FlagButton and posts the current Problem id with the profile id', async () => {
     const fetchMock = mockApi({
       'GET /api/v1/sessions/session-1/bundle': { status: 200, body: bundle() },
@@ -215,7 +223,9 @@ describe('SessionPlayer', () => {
     expect(screen.getByTestId('stars-earned')).toHaveTextContent('3')
     // Zero wrong Problems -- "Luyện lại bài sai" must not be shown.
     expect(screen.queryByRole('button', { name: 'Luyện lại bài sai' })).not.toBeInTheDocument()
-    expect(screen.getAllByText('Về Sách').length).toBeGreaterThan(0)
+    // Story 9.1: the old bottom "Về Sách" text link is gone -- the ChildTopBar's ⬅ back
+    // button (same target, `/library`) is the only way back now.
+    expect(screen.getByRole('button', { name: 'Quay lại' })).toBeInTheDocument()
   })
 
   it('pops a newly earned badge with fanfare + 🔊 on the summary screen (Story 3.2)', async () => {
@@ -380,6 +390,36 @@ describe('SessionPlayer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))
     expect(await screen.findByText('Bài 2', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByText('Bài 1')).not.toBeInTheDocument()
+  })
+
+  // Story 9.1: the ProgressDots gate used to be `isQuiz || isExam` only (Story 8.1) -- it
+  // now shows for EVERY mode once the current chunk has more than one Problem, matching
+  // EXPERIENCE.md's "top bar (back, progress dots, 🔊)" rule for every Session, not just
+  // quiz/exam.
+  it('shows progress dots (done/current/todo) in ordinary practice mode once the chunk has more than one Problem', async () => {
+    const problem2 = {
+      ...PROBLEM,
+      problem_id: 'toan1-2020-q1.tuan-5.tiet-2.bai-2',
+      problem_label: 'bai-2',
+      display_label: 'Bài 2',
+    }
+    mockApi({
+      'GET /api/v1/sessions/session-1/bundle': {
+        status: 200,
+        body: bundle({
+          problems: [
+            { ...bundle().problems[0], done_in_session: false },
+            { ...bundle().problems[0], problem: problem2, done_in_session: false },
+          ],
+        }),
+      },
+    })
+    renderAt(ROUTE, <SessionPlayer />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    const dots = screen.getByRole('list', { name: 'Tiến độ' })
+    expect(dots.querySelectorAll('.progress-dot-current')).toHaveLength(1)
+    expect(dots.querySelectorAll('.progress-dot-todo')).toHaveLength(1)
+    expect(dots.querySelectorAll('.progress-dot-done')).toHaveLength(0)
   })
 
   it('offers "Phần tiếp theo" instead of the Library link when a further chunk exists', async () => {
@@ -598,7 +638,10 @@ describe('SessionPlayer quiz mode (Story 3.4)', () => {
     const fetchMock = mockQuiz()
     renderAt(ROUTE, <SessionPlayer />, PATTERN)
     expect(await screen.findByText('Bài 1')).toBeInTheDocument()
-    expect(screen.getAllByRole('list', { name: 'Tiến độ' }).length).toBe(1)
+    // Story 9.1: the gate is now "more than one Problem in the chunk", for every mode --
+    // this quiz bundle has only 1 Problem, so no dots (there's nothing to show progress
+    // through); see the dedicated multi-Problem test below for dots actually rendering.
+    expect(screen.queryByRole('list', { name: 'Tiến độ' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Ô s1/ }))
     fireEvent.click(screen.getByRole('button', { name: '5' }))
     fireEvent.click(screen.getByRole('button', { name: 'Kiểm tra' }))

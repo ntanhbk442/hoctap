@@ -11,6 +11,19 @@ body {
   min-height: 100vh;
 }
 
+/* Story 9.1: the design system's own Nunito/warm-cream base (DESIGN.md's `font-body`/
+ * `surface-base` tokens) -- every CHILD screen should already be inheriting this, but it was
+ * never wired up (see spec-9-1's Intent). It's scoped to `.child-shell` (the wrapper
+ * `App.tsx` puts around every non-`/parent/*` route) rather than `:root`/`body` directly,
+ * because changing those globally would also repaint the Parent Area, which this story must
+ * leave visually unchanged. The Parent Area keeps inheriting the generic `:root` above. */
+.child-shell {
+  font-family: var(--font-body-family);
+  color: var(--color-ink-primary);
+  background-color: var(--color-surface-base);
+  min-height: 100vh;
+}
+
 .home {
   max-width: 40rem;
   margin: 0 auto;
@@ -64,11 +77,15 @@ body {
   margin: 0 0 1rem;
 }
 
+/* Story 9.1: `Badge` itself already matches `HomeCard`'s visual language (gold ring, round
+ * medal, chunky feel) -- only the grid around it needed polish, so earned/unearned badges
+ * read as a tidy centred row instead of a left-hung wrapped list. */
 .badges-grid {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-5, 1.5rem);
-  margin: 1.5rem 0;
+  margin: var(--space-6, 2rem) 0;
 }
 
 /* Profile Picker (Story 2.3) */
@@ -105,30 +122,66 @@ body {
   margin: 0.75rem 0;
 }
 
+/* Story 9.1: the Book title and Unit header now use the design tokens, matching the chunky
+ * cards below them instead of plain browser-default headings. */
+.library-book > h2 {
+  font-family: var(--font-instruction-family);
+  font-size: var(--font-instruction-size);
+  font-weight: var(--font-instruction-weight);
+  color: var(--color-ink-primary);
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.library-unit > h3 {
+  font-family: var(--font-label-family);
+  font-size: var(--font-label-size);
+  font-weight: var(--font-label-weight);
+  color: var(--color-ink-secondary);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
 .library-lesson-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-3);
 }
 
+/* Story 9.1: restyled to `HomeCard`'s own chunky-card treatment (same `--radius-lg` and
+ * physical-button bottom-edge shadow as `HomeCard.css`) instead of the old thin bordered
+ * list row -- reusing the existing visual language, not inventing a new one. */
 .library-lesson-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-3);
   width: 100%;
   font: inherit;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #d1d9e0;
-  border-radius: 6px;
-  background: #fff;
+  padding: var(--space-4) var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: 0 4px 0 0 var(--color-surface-sunken);
+  color: var(--color-ink-primary);
+  text-align: left;
   cursor: pointer;
 }
 
+.library-lesson-row:active {
+  box-shadow: none;
+  transform: translateY(4px);
+}
+
 .library-lesson-progress {
-  color: #59636e;
+  color: var(--color-ink-secondary);
+  white-space: nowrap;
+}
+
+.library-lesson-icon {
+  font-size: 1.25rem;
+  margin-right: var(--space-2);
 }
 
 .lesson-problem-list {

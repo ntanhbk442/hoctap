@@ -1,6 +1,6 @@
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import type { EventOut, ExamResultOut, QuizResultOut, SummaryOut } from '../api/client'
 import { ApiError } from '../api/client'
 import { errorMessage } from '../api/errors'
@@ -15,7 +15,8 @@ import { phrase } from '../audio/phrases'
 import { speak } from '../audio/speech'
 import Badge from '../components/Badge/Badge'
 import { badgeName } from '../components/Badge/badgeCopy'
-import ProgressDots, { type DotState } from '../components/ProgressDots/ProgressDots'
+import ChildTopBar from '../components/ChildTopBar/ChildTopBar'
+import type { DotState } from '../components/ProgressDots/ProgressDots'
 import SolutionPanel from '../components/SolutionPanel/SolutionPanel'
 import StarBurst from '../components/StarBurst/StarBurst'
 import { newEventId } from '../ids'
@@ -130,6 +131,27 @@ function SessionPlayerInner() {
   // chunk done) OR the countdown reaching zero, whichever comes first -- "no further input
   // accepted" applies the instant the clock runs out, even mid-chunk.
   const examEnd = isExam && (trueEnd || examTimedOut)
+
+  // Story 9.1: mirrors the exact guard the final branch of the big content ternary below
+  // uses to reach the active-Problem view (`ProblemPlayer` + what used to be the inline
+  // `(isQuiz || isExam) &&` `ProgressDots`) -- so the dots passed to `ChildTopBar` only ever
+  // show while a Problem is actually being played, never over a summary/results screen.
+  const displayingProblem =
+    !offline &&
+    problems.length > 0 &&
+    !(examEnd && !examSubmitted) &&
+    !(trueEnd && isQuiz && !quizSubmitted) &&
+    !(trueEnd || examEnd) &&
+    !chunkDone &&
+    !profiles.isPending
+  // Story 9.1: the gate used to be `isQuiz || isExam` (Story 8.1) -- this closes the real
+  // gap EXPERIENCE.md's "top bar (back, progress dots, 🔊)" always described: every mode
+  // shows progress dots once there's more than one Problem to show progress through, not
+  // only quiz/exam.
+  const sessionDots: DotState[] | undefined =
+    displayingProblem && problems.length > 1
+      ? problems.map((_, i): DotState => (i < problemIndex ? 'done' : i === problemIndex ? 'current' : 'todo'))
+      : undefined
 
   const postEvent = usePostEvent(sessionId)
   const summary = useSessionSummary(sessionId, profileId, completedPosted)
@@ -267,6 +289,7 @@ function SessionPlayerInner() {
 
   return (
     <main className="home">
+      <ChildTopBar onBack={() => navigate('/library')} dots={sessionDots} />
       <h1>Lượt học</h1>
 
       {bundle.isPending && <p>Đang tải…</p>}
@@ -407,13 +430,6 @@ function SessionPlayerInner() {
             <p>Đang tải…</p>
           ) : (
             <>
-              {(isQuiz || isExam) && (
-                <ProgressDots
-                  dots={problems.map((_, i): DotState =>
-                    i < problemIndex ? 'done' : i === problemIndex ? 'current' : 'todo',
-                  )}
-                />
-              )}
               <FlagButton
                 key={`flag-${problems[problemIndex].problem.problem_id}`}
                 problemId={problems[problemIndex].problem.problem_id}
@@ -455,10 +471,6 @@ function SessionPlayerInner() {
           )}
         </>
       )}
-
-      <p className="parent-link">
-        <Link to="/library">Về Sách</Link>
-      </p>
     </main>
   )
 }

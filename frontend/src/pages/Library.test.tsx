@@ -118,6 +118,17 @@ describe('Library', () => {
     expect(screen.getByRole('button', { name: 'Luyện tập' })).toBeInTheDocument()
   })
 
+  it('ChildTopBar\'s ⬅ back button goes Home -- the same target the old "Về trang chủ" link had', async () => {
+    mockApi({
+      'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
+      'GET /api/v1/library/grades/1/books': { status: 200, body: BOOKS },
+    })
+    renderAt('/library', <Library />)
+    await screen.findByText('Toán 1 – Quyển 1 (2020)')
+    fireEvent.click(screen.getByRole('button', { name: 'Quay lại' }))
+    expect(await screen.findByText('home screen')).toBeInTheDocument()
+  })
+
   it('tapping a Lesson opens its Lesson detail route', async () => {
     mockApi({
       'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },

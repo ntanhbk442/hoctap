@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router'
 import { errorMessage } from '../api/errors'
 import { useLibraryBooks, useLibraryConcepts, useProfiles } from '../api/queries'
 import { phrase } from '../audio/phrases'
+import ChildTopBar from '../components/ChildTopBar/ChildTopBar'
 import ConceptGuide from '../components/ConceptGuide/ConceptGuide'
 import { getCurrentProfileId } from '../profile'
 
@@ -30,6 +31,7 @@ export default function Library() {
   if (profiles.isPending) {
     return (
       <main className="home">
+        <ChildTopBar onBack={() => navigate('/')} />
         <p>Đang tải…</p>
       </main>
     )
@@ -38,6 +40,7 @@ export default function Library() {
   if (profiles.isError) {
     return (
       <main className="home">
+        <ChildTopBar onBack={() => navigate('/')} />
         <h1>Sách</h1>
         <p role="alert" className="form-error">
           {errorMessage(profiles.error)}
@@ -60,6 +63,7 @@ export default function Library() {
 
   return (
     <main className="home library">
+      <ChildTopBar onBack={() => navigate('/')} />
       <h1>Sách</h1>
 
       {/* Story 8.1: the on-demand exam entry point -- gated on `exams_enabled` (a parent
@@ -168,6 +172,9 @@ export default function Library() {
                       }
                     >
                       <span>
+                        <span className="library-lesson-icon" aria-hidden="true">
+                          📖
+                        </span>
                         {lesson.label || lesson.title || lesson.lesson_key}
                         {lesson.is_quiz_sheet && (
                           <span className="library-quiz-indicator" data-testid="quiz-indicator">
@@ -187,10 +194,6 @@ export default function Library() {
           ))}
         </section>
       ))}
-
-      <p className="parent-link">
-        <Link to="/">Về trang chủ</Link>
-      </p>
     </main>
   )
 }

@@ -49,6 +49,16 @@ describe('LessonDetail', () => {
     expect(screen.queryByText(/answer/i)).not.toBeInTheDocument()
   })
 
+  it('ChildTopBar\'s ⬅ back button goes to Library -- the same target the old "Về Sách" link had', async () => {
+    mockApi({
+      'GET /api/v1/library/lessons/toan1-2020-q1/tuan-5/tiet-2': { status: 200, body: PROBLEMS },
+    })
+    renderAt(ROUTE, <LessonDetail />, PATTERN)
+    expect(await screen.findByText('Bài 1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Quay lại' }))
+    expect(await screen.findByText('library screen')).toBeInTheDocument()
+  })
+
   it('falls back to "Bài {n}" when a Problem has a blank display_label', async () => {
     const blankLabel = structuredClone(PROBLEMS)
     blankLabel[0].display_label = ''

@@ -1,0 +1,39 @@
+.child-top-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* Same "physical button" chunky treatment `HomeCard.css` already uses (`--radius-full`
+ * instead of `--radius-lg` since this is a round icon button, not a card) -- reusing the
+ * existing visual language rather than inventing a new one (spec-9-1's frozen Boundaries). */
+.child-top-bar-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-touch-min);
+  height: var(--space-touch-min);
+  min-width: var(--space-touch-min);
+  min-height: var(--space-touch-min);
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  box-shadow: 0 4px 0 0 var(--color-surface-sunken);
+  color: var(--color-primary);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.child-top-bar-back:active {
+  box-shadow: none;
+  transform: translateY(4px);
+}
+
+.child-top-bar-dots {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}

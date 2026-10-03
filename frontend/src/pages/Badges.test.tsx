@@ -92,14 +92,14 @@ describe('Badges ("Huy hiệu của em")', () => {
     expect(fetchMock).toHaveBeenCalled()
   })
 
-  it('links back to Home', async () => {
+  it('goes back to Home via the ChildTopBar back button', async () => {
     mockApi({
       'GET /api/v1/profiles': { status: 200, body: ONE_PROFILE },
       'GET /api/v1/profiles/p1/badges': TWO_EARNED,
     })
     renderAt('/badges', <Badges />, '/badges')
     await screen.findByTestId('badges-grid')
-    fireEvent.click(screen.getByRole('link', { name: 'Về trang chủ' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Quay lại' }))
     expect(await screen.findByText('home screen')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,5 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import { authRedirect } from './api/errors'
 import StaleEpochNotice from './offline/StaleEpochNotice.tsx'
@@ -22,14 +23,26 @@ import Setup from './pages/Setup.tsx'
 import PWABadge from './PWABadge.tsx'
 import WorksheetPage from './print/WorksheetPage.tsx'
 
+// Story 9.1: the new base font/background (`index.css`'s `.child-shell` rule) must land on
+// every CHILD route and nowhere else -- Parent Area screens (`/parent/*`) stay visually
+// unchanged. Rather than restructure this flat routes array into nested router layout
+// routes (more machinery than this needs), each child route's element is wrapped in this
+// one thin div here; Parent routes are left exactly as they were.
+function ChildShell({ children }: { children: ReactNode }) {
+  return <div className="child-shell">{children}</div>
+}
+
 const routes = [
-  { path: '/', element: <Home /> },
-  { path: '/setup', element: <Setup /> },
-  { path: '/library', element: <Library /> },
-  { path: '/library/:bookId/:unitKey/:lessonKey', element: <LessonDetail /> },
-  { path: '/exam/new', element: <ExamStart /> },
-  { path: '/badges', element: <Badges /> },
-  { path: '/sessions/:sessionId', element: <SessionPlayer /> },
+  { path: '/', element: <ChildShell><Home /></ChildShell> },
+  { path: '/setup', element: <ChildShell><Setup /></ChildShell> },
+  { path: '/library', element: <ChildShell><Library /></ChildShell> },
+  {
+    path: '/library/:bookId/:unitKey/:lessonKey',
+    element: <ChildShell><LessonDetail /></ChildShell>,
+  },
+  { path: '/exam/new', element: <ChildShell><ExamStart /></ChildShell> },
+  { path: '/badges', element: <ChildShell><Badges /></ChildShell> },
+  { path: '/sessions/:sessionId', element: <ChildShell><SessionPlayer /></ChildShell> },
   { path: '/parent/login', element: <ParentLogin /> },
   { path: '/parent', element: <ParentHome /> },
   { path: '/parent/dashboard', element: <Dashboard /> },
@@ -41,7 +54,7 @@ const routes = [
   { path: '/parent/print', element: <WorksheetPage /> },
   { path: '/parent/extraction', element: <ExtractionPage /> },
   // Unknown client routes fall back to Home until later stories add screens.
-  { path: '*', element: <Home /> },
+  { path: '*', element: <ChildShell><Home /></ChildShell> },
 ]
 
 const router = createBrowserRouter(routes)
